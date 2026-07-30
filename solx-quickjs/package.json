@@ -1,0 +1,5 @@
+{
+  "name": "solx-quickjs",
+  "version": "0.1.0",
+  "description": "JavaScript action build package for solx-core using componentize-qjs"
+}

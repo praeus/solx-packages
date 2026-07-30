@@ -1,0 +1,16 @@
+; sample-workflow.solx — build a JS action end-to-end via solx-quickjs and
+; solx-core, and run it. Run with `solx script -f sample-workflow.solx`.
+;
+; Prerequisites:
+;   - solx-quickjs installed (`solx install-package`), with
+;     action_config.cwd on /packages/solx-quickjs/build-javascript-action
+;     pointing at its target/release directory.
+;   - sample-document-summary.js (in this directory) reachable from the
+;     artifact_root path below.
+;
+; Replace REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR with the absolute path to
+; this `actions/` directory before running.
+$build = exec /packages/solx-quickjs/build-javascript-action --json '{"action_name":"demo-js-action","entry_artifact_name":"sample-document-summary.js","source_artifact_names":["sample-document-summary.js"],"artifact_root":"REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR"}';
+post file files/actions/shared/demo-js-action.wasm --file REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR/sample-document-summary.js.wasm;
+post action /packages/solx-quickjs/demo-js-action --json '{"action_type":"wasm","bin_name":"demo-js-action.wasm","caption":"Demo JS action","description":"Sample action built by solx-quickjs from sample-document-summary.js."}';
+exec /packages/solx-quickjs/demo-js-action --json '{"limit":5}'

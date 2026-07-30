@@ -1,0 +1,2 @@
+delete action /packages/solx-quickjs/build-javascript-action;
+delete type /packages/solx-quickjs/QuickjsBuildParams

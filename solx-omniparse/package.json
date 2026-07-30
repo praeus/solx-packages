@@ -1,0 +1,5 @@
+{
+  "name": "solx-omniparse",
+  "version": "0.1.0",
+  "description": "Omniparse-based extraction preprocess action package for solx-core with OCR support"
+}

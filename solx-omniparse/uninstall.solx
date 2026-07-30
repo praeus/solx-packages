@@ -1,0 +1,3 @@
+delete action /packages/solx-omniparse/solx-omniparse-preprocess;
+delete type /packages/solx-omniparse/OmniparseResult;
+delete type /packages/solx-omniparse/OmniparseInput

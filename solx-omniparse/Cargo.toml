@@ -1,0 +1,12 @@
+[package]
+name = "solx-omniparse-preprocess"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = "0.22"
+omniparse = { version = "0.4", features = ["ocr-ml", "pdf-extract"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace]

@@ -1,0 +1,5 @@
+{
+  "name": "solx-firefox",
+  "version": "0.1.0",
+  "description": "Manages a persistent, dedicated-profile Firefox instance with Marionette enabled, so solx-mcp-actions's firefox-devtools-mcp integration can reuse one browser session across tool calls"
+}

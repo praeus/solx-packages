@@ -5,13 +5,13 @@ for scanned and image-only PDFs.
 
 This package provides one `Command` action:
 
-1. `solx-omniparse-preprocess` (registered at `/packages/solx-omniparse/solx-omniparse-preprocess`)
+1. `solx-omniparse-process-file` (registered at `/packages/solx-omniparse/solx-omniparse-process-file`)
 
 Unlike old sol, solx-core has no extraction pipeline or event-hook system, so
 this action does not auto-run on anything — invoke it explicitly:
 
 ```bash
-solx exec /packages/solx-omniparse/solx-omniparse-preprocess --json '{"source_path":"...","file_name":"...","mime_type":"..."}'
+solx exec /packages/solx-omniparse/solx-omniparse-process-file --json '{"source_path":"...","file_name":"...","mime_type":"..."}'
 ```
 
 and use the returned `bytes_base64` (or an alternate `source_path`) yourself.
@@ -129,7 +129,7 @@ After a successful release build, `<package>/bin/` contains:
 
 | Path | Size (approx) | Notes |
 |------|---------------|-------|
-| `solx-omniparse-preprocess[.exe]` | 25–40 MB | The Rust binary, linked statically against `rten` + `ocrs` (no FFI / no native DLLs) |
+| `solx-omniparse-process-file[.exe]` | 25–40 MB | The Rust binary, linked statically against `rten` + `ocrs` (no FFI / no native DLLs) |
 | `models/text-detection.rten` | ~3 MB | `ocrs` text-detection model, SHA-256 verified against upstream pin |
 | `models/text-recognition.rten` | ~9 MB | `ocrs` text-recognition model, SHA-256 verified against upstream pin |
 

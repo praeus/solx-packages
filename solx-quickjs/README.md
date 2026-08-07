@@ -21,6 +21,33 @@ cargo build --release
 
 The resulting binary will be available at `target/release/solx-quickjs`.
 
+## Install
+
+`.solx` scripts have no comment syntax — the whole file is split on `;` — so
+`install.solx` itself carries no inline commentary; here is what it does and
+what you need to do first.
+
+1. **Build the CLI first** (see above). `install.solx` registers
+   `build-javascript-action` as a `Command` action whose `fn_name` is
+   `.\solx-quickjs.exe`, resolved against `action_config.cwd` — the binary
+   has to already exist at that path when the action is later invoked.
+2. **Edit `action_config.cwd`** in `install.solx` before installing: replace
+   `REPLACE_WITH_ABSOLUTE_PATH_TO/solx-quickjs/target/release` with the
+   absolute path to this package's `target/release` directory. `.solx` has no
+   path templating, so this is a manual edit. (Alternatively, install first
+   and `solx post action` the same reference again afterward to correct it.)
+3. Run `solx install-package .` from this directory.
+
+Registering a `Command` action has no allowlist gate: `fn_name` is the
+literal command solx-core will run the moment `install-package` posts the
+action row, with no confirmation step.
+
+Params (`action_name`, `entry_artifact_name`, `source_artifact_names`,
+`output_artifact_name`, `artifact_root`) are passed to the CLI as JSON on
+stdin, per solx-core's `Command` action contract; the CLI falls back to
+parsing them as flags only when stdin is a terminal (direct manual
+invocation).
+
 ## Writing the JS source
 
 The WIT world exports a `runner` interface with a `run` function. Verified
@@ -56,6 +83,8 @@ full `/path/name` action reference — see
 4. `solx exec /path/name --json '{...}'`
 
 See [actions/sample-workflow.solx](actions/sample-workflow.solx) for a
-runnable reference. `actions/sol-quickjs-actions.rs` (a WASM wrapper around
-the CLI) is retired — see the comment at the top of that file for why it
-doesn't map onto solx-core's `action-exec` semantics.
+runnable reference — replace `REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR` with
+the absolute path to this `actions/` directory before running it with
+`solx script -f sample-workflow.solx`. `actions/solx-quickjs-actions.rs` (a
+WASM wrapper around the CLI) is retired — see the comment at the top of that
+file for why it doesn't map onto solx-core's `action-exec` semantics.

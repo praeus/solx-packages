@@ -26,3 +26,5 @@ __pycache__
 .env
 .build-target
 bin
+/solx-firefox/profile
+/solx-mcp-actions/tools/

@@ -1,0 +1,390 @@
+//! solx-mcp-actions — MCP (Model Context Protocol) action package for solx-core.
+//!
+//! Connects to MCP servers over stdio and imports their tools as ordinary
+//! solx `Command` actions — no changes to the core `solx-core` repository
+//! are required.
+//!
+//! Ships as three subcommands, all exposed as separate solx actions:
+//!
+//! - `import`  — connect to a configured MCP server, list its tools via
+//!               `tools/list`, and create one solx `Command` action per
+//!               tool (e.g. `mcp-filesystem-read-file`).
+//! - `invoke`  — the shared command key every generated per-tool action
+//!               points at. Recovers which server/tool to call from
+//!               `./tool.json` in its own process cwd (set via each
+//!               generated action's `action_config.cwd` override), and
+//!               reads the call arguments from **stdin** (solx-core's
+//!               `run_command` writes params JSON to the child's stdin).
+//! - `remove`  — delete a server's previously imported actions/types,
+//!               using the manifest `import` wrote as the source of truth.
+//!
+//! ## Naming
+//!
+//! This package is named `solx-mcp-actions` (binary `solx-mcp-actions`) to
+//! avoid colliding with `solx-mcp`, the MCP **server** in `solx-core` that
+//! exposes solx itself as an MCP server. The MCP ecosystem naming
+//! convention for imported tool actions (`mcp-<server>-<tool>`, e.g.
+//! `mcp-filesystem-read-file`) is unchanged.
+//!
+//! ## Key difference from sol-mcp (sol ecosystem)
+//!
+//! solx-core's `run_command` passes parameters as JSON on **stdin**, not via
+//! the `SOL_PARAMS` env var. This is the primary change when porting from
+//! sol-mcp to solx-mcp-actions. There is no `command_actions` registry in
+//! solx — `fn_name` is the literal shell command, and `action_config.cwd`
+//! is set on the action itself.
+
+mod config;
+mod mcp_client;
+mod naming;
+mod solx;
+
+use std::path::{Path, PathBuf};
+
+use clap::{Parser, Subcommand};
+use serde_json::{json, Value};
+
+use config::{Manifest, ManifestEntry, ServersConfig, ToolDescriptor};
+use mcp_client::McpSession;
+
+#[derive(Parser)]
+#[command(name = "solx-mcp-actions")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+    /// Override the solx-mcp-actions package home directory. Defaults to the
+    /// parent of the directory containing this binary (since the binary
+    /// lives in `bin/`, the package root is one level up).
+    #[arg(long, global = true)]
+    home: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Import an MCP server's tools as solx Command actions.
+    Import {
+        /// Server key in mcp-servers.json. May also be supplied via
+        /// stdin params as {"server": "..."} when invoked as the
+        /// solx-mcp-import action.
+        server: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        /// Stamp this Permission name onto every generated action, scoping
+        /// which callers may invoke the imported MCP tools.
+        #[arg(long)]
+        permission_name: Option<String>,
+    },
+    /// Invoke a single MCP tool. Reads {server,tool} from ./tool.json
+    /// (process cwd) and call arguments from stdin.
+    Invoke,
+    /// Remove a previously imported MCP server's actions/types.
+    Remove {
+        /// Server key. May also be supplied via stdin params as
+        /// {"server": "..."}.
+        server: Option<String>,
+    },
+}
+
+fn log_line(line: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("{}.{:03}", d.as_secs(), d.subsec_millis()))
+        .unwrap_or_else(|_| "0.000".to_string());
+    eprintln!("[{now}] {line}");
+}
+
+fn print_json(value: &Value) {
+    println!("{}", serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
+}
+
+/// Read the caller-supplied message/arguments from **stdin**.
+///
+/// solx-core's `run_command` (in `solx-actions/src/exec.rs`) writes the
+/// params JSON to the child's stdin — no `SOL_PARAMS` env var exists in
+/// solx. This is the primary difference from sol-mcp.
+fn stdin_params() -> Value {
+    use std::io::Read;
+    let mut raw = String::new();
+    if std::io::stdin().read_to_string(&mut raw).is_err() {
+        return json!({});
+    }
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return json!({});
+    }
+    serde_json::from_str(trimmed).unwrap_or_else(|_| json!({}))
+}
+
+fn unix_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
+}
+
+#[tokio::main]
+async fn main() {
+    let cli = Cli::parse();
+    let home = config::resolve_home(cli.home.as_deref());
+
+    let result = match cli.command {
+        Commands::Import { server, dry_run, permission_name } => {
+            run_import(&home, server, dry_run, permission_name).await
+        }
+        Commands::Invoke => run_invoke().await,
+        Commands::Remove { server } => run_remove(&home, server).await,
+    };
+
+    match result {
+        Ok(value) => {
+            let is_error = value.get("error").is_some();
+            print_json(&value);
+            if is_error {
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            log_line(&format!("fatal: {e}"));
+            print_json(&json!({ "error": e.to_string() }));
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn run_import(
+    home: &Path,
+    server_arg: Option<String>,
+    dry_run_flag: bool,
+    permission_arg: Option<String>,
+) -> anyhow::Result<Value> {
+    let params = stdin_params();
+    let server = server_arg
+        .or_else(|| params.get("server").and_then(|v| v.as_str()).map(str::to_string))
+        .ok_or_else(|| anyhow::anyhow!("missing required 'server' (pass as CLI arg or stdin params.server)"))?;
+    let dry_run = dry_run_flag || params.get("dry_run").and_then(Value::as_bool).unwrap_or(false);
+    let permission_name = permission_arg
+        .or_else(|| params.get("permission_name").and_then(|v| v.as_str()).map(str::to_string));
+
+    log_line(&format!("import: server={server} dry_run={dry_run}"));
+
+    let servers_cfg = config::load_servers_config(home)?;
+    let def = config::find_server(&servers_cfg, &server)?.clone();
+
+    let session = McpSession::connect(&def).await?;
+    let tools = session.list_tools().await?;
+    log_line(&format!("import: discovered {} tools on '{server}'", tools.len()));
+
+    if dry_run {
+        let names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
+        let _ = session.close().await;
+        return Ok(json!({ "server": server, "dry_run": true, "tools": names }));
+    }
+
+    let servers_config_path = config::servers_config_path(home).to_string_lossy().to_string();
+    let mut manifest_entries: Vec<ManifestEntry> = Vec::new();
+    let mut errors: Vec<Value> = Vec::new();
+
+    for tool in &tools {
+        let tool_name = tool.name.to_string();
+        match import_one_tool(home, &server, &tool_name, tool, &servers_config_path, permission_name.as_deref()).await {
+            Ok(entry) => manifest_entries.push(entry),
+            Err(e) => {
+                log_line(&format!("import: tool '{tool_name}' failed: {e}"));
+                errors.push(json!({ "tool": tool_name, "error": e.to_string() }));
+            }
+        }
+    }
+
+    let _ = session.close().await;
+
+    let manifest = Manifest {
+        server: server.clone(),
+        imported_at: unix_timestamp(),
+        tools: manifest_entries.clone(),
+    };
+    config::write_manifest(home, &manifest)?;
+
+    Ok(json!({
+        "server": server,
+        "tools_imported": manifest_entries.iter().map(|e| e.action_name.clone()).collect::<Vec<_>>(),
+        "errors": errors,
+    }))
+}
+
+async fn import_one_tool(
+    home: &Path,
+    server: &str,
+    tool_name: &str,
+    tool: &rmcp::model::Tool,
+    servers_config_path: &str,
+    permission_name: Option<&str>,
+) -> anyhow::Result<ManifestEntry> {
+    let action = naming::action_name(server, tool_name);
+    let param_type = naming::param_type_name(server, tool_name);
+    let tool_dir_sanitized = naming::sanitize(tool_name);
+    let dir = config::tool_dir(home, server, &tool_dir_sanitized);
+
+    let descriptor = ToolDescriptor {
+        server: server.to_string(),
+        tool: tool_name.to_string(),
+        servers_config_path: servers_config_path.to_string(),
+    };
+    config::write_tool_descriptor(&dir, &descriptor)?;
+
+    let schema_value = Value::Object((*tool.input_schema).clone());
+    let description = tool
+        .description
+        .as_ref()
+        .map(|d| d.to_string())
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| format!("MCP tool '{tool_name}' imported from server '{server}'."));
+
+    solx::new_type(
+        &param_type,
+        &json!({
+            "name": param_type,
+            "description": format!("Input parameters for MCP tool '{tool_name}' on server '{server}'."),
+            "schema": schema_value,
+        }),
+    ).await?;
+
+    // The generated action is a Command type. `fn_name` is the absolute path
+    // to the binary. Using an absolute path avoids `cmd.exe /C` wrapping,
+    // which on Windows consumes the parent's stdin pipe instead of
+    // forwarding it to the child — making `stdin_params()` see an empty
+    // stdin. `action_config.cwd` points to the per-tool directory containing
+    // `tool.json`, so `invoke` can read its identity from `./tool.json`.
+    let invoke_cmd = if cfg!(windows) {
+        format!("{}\\bin\\solx-mcp-actions.exe invoke", home.to_string_lossy())
+    } else {
+        format!("{}/bin/solx-mcp-actions invoke", home.to_string_lossy())
+    };
+
+    let mut action_body = json!({
+        "action_type": "command",
+        "fn_name": invoke_cmd,
+        "caption": format!("MCP: {tool_name}"),
+        "category": "mcp",
+        "description": description,
+        "capabilities": vec!["mcp".to_string(), server.to_string()],
+        "phrases": vec![tool_name.to_string(), format!("mcp {tool_name}"), format!("{server} {tool_name}")],
+        "parameter_type_name": param_type,
+        "action_config": { "cwd": dir.to_string_lossy() },
+    });
+    if let Some(perm) = permission_name {
+        action_body["permission_name"] = json!(perm);
+    }
+    solx::new_action(&action, &action_body).await?;
+
+    Ok(ManifestEntry {
+        tool: tool_name.to_string(),
+        action_name: action,
+        param_type_name: param_type,
+        dir: dir.to_string_lossy().to_string(),
+    })
+}
+
+async fn run_invoke() -> anyhow::Result<Value> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| anyhow::anyhow!("failed to read current working directory: {e}"))?;
+    let descriptor = config::read_tool_descriptor(&cwd)?;
+    log_line(&format!(
+        "invoke: server={} tool={} cwd={}",
+        descriptor.server,
+        descriptor.tool,
+        cwd.display()
+    ));
+
+    let servers_cfg_path = PathBuf::from(&descriptor.servers_config_path);
+    let raw = std::fs::read_to_string(&servers_cfg_path)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", servers_cfg_path.display()))?;
+    let servers_cfg: ServersConfig = serde_json::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("{} is not valid JSON: {e}", servers_cfg_path.display()))?;
+    let def = config::find_server(&servers_cfg, &descriptor.server)?.clone();
+
+    let params = stdin_params();
+    let session = McpSession::connect(&def).await?;
+    let call_result = session.call_tool(&descriptor.tool, params).await;
+    let _ = session.close().await;
+    let call_result = call_result?;
+
+    let content = serde_json::to_value(&call_result.content).unwrap_or(Value::Null);
+    let is_error = call_result.is_error.unwrap_or(false);
+
+    if is_error {
+        // Extract the actual MCP error message from the content array
+        // (most MCP servers return it as a `text` field in the first
+        // content entry). Without this we just know "the tool errored"
+        // but not *why*.
+        let error_text = call_result
+            .content
+            .iter()
+            .find_map(|c| {
+                serde_json::to_value(c).ok().and_then(|v| {
+                    v.get("text")
+                        .and_then(|t| t.as_str())
+                        .map(str::to_string)
+                })
+            })
+            .unwrap_or_else(|| "(no error text from MCP server)".to_string());
+        log_line(&format!(
+            "invoke: tool '{}' on '{}' reported is_error=true: {error_text}",
+            descriptor.tool, descriptor.server
+        ));
+        return Ok(json!({
+            "error": format!(
+                "MCP tool '{}' on server '{}' reported an error: {}",
+                descriptor.tool, descriptor.server, error_text
+            ),
+            "server": descriptor.server,
+            "tool": descriptor.tool,
+            "content": content,
+        }));
+    }
+
+    let mut out = json!({
+        "server": descriptor.server,
+        "tool": descriptor.tool,
+        "content": content,
+    });
+    if let Some(structured) = &call_result.structured_content {
+        out["structured_content"] = structured.clone();
+    }
+    Ok(out)
+}
+
+async fn run_remove(home: &Path, server_arg: Option<String>) -> anyhow::Result<Value> {
+    let params = stdin_params();
+    let server = server_arg
+        .or_else(|| params.get("server").and_then(|v| v.as_str()).map(str::to_string))
+        .ok_or_else(|| anyhow::anyhow!("missing required 'server' (pass as CLI arg or stdin params.server)"))?;
+
+    log_line(&format!("remove: server={server}"));
+
+    let manifest = config::load_manifest(home, &server)?;
+    let mut removed = Vec::new();
+    let mut errors: Vec<Value> = Vec::new();
+
+    for entry in &manifest.tools {
+        let mut ok = true;
+        if let Err(e) = solx::delete_action(&entry.action_name).await {
+            ok = false;
+            errors.push(json!({ "entity": entry.action_name, "error": e.to_string() }));
+        }
+        if let Err(e) = solx::delete_type(&entry.param_type_name).await {
+            ok = false;
+            errors.push(json!({ "entity": entry.param_type_name, "error": e.to_string() }));
+        }
+        if ok {
+            removed.push(entry.action_name.clone());
+        }
+    }
+
+    let server_dir = home.join("tools").join(&server);
+    if server_dir.exists() {
+        std::fs::remove_dir_all(&server_dir)
+            .map_err(|e| anyhow::anyhow!("failed to remove {}: {e}", server_dir.display()))?;
+    }
+
+    Ok(json!({ "server": server, "tools_removed": removed, "errors": errors }))
+}

@@ -1,0 +1,5 @@
+{
+  "name": "solx-ollama",
+  "version": "0.1.0",
+  "description": "Ollama HTTP API action package for solx-core - one wasm32-wasip2 component backing thirteen actions dispatched by fn_name"
+}

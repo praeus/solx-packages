@@ -1,5 +1,5 @@
 [package]
-name = "solx-omniparse-preprocess"
+name = "solx-omniparse-process-file"
 version = "0.1.0"
 edition = "2021"
 

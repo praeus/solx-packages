@@ -1,20 +1,2 @@
-; solx-quickjs install
-;
-; Registers the build-javascript-action Command action under
-; /packages/solx-quickjs, wrapping the solx-quickjs CLI (compiles JS source
-; into a wasm32-wasip2 component against the custom-action WIT world hosted
-; by solx-core). Params (action_name, entry_artifact_name,
-; source_artifact_names, output_artifact_name, artifact_root) are passed as
-; JSON on stdin, per solx-core's Command action contract; solx-quickjs falls
-; back to parsing them as CLI flags only when stdin is a terminal (direct
-; manual invocation).
-;
-; solx-core Command actions have NO allowlist gate: fn_name is the literal
-; command solx-core runs the moment this script posts the action. Before
-; running `solx install-package`, build the binary first
-; (`cargo build --release` in this directory) and edit action_config.cwd
-; below to the absolute path of the resulting target/release directory, or
-; `solx post action` the same reference again afterward to correct it. On
-; POSIX, drop `.exe` from fn_name.
 post type /packages/solx-quickjs/QuickjsBuildParams --json '{"description":"Build parameters for compiling a JavaScript action source file to a wasm component.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"action_name":{"type":"string"},"entry_artifact_name":{"type":"string"},"source_artifact_names":{"type":"array","items":{"type":"string"}},"output_artifact_name":{"type":["string","null"]},"artifact_root":{"type":["string","null"]}}}}';
-post action /packages/solx-quickjs/build-javascript-action --json '{"action_type":"command","fn_name":"solx-quickjs.exe","caption":"Build JavaScript action","category":"development","description":"Compile JavaScript source into a wasm32-wasip2 component against the solx-core custom-action WIT world.","capabilities":["javascript","build","development","command"],"phrases":["build javascript action","compile javascript action","build js action"],"param_type_ref":"/packages/solx-quickjs/QuickjsBuildParams","action_config":{"cwd":"REPLACE_WITH_ABSOLUTE_PATH_TO/solx-quickjs/target/release"}}'
+post action /packages/solx-quickjs/build-javascript-action --json '{"action_type":"command","fn_name":".\\solx-quickjs.exe","caption":"Build JavaScript action","category":"development","description":"Compile JavaScript source into a wasm32-wasip2 component against the solx-core custom-action WIT world.","capabilities":["javascript","build","development","command"],"phrases":["build javascript action","compile javascript action","build js action"],"param_type_ref":"/packages/solx-quickjs/QuickjsBuildParams","action_config":{"cwd":"D:/Projects/solx-packages/solx-quickjs/target/release"}}'

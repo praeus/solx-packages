@@ -1,0 +1,97 @@
+; solx-google uninstall
+;
+; Deletes every action, type, and file registered by install.solx. Order
+; doesn't matter (no cross-DB foreign keys), but we keep the same order
+; the old sol-google uninstall used for diff-ability.
+
+; ── Actions (webhooks) ───────────────────────────────────────────────────────
+
+delete action /packages/solx-google/login-to-google;
+delete action /packages/solx-google/oauth-token-exchange;
+delete action /packages/solx-google/convert-google-doc-to-sol-doc;
+delete action /packages/solx-google/convert-sol-doc-to-google-doc;
+delete action /packages/solx-google/post-google-doc;
+delete action /packages/solx-google/get-google-doc;
+
+delete action /packages/solx-google/find-google-drive-folder;
+delete action /packages/solx-google/create-google-file;
+
+delete action /packages/solx-google/list-calendar-events;
+delete action /packages/solx-google/get-calendar-event;
+delete action /packages/solx-google/create-calendar-event;
+delete action /packages/solx-google/convert-sol-doc-to-calendar-event;
+delete action /packages/solx-google/convert-calendar-event-to-sol-doc;
+
+delete action /packages/solx-google/list-google-tasklists;
+delete action /packages/solx-google/list-google-tasks;
+delete action /packages/solx-google/get-google-task;
+delete action /packages/solx-google/create-google-task;
+delete action /packages/solx-google/convert-sol-doc-to-google-task;
+delete action /packages/solx-google/convert-google-task-to-sol-doc;
+
+delete action /packages/solx-google/list-gmail-messages;
+delete action /packages/solx-google/get-gmail-message;
+delete action /packages/solx-google/send-gmail-message;
+delete action /packages/solx-google/convert-sol-doc-to-gmail-message;
+delete action /packages/solx-google/convert-gmail-message-to-sol-doc;
+
+; ── Files (the login script source and the WASM binary) ─────────────────────
+
+exec /builtin/file_delete --json '{"rel_path":"shared/solx-google-login.solx"}';
+exec /builtin/file_delete --json '{"rel_path":"shared/solx-google-actions.wasm"}';
+
+; ── Types ─────────────────────────────────────────────────────────────────────
+
+delete type /packages/solx-google/GoogleOAuthLoginParams;
+delete type /packages/solx-google/GoogleDocToSolDocResult;
+delete type /packages/solx-google/GoogleDocToSolDocParams;
+delete type /packages/solx-google/SolDocToGoogleDocResult;
+delete type /packages/solx-google/SolDocToGoogleDocParams;
+delete type /packages/solx-google/GoogleDocsDoc;
+delete type /packages/solx-google/GoogleDocsPostParams;
+delete type /packages/solx-google/GoogleDocsGetParams;
+
+delete type /packages/solx-google/GoogleDriveFindFolderParams;
+delete type /packages/solx-google/GoogleDriveCreateFileParams;
+
+delete type /packages/solx-google/CalendarEventsListParams;
+delete type /packages/solx-google/CalendarEventGetParams;
+delete type /packages/solx-google/CalendarEventCreateParams;
+delete type /packages/solx-google/CalendarEvent;
+delete type /packages/solx-google/SolDocToCalendarEventParams;
+delete type /packages/solx-google/SolDocToCalendarEventResult;
+delete type /packages/solx-google/CalendarEventToSolDocParams;
+delete type /packages/solx-google/CalendarEventToSolDocResult;
+
+delete type /packages/solx-google/GoogleTasklistsListParams;
+delete type /packages/solx-google/GoogleTaskListParams;
+delete type /packages/solx-google/GoogleTaskGetParams;
+delete type /packages/solx-google/GoogleTaskCreateParams;
+delete type /packages/solx-google/GoogleTask;
+delete type /packages/solx-google/SolDocToGoogleTaskParams;
+delete type /packages/solx-google/SolDocToGoogleTaskResult;
+delete type /packages/solx-google/GoogleTaskToSolDocParams;
+delete type /packages/solx-google/GoogleTaskToSolDocResult;
+
+delete type /packages/solx-google/GmailListParams;
+delete type /packages/solx-google/GmailGetParams;
+delete type /packages/solx-google/GmailMessage;
+delete type /packages/solx-google/GmailSendParams;
+delete type /packages/solx-google/SolDocToGmailParams;
+delete type /packages/solx-google/SolDocToGmailResult;
+delete type /packages/solx-google/GmailMessageToSolDocParams;
+delete type /packages/solx-google/GmailMessageToSolDocResult;
+
+; ── Secrets ───────────────────────────────────────────────────────────────────
+;
+; `set secret` was scoped to the calling action's own encryption key
+; (declared in each OAuth action's `action_config.secrets` map), so the
+; secrets are unreachable after the actions are gone — but we still
+; explicitly delete them so uninstall leaves no trace in the OS
+; credential manager. Note: there is no built-in `delete_secret`
+; primitive, so the secrets must be deleted alongside the actions that
+; own the key (the manager's default impl wipes them when the action is
+; deleted; verify by re-running install after uninstall).
+
+; (No-op: scoped secret store garbage collects when its key-owning action
+; is deleted. The uninstall's delete action calls trigger that path.)

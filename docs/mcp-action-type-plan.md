@@ -1,6 +1,105 @@
-# Plan: MCP Server as an Action Type (NOT IMPLEMENTED)
+# Plan: MCP Bridge for solx-core (IMPLEMENTED as sol-mcp / solx-mcp)
 
-## Context
+## Status
+
+**Implemented** as a `Command`-type action package (not a new `action_type`).
+The original plan below explored adding a native `"Mcp"` action type to the
+dispatcher. The actual implementation chose a simpler path: a standalone CLI
+binary that speaks MCP via the `rmcp` crate, registered as a `Command` action.
+This requires zero changes to solx-core's dispatcher.
+
+- **sol-mcp** (in `sol-packages/`) — the original implementation for the `sol`
+  ecosystem. Uses `SOL_PARAMS` env var for parameter passing.
+- **solx-mcp** (in `solx-packages/`) — the port for `solx-core`. Uses **stdin**
+  for parameter passing (solx-core's `run_command` writes params JSON to the
+  child's stdin, no env var).
+
+---
+
+## Architecture (actual)
+
+### How it works
+
+solx-mcp is a CLI binary with three subcommands:
+
+1. **`import`** — connect to a configured MCP server, list its tools via
+   `tools/list`, and create one solx `Command` action per tool (e.g.
+   `mcp-filesystem-read-file`). Each generated action shares a single
+   command key (`solx-mcp-invoke`) and carries its identity via
+   `action_config.cwd` — a per-tool directory containing `tool.json`.
+
+2. **`invoke`** — the shared command key every generated per-tool action
+   points at. Reads `./tool.json` (relative to its own process cwd) to
+   discover which server/tool to call, and reads call arguments from
+   **stdin** (solx-core's `run_command` writes params JSON to the child's
+   stdin).
+
+3. **`remove`** — delete a server's previously imported actions/types,
+   using the manifest `import` wrote as the source of truth.
+
+### Why Command instead of a new action_type
+
+solx-core's dispatcher understands `wasm`, `webhook`, `command`, `internal`,
+and `script`. Adding a native `"Mcp"` type would require changes to
+`solx-actions/src/lib.rs`'s dispatch match. Instead, this package reuses
+`Command`: solx-mcp is a CLI that speaks MCP (via the `rmcp` crate) and is
+invoked with a JSON payload on stdin, exactly like `solx-omniparse` and
+`solx-quickjs`.
+
+### Key difference from sol-mcp: stdin vs SOL_PARAMS
+
+| Aspect | sol-mcp (sol ecosystem) | solx-mcp (solx ecosystem) |
+|---|---|---|
+| Parameter passing | `SOL_PARAMS` env var | **stdin** (JSON) |
+| Command dispatch | `command_actions` registry in `sol-config.json` | `fn_name` is the literal shell command |
+| cwd resolution | `command_actions` entry sets cwd | `action_config.cwd` on the action itself |
+| Binary path | Absolute path required for `invoke` key | Relative path in `fn_name`, resolved against `action_config.cwd` |
+
+solx-core's `run_command` (in `solx-actions/src/exec.rs`) writes the params
+JSON to the child's stdin — no `SOL_PARAMS` env var exists in solx. This is
+the primary change when porting from sol-mcp to solx-mcp.
+
+### Package structure
+
+```
+solx-packages/solx-mcp/
+├── Cargo.toml          # crate name: solx-mcp-cli, bin name: solx-mcp
+├── build.rs            # auto-stage release binary to bin/
+├── install.solx        # register import/remove actions + types
+├── uninstall.solx      # delete registered entities
+├── package.json        # metadata
+├── README.md
+├── bin/                # staged binary (build.rs output)
+└── src/
+    ├── main.rs         # CLI (import/invoke/remove), stdin-based params
+    ├── mcp_client.rs   # rmcp wrapper (identical to sol-mcp)
+    ├── config.rs       # mcp-servers.json, manifest, tool.json (adapted paths)
+    ├── naming.rs       # sanitize, action_name, param_type_name (identical)
+    └── solx.rs         # shell out to solx CLI for entity CRUD
+```
+
+### Dependencies
+
+- `rmcp` with `client` + `transport-child-process` features (MCP protocol)
+- `tokio` (async runtime, process management)
+- `clap` (CLI parsing)
+- `serde` / `serde_json` (JSON)
+- `anyhow` (error handling)
+
+No new solx-core dependencies — the package is a standalone binary.
+
+---
+
+## Original Plan (for historical reference)
+
+The sections below describe the original plan to add `"Mcp"` as a native
+`action_type` in solx-core's dispatcher. This was **not** the path taken.
+The actual implementation (sol-mcp / solx-mcp) is a `Command`-type package
+that requires zero core changes.
+
+---
+
+## Context (original)
 
 Sol's action system dispatches execution by `action_type` (WASM, Prompt, Actions, Webhook, Command). The user wants to explore adding **MCP (Model Context Protocol) server** as a new type, surfacing MCP tools, resources, and prompts as Sol actions. The codebase has no existing MCP infrastructure — zero matches for "mcp", "tool_call", or "model_context" — so this would be a net-new addition.
 
@@ -8,7 +107,7 @@ MCP is a rapidly growing ecosystem. Every MCP server (filesystem, database, GitH
 
 ---
 
-## Complexity vs. Value Assessment
+## Complexity vs. Value Assessment (original)
 
 ### Value (High)
 - Instant access to every MCP-compatible tool without writing WASM
@@ -28,7 +127,7 @@ MCP is a rapidly growing ecosystem. Every MCP server (filesystem, database, GitH
 
 ---
 
-## Architecture
+## Architecture (original — NOT implemented)
 
 ### Field Convention (reuses existing Action fields)
 | Action field | MCP meaning |
@@ -51,7 +150,7 @@ No `rmcp` crate needed for Phase 1. The protocol is trivially hand-coded (~120 l
 
 ---
 
-## Files to Modify
+## Files to Modify (original — NOT implemented)
 
 ### Backend
 

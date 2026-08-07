@@ -1,0 +1,6 @@
+delete action /packages/solx-mcp-actions/solx-mcp-actions-remove;
+delete action /packages/solx-mcp-actions/solx-mcp-actions-import;
+delete type /packages/solx-mcp-actions/McpRemoveResult;
+delete type /packages/solx-mcp-actions/McpRemoveParams;
+delete type /packages/solx-mcp-actions/McpImportResult;
+delete type /packages/solx-mcp-actions/McpImportParams

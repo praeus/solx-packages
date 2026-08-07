@@ -79,11 +79,11 @@ fn build_and_stage() -> Result<(), String> {
         return Err("nested cargo build failed".to_string());
     }
 
-    // Cargo's default binary name = package name (`solx-omniparse-preprocess`).
+    // Cargo's default binary name = package name (`solx-omniparse-process-file`).
     let bin_name = if cfg!(windows) {
-        "solx-omniparse-preprocess.exe"
+        "solx-omniparse-process-file.exe"
     } else {
-        "solx-omniparse-preprocess"
+        "solx-omniparse-process-file"
     };
 
     let src = package_target_dir.join("release").join(bin_name);

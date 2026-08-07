@@ -1,0 +1,5 @@
+{
+  "name": "solx-mcp-actions",
+  "version": "0.1.0",
+  "description": "MCP (Model Context Protocol) action package for solx-core — import MCP tools as Command actions"
+}

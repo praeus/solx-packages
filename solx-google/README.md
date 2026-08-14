@@ -115,8 +115,8 @@ solx exec /builtin/file_put --json '{
   "encoding": "base64"
 }'
 
-# 2. Post each action
-solx post action /packages/solx-google/convert-sol-doc-to-google-doc \
+# 2. Save each action
+solx save action /packages/solx-google/convert-sol-doc-to-google-doc \
   --json '{
     "action_type": "wasm",
     "bin_name": "solx-google-actions.wasm",
@@ -134,6 +134,21 @@ scoped so that only the actions this package registers — which share a
 single randomly generated key baked into their `action_config.secrets`
 maps at install time — can decrypt them. The encryption key never leaves
 the action's `action_config` (which itself is redacted on `get`).
+
+## Uninstall
+
+```sh
+solx uninstall-package solx-google
+```
+
+Deletes every action, type, and file `install.solx` registered (order
+doesn't matter — no cross-DB foreign keys). There's no built-in
+`delete_secret` primitive, so OAuth secrets aren't deleted directly:
+`set_secret`/`get_secret` are scoped to the calling action's own
+encryption key (declared in each OAuth action's `action_config.secrets`
+map), so once the owning action row is gone, its secrets are unreachable
+and the scoped store garbage-collects them — the `delete action` calls
+above trigger that path, no separate step needed.
 
 ## Differences from old `sol-google`
 

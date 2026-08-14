@@ -1,4 +1,4 @@
 $build = exec /packages/solx-quickjs/build-javascript-action --json '{"action_name":"demo-js-action","entry_artifact_name":"sample-document-summary.js","source_artifact_names":["sample-document-summary.js"],"artifact_root":"REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR"}';
-post file files/actions/shared/demo-js-action.wasm --file REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR/sample-document-summary.js.wasm;
-post action /packages/solx-quickjs/demo-js-action --json '{"action_type":"wasm","bin_name":"demo-js-action.wasm","caption":"Demo JS action","description":"Sample action built by solx-quickjs from sample-document-summary.js."}';
+save file files/actions/shared/demo-js-action.wasm --file REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR/sample-document-summary.js.wasm;
+save action /packages/solx-quickjs/demo-js-action --json '{"action_type":"wasm","bin_name":"demo-js-action.wasm","caption":"Demo JS action","description":"Sample action built by solx-quickjs from sample-document-summary.js."}';
 exec /packages/solx-quickjs/demo-js-action --json '{"limit":5}'

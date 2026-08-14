@@ -1,15 +1,13 @@
-; solx-google uninstall
-;
-; Deletes every action, type, and file registered by install.solx. Order
-; doesn't matter (no cross-DB foreign keys), but we keep the same order
-; the old sol-google uninstall used for diff-ability.
+# solx-google uninstall
+#
+# Deletes every action, type, and file registered by install.solx. Order
+# doesn't matter (no cross-DB foreign keys), but we keep the same order
+# the old sol-google uninstall used for diff-ability.
 
-; ── Actions (webhooks) ───────────────────────────────────────────────────────
+# ── Actions (webhooks) ───────────────────────────────────────────────────────
 
 delete action /packages/solx-google/login-to-google;
 delete action /packages/solx-google/oauth-token-exchange;
-delete action /packages/solx-google/convert-google-doc-to-sol-doc;
-delete action /packages/solx-google/convert-sol-doc-to-google-doc;
 delete action /packages/solx-google/post-google-doc;
 delete action /packages/solx-google/get-google-doc;
 
@@ -19,28 +17,22 @@ delete action /packages/solx-google/create-google-file;
 delete action /packages/solx-google/list-calendar-events;
 delete action /packages/solx-google/get-calendar-event;
 delete action /packages/solx-google/create-calendar-event;
-delete action /packages/solx-google/convert-sol-doc-to-calendar-event;
-delete action /packages/solx-google/convert-calendar-event-to-sol-doc;
 
 delete action /packages/solx-google/list-google-tasklists;
 delete action /packages/solx-google/list-google-tasks;
 delete action /packages/solx-google/get-google-task;
 delete action /packages/solx-google/create-google-task;
-delete action /packages/solx-google/convert-sol-doc-to-google-task;
-delete action /packages/solx-google/convert-google-task-to-sol-doc;
 
 delete action /packages/solx-google/list-gmail-messages;
 delete action /packages/solx-google/get-gmail-message;
 delete action /packages/solx-google/send-gmail-message;
-delete action /packages/solx-google/convert-sol-doc-to-gmail-message;
-delete action /packages/solx-google/convert-gmail-message-to-sol-doc;
 
-; ── Files (the login script source and the WASM binary) ─────────────────────
+# ── Files (the login script source and the WASM binary) ─────────────────────
 
 exec /builtin/file_delete --json '{"rel_path":"shared/solx-google-login.solx"}';
 exec /builtin/file_delete --json '{"rel_path":"shared/solx-google-actions.wasm"}';
 
-; ── Types ─────────────────────────────────────────────────────────────────────
+# ── Types ─────────────────────────────────────────────────────────────────────
 
 delete type /packages/solx-google/GoogleOAuthLoginParams;
 delete type /packages/solx-google/GoogleDocToSolDocResult;
@@ -80,18 +72,12 @@ delete type /packages/solx-google/GmailSendParams;
 delete type /packages/solx-google/SolDocToGmailParams;
 delete type /packages/solx-google/SolDocToGmailResult;
 delete type /packages/solx-google/GmailMessageToSolDocParams;
-delete type /packages/solx-google/GmailMessageToSolDocResult;
+delete type /packages/solx-google/GmailMessageToSolDocResult
 
-; ── Secrets ───────────────────────────────────────────────────────────────────
-;
-; `set secret` was scoped to the calling action's own encryption key
-; (declared in each OAuth action's `action_config.secrets` map), so the
-; secrets are unreachable after the actions are gone — but we still
-; explicitly delete them so uninstall leaves no trace in the OS
-; credential manager. Note: there is no built-in `delete_secret`
-; primitive, so the secrets must be deleted alongside the actions that
-; own the key (the manager's default impl wipes them when the action is
-; deleted; verify by re-running install after uninstall).
-
-; (No-op: scoped secret store garbage collects when its key-owning action
-; is deleted. The uninstall's delete action calls trigger that path.)
+# ── Secrets ───────────────────────────────────────────────────────────────────
+#
+# `set_secret`/`get_secret` are scoped to the calling action's own encryption
+# key (declared in each OAuth action's `action_config.secrets` map), so once
+# the owning action row is gone above, its secrets are unreachable and the
+# scoped store garbage-collects them. There is no `delete_secret` primitive,
+# and none is needed here.

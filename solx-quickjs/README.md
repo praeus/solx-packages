@@ -35,7 +35,7 @@ what you need to do first.
    `REPLACE_WITH_ABSOLUTE_PATH_TO/solx-quickjs/target/release` with the
    absolute path to this package's `target/release` directory. `.solx` has no
    path templating, so this is a manual edit. (Alternatively, install first
-   and `solx post action` the same reference again afterward to correct it.)
+   and `solx save action` the same reference again afterward to correct it.)
 3. Run `solx install-package .` from this directory.
 
 Registering a `Command` action has no allowlist gate: `fn_name` is the
@@ -78,8 +78,8 @@ full `/path/name` action reference — see
 ## Example workflow
 
 1. build the `.wasm` component: `solx exec /packages/solx-quickjs/build-javascript-action --json '{"action_name":"...","entry_artifact_name":"main.js","source_artifact_names":["main.js"],"artifact_root":"..."}'`
-2. `solx post file files/actions/shared/<name>.wasm --file <path to the built .wasm>`
-3. `solx post action /path/name --json '{"action_type":"wasm","bin_name":"<name>.wasm"}'`
+2. `solx save file files/actions/shared/<name>.wasm --file <path to the built .wasm>`
+3. `solx save action /path/name --json '{"action_type":"wasm","bin_name":"<name>.wasm"}'`
 4. `solx exec /path/name --json '{...}'`
 
 See [actions/sample-workflow.solx](actions/sample-workflow.solx) for a

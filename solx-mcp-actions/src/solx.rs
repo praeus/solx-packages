@@ -62,7 +62,7 @@ fn solx_config_dir() -> std::path::PathBuf {
 }
 
 #[derive(Serialize)]
-struct PostRequest<T: Serialize> {
+struct SaveRequest<T: Serialize> {
     path: String,
     name: String,
     input: T,
@@ -109,12 +109,12 @@ pub async fn new_type(name: &str, body: &Value) -> anyhow::Result<Value> {
     let url = server_url();
     let token = server_token()?;
     let client = reqwest::Client::new();
-    let req = PostRequest {
+    let req = SaveRequest {
         path: "/packages/solx-mcp-actions".to_string(),
         name: name.to_string(),
         input: body.clone(),
     };
-    let resp: Value = post_json(&client, &url, &token, "/types/post", &req).await?;
+    let resp: Value = post_json(&client, &url, &token, "/types/save", &req).await?;
     Ok(resp)
 }
 
@@ -123,12 +123,12 @@ pub async fn new_action(name: &str, body: &Value) -> anyhow::Result<Value> {
     let url = server_url();
     let token = server_token()?;
     let client = reqwest::Client::new();
-    let req = PostRequest {
+    let req = SaveRequest {
         path: "/".to_string(),
         name: name.to_string(),
         input: body.clone(),
     };
-    let resp: Value = post_json(&client, &url, &token, "/actions/post", &req).await?;
+    let resp: Value = post_json(&client, &url, &token, "/actions/save", &req).await?;
     Ok(resp)
 }
 

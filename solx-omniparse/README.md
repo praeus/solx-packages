@@ -24,7 +24,7 @@ literal command solx-core runs, and it becomes executable the moment
 `install.solx` posts it. Before installing, build the binary
 (`cargo build --release` in this directory) and edit `install.solx`'s
 `action_config.cwd` to the absolute path of this package's `bin/` directory
-(there is no path templating in `.solx` scripts), or `solx post action` the
+(there is no path templating in `.solx` scripts), or `solx save action` the
 same reference again afterward to correct it.
 
 ## What it does

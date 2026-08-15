@@ -1,0 +1,19 @@
+You are analyzing a single image. Return your analysis as a JSON object with these fields:
+
+{
+  "document_name": "<short, filesystem-safe slug derived from what you see; no spaces, use dashes, lowercase>",
+  "title": "<short title>",
+  "summary": "<2-3 sentence summary>",
+  "description": "<detailed 1-2 paragraph description of what's visible in the image, including any text, objects, people, setting, and mood>",
+  "metadata_notes": "<optional; only include if there's something noteworthy about format, dates, watermarks, or provenance>"
+}
+
+Rules:
+- "document_name" must be filesystem-safe (a-z, 0-9, dashes only). Example: "sunset-over-mountains", "invoice-march-2024".
+- "title" is human-readable; capitalization is fine.
+- "description" should be specific. Mention colors, positions, text content (verbatim if legible), and any people.
+- Do NOT include markdown, code fences, or commentary. Output the JSON object only.
+- If the image is blank, illegible, or inappropriate, return an empty description with a metadata_notes warning.
+
+File: {{file_name}}
+Image metadata: {{image_metadata}}

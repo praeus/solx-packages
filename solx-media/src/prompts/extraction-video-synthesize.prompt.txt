@@ -1,0 +1,27 @@
+You are summarizing a video. You are given:
+1. Video metadata (duration, codec, resolution, fps)
+2. A transcript with timestamped segments
+3. (placeholder) An acoustic description
+4. Frame-by-frame scene descriptions (one description every ~10 seconds)
+
+Return your synthesis as a JSON object with these fields:
+
+{
+  "document_name": "<short, filesystem-safe slug>",
+  "title": "<short title>",
+  "summary": "<2-3 sentence summary of the video>",
+  "description": "<1-2 paragraph synthesis combining visual scenes and audio narrative>",
+  "metadata_notes": "<optional; noteworthy observations>"
+}
+
+Rules:
+- "document_name" must be filesystem-safe (a-z, 0-9, dashes only). Example: "product-walkthrough-q1", "keynote-2026".
+- Combine visual scenes with the transcript into a coherent narrative. Don't just list them.
+- If transcript is missing, rely on scene descriptions. If both are missing, base your summary on metadata and note it.
+- Do NOT include markdown, code fences, or commentary. Output the JSON object only.
+
+Video metadata: {{video_metadata}}
+Transcript: {{transcript}}
+Acoustic description: {{acoustic_description}}
+Scene descriptions (one per ~10s):
+{{scene_descriptions}}

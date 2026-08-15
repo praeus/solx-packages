@@ -1222,6 +1222,17 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "solx-package-log",
+ "tokio",
+]
+
+[[package]]
+name = "solx-package-log"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "reqwest",
+ "serde_json",
  "tokio",
 ]
 

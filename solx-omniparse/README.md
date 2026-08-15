@@ -3,18 +3,26 @@
 Omniparse-based extraction preprocess package for solx-core, with OCR support
 for scanned and image-only PDFs.
 
-This package provides one `Command` action:
+This package provides two `Command` actions:
 
 1. `solx-omniparse-process-file` (registered at `/packages/solx-omniparse/solx-omniparse-process-file`)
+   — returns the extracted text on stdout; caller persists if they want.
+2. `solx-omniparse-process-file-write` (FU-2) — same extraction, but POSTs
+   the result to solx-server's `/docs/save` itself and returns
+   `{saved: [{path, name}], result: {...}}`. Requires `SOLX_SERVER_URL` +
+   `SOLX_SERVER_TOKEN` env vars; soft-fails to the raw `result` if the server
+   is unreachable.
 
 Unlike old sol, solx-core has no extraction pipeline or event-hook system, so
-this action does not auto-run on anything — invoke it explicitly:
+these actions do not auto-run on anything — invoke them explicitly:
 
 ```bash
+# v1 (caller persists manually)
 solx exec /packages/solx-omniparse/solx-omniparse-process-file --json '{"source_path":"...","file_name":"...","mime_type":"..."}'
-```
 
-and use the returned `bytes_base64` (or an alternate `source_path`) yourself.
+# FU-2 (action persists itself)
+solx exec /packages/solx-omniparse/solx-omniparse-process-file-write --json '{"source_path":"...","file_name":"...","mime_type":"..."}'
+```
 
 ## Install
 

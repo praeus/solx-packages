@@ -1,0 +1,25 @@
+[package]
+name = "solx-media"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "solx-media"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+ffmpeg-sidecar = "2"
+solx-package-log = { path = "../solx-package-log" }
+
+[dev-dependencies]
+serial_test = "3"
+
+[workspace]

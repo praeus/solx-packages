@@ -80,6 +80,12 @@ const DEFAULT_PORT: u16 = 2828;
 const DEFAULT_START_TIMEOUT_SECS: u64 = 20;
 
 fn main() {
+    // Plain `fn main` (no tokio runtime) — this binary is entirely
+    // synchronous, so `solx_package_log::blocking` is used everywhere below
+    // rather than the crate's async entry points. See that module's docs
+    // for why: calling the async ones directly with no runtime panics.
+    solx_package_log::init("solx-firefox");
+
     let cli = Cli::parse();
     let home = process::resolve_home(cli.home.as_deref());
 
@@ -100,6 +106,7 @@ fn main() {
             }
         }
         Err(e) => {
+            solx_package_log::blocking::error(&format!("fatal: {e}"));
             print_json(&json!({ "error": e.to_string() }));
             std::process::exit(1);
         }
@@ -128,12 +135,19 @@ fn run_start(
     if process::port_is_open(port, Duration::from_millis(300)) {
         if let Some(state) = process::load_state(home) {
             if state.port == port && process::pid_is_alive(state.pid) {
+                solx_package_log::blocking::info(&format!(
+                    "firefox already running (pid={}, port={port})",
+                    state.pid
+                ));
                 return Ok(json!({ "status": "already_running", "pid": state.pid, "port": port }));
             }
         }
         // Something is listening on this port but we can't attribute it to
         // our own state — never assume ownership of a process we didn't
         // launch and can't identify.
+        solx_package_log::blocking::warn(&format!(
+            "port {port} is already in use by a process we don't own; not starting"
+        ));
         return Ok(json!({ "status": "already_running_external", "port": port }));
     }
 
@@ -163,6 +177,10 @@ fn run_start(
         args.push("-headless".to_string());
     }
 
+    solx_package_log::blocking::info(&format!(
+        "spawning firefox at {} (port={port}, headless={headless})",
+        firefox_path.display()
+    ));
     let child = process::spawn_detached(&firefox_path, &args)
         .map_err(|e| anyhow::anyhow!("failed to spawn '{}': {e}", firefox_path.display()))?;
     let pid = child.id();
@@ -191,8 +209,12 @@ fn run_start(
                 status: "running".to_string(),
             },
         )?;
+        solx_package_log::blocking::info(&format!("firefox started (pid={pid}, port={port})"));
         Ok(json!({ "status": "started", "pid": pid, "port": port }))
     } else {
+        solx_package_log::blocking::warn(&format!(
+            "firefox did not open the marionette port within {start_timeout_secs}s (pid={pid}, port={port})"
+        ));
         Ok(json!({ "status": "start_timeout", "pid": pid, "port": port }))
     }
 }
@@ -209,6 +231,7 @@ fn run_stop(home: &std::path::Path) -> anyhow::Result<Value> {
 
     process::kill_tree(state.pid)?;
     process::remove_state(home);
+    solx_package_log::blocking::info(&format!("firefox stopped (pid={})", state.pid));
     Ok(json!({ "status": "stopped", "pid": state.pid }))
 }
 

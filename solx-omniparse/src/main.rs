@@ -21,13 +21,20 @@
 //! extracts text directly — OCR only kicks in as a fallback when the text
 //! layer is empty (image-only / scanned PDFs). See the omniparse OCR guide:
 //! <https://github.com/sirhco/omniparse/blob/main/OCR_GUIDE.md#pdf-ocr>
-
-use std::sync::Mutex;
+//!
+//! ## Logging
+//!
+//! Uses `solx-package-log` (stderr + `$SOL_LOG_DIR/solx-omniparse.log` +
+//! solx-core's console loopback, whichever of those are configured — see
+//! that crate's own docs). Replaces this binary's former hand-rolled
+//! `log_line` helper.
 
 use base64::Engine as _;
 use omniparse::{extract_from_path, Content};
 use serde::Deserialize;
 use serde_json::json;
+
+mod persist;
 
 #[derive(Debug, Deserialize, Default)]
 struct PreprocessInput {
@@ -36,57 +43,6 @@ struct PreprocessInput {
     source_path: Option<String>,
     file_name: Option<String>,
     mime_type: Option<String>,
-}
-
-static LOG_FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
-
-/// Resolve the per-package log file path from the `SOL_LOG_DIR` env var that
-/// the Sol manager sets when invoking Command actions. Returns `None` when
-/// the variable is absent (e.g. when the binary is run by hand for debugging).
-fn package_log_path() -> Option<std::path::PathBuf> {
-    let dir = std::env::var("SOL_LOG_DIR").ok()?;
-    let trimmed = dir.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(std::path::PathBuf::from(trimmed).join("sol-omniparse.log"))
-}
-
-fn log_line(line: &str) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| format!("{}.{:03}", d.as_secs(), d.subsec_millis()))
-        .unwrap_or_else(|_| "0.000".to_string());
-    let formatted = format!("[{now}] {line}");
-
-    // Mirror to stderr so `cargo run` debugging is visible.
-    eprintln!("{formatted}");
-
-    let Some(path) = package_log_path() else {
-        return;
-    };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let Ok(mut guard) = LOG_FILE.lock() else {
-        return;
-    };
-    if guard.is_none() {
-        if let Ok(file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-        {
-            *guard = Some(file);
-        } else {
-            return;
-        }
-    }
-    if let Some(file) = guard.as_mut() {
-        use std::io::Write;
-        let _ = writeln!(file, "{formatted}");
-        let _ = file.flush();
-    }
 }
 
 fn print_json(value: serde_json::Value) {
@@ -155,15 +111,15 @@ fn output_name(input_name: Option<&str>) -> String {
 /// scanned PDFs. If the caller has already set it (to `ml`, `classical`, or
 /// `off`), we respect their choice. Otherwise we default to `ml` (the
 /// recommended backend for real-world inputs).
-fn ensure_ocr_enabled() {
+async fn ensure_ocr_enabled() {
     if std::env::var("OMNIPARSE_OCR").is_err() {
         // Default to the ML backend. Models auto-download on first use.
         // Use `OMNIPARSE_OCR=off` or `OMNIPARSE_OCR=classical` to override.
         std::env::set_var("OMNIPARSE_OCR", "ml");
-        log_line("OMNIPARSE_OCR not set; defaulting to 'ml' (ML OCR backend)");
+        solx_package_log::info("OMNIPARSE_OCR not set; defaulting to 'ml' (ML OCR backend)").await;
     } else {
         let val = std::env::var("OMNIPARSE_OCR").unwrap_or_default();
-        log_line(&format!("OMNIPARSE_OCR already set to '{val}'"));
+        solx_package_log::info(&format!("OMNIPARSE_OCR already set to '{val}'")).await;
     }
 }
 
@@ -178,10 +134,10 @@ fn ensure_ocr_enabled() {
 /// (under `<exe_dir>/models/`). If either model is missing the auto-wire is
 /// skipped and the upstream default cache (`$XDG_CACHE_HOME/omniparse/ocrs-
 /// models/` or platform equivalent) takes over.
-fn ensure_models_path() {
+async fn ensure_models_path() {
     if std::env::var("OMNIPARSE_OCR_MODELS").is_ok() {
         let val = std::env::var("OMNIPARSE_OCR_MODELS").unwrap_or_default();
-        log_line(&format!("OMNIPARSE_OCR_MODELS already set to '{val}'"));
+        solx_package_log::info(&format!("OMNIPARSE_OCR_MODELS already set to '{val}'")).await;
         return;
     }
 
@@ -199,10 +155,11 @@ fn ensure_models_path() {
         // Staged models not present (offline build with
         // SOL_OMNIPARSE_SKIP_MODEL_FETCH=1, or binary copied without its
         // sibling dir). Fall back to upstream's default cache.
-        log_line(&format!(
+        solx_package_log::warn(&format!(
             "staged ocr models not found at {}; relying on upstream default cache",
             models_dir.display()
-        ));
+        ))
+        .await;
         return;
     }
 
@@ -211,116 +168,195 @@ fn ensure_models_path() {
     // this directly to `PathBuf::from`, so any absolute path is fine.
     let path_str = models_dir.to_string_lossy().into_owned();
     std::env::set_var("OMNIPARSE_OCR_MODELS", &path_str);
-    log_line(&format!(
+    solx_package_log::info(&format!(
         "OMNIPARSE_OCR_MODELS not set; auto-wired to staged models at '{path_str}'"
-    ));
+    ))
+    .await;
 }
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    solx_package_log::init("solx-omniparse");
+
     use std::io::Read as _;
     let mut raw = String::new();
     if let Err(e) = std::io::stdin().read_to_string(&mut raw) {
-        log_line(&format!("failed to read stdin ({e}); using empty input"));
+        solx_package_log::warn(&format!("failed to read stdin ({e}); using empty input")).await;
     }
-    log_line(&format!(
-        "solx-omniparse invoked; stdin bytes={}",
-        raw.len()
-    ));
+    solx_package_log::info(&format!("solx-omniparse invoked; stdin bytes={}", raw.len())).await;
+
+    // FU-2: `--write` flag (read from argv[1]) switches the action to also
+    // POST the result to solx-server's /docs/save. install.solx wires this
+    // up via per-action `fn_name: ".\\solx-omniparse-process-file.exe --write"`.
+    let write_mode = std::env::args().nth(1).as_deref() == Some("--write");
+    solx_package_log::info(&format!("write_mode={write_mode}")).await;
     let input: PreprocessInput = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(e) => {
-            log_line(&format!("stdin is not valid JSON ({e}); using empty input"));
+            solx_package_log::warn(&format!("stdin is not valid JSON ({e}); using empty input")).await;
             PreprocessInput::default()
         }
     };
-    log_line(&format!(
+    solx_package_log::info(&format!(
         "input: file_name={:?} mime_type={:?} source_path={:?}",
         input.file_name, input.mime_type, input.source_path
-    ));
+    ))
+    .await;
 
     if !should_apply(input.mime_type.as_deref(), input.file_name.as_deref()) {
-        log_line("should_apply=false; returning empty result (fail-open)");
+        solx_package_log::info("should_apply=false; returning empty result (fail-open)").await;
         print_json(json!({}));
         return;
     }
 
     let Some(source_path) = input.source_path.as_deref() else {
-        log_line("source_path is missing; returning empty result (fail-open)");
+        solx_package_log::warn("source_path is missing; returning empty result (fail-open)").await;
         print_json(json!({}));
         return;
     };
 
     // Enable OCR for scanned/image-only PDFs (unless caller overrode the env var).
-    ensure_ocr_enabled();
+    ensure_ocr_enabled().await;
     // Point OMNIPARSE_OCR_MODELS at the package-local staged models, if present.
-    ensure_models_path();
+    ensure_models_path().await;
 
-    log_line(&format!("omniparse: extracting text from '{source_path}'"));
+    solx_package_log::info(&format!("omniparse: extracting text from '{source_path}'")).await;
     let result = match extract_from_path(source_path) {
         Ok(v) => v,
         Err(e) => {
-            log_line(&format!(
+            solx_package_log::error(&format!(
                 "omniparse extract_from_path failed: {e}; returning empty result"
-            ));
+            ))
+            .await;
             print_json(json!({}));
             return;
         }
     };
 
-    log_line(&format!(
+    solx_package_log::info(&format!(
         "omniparse: detected mime_type='{}' confidence={:.2}",
         result.mime_type, result.detection_confidence
-    ));
+    ))
+    .await;
 
     // Log OCR metadata if present (image-only PDFs / image inputs).
     if let Some(ocr_status) = result.metadata.get("ocr_status") {
-        log_line(&format!(
-            "ocr_status={:?} ocr_applied={:?} ocr_confidence={:?}",
-            ocr_status,
-            result.metadata.get("ocr_applied"),
-            result.metadata.get("ocr_confidence")
-        ));
+        solx_package_log::with_data(
+            "info",
+            &format!(
+                "ocr_status={:?} ocr_applied={:?} ocr_confidence={:?}",
+                ocr_status,
+                result.metadata.get("ocr_applied"),
+                result.metadata.get("ocr_confidence")
+            ),
+            json!({
+                "ocr_status": ocr_status,
+                "ocr_applied": result.metadata.get("ocr_applied"),
+                "ocr_confidence": result.metadata.get("ocr_confidence"),
+            }),
+        )
+        .await;
     }
 
     // Log which PDF parse strategy was used (strict / repair / raw_scan / pdf-extract).
     if let Some(strategy) = result.metadata.get("pdf_parse_strategy") {
-        log_line(&format!("pdf_parse_strategy={strategy:?}"));
+        solx_package_log::info(&format!("pdf_parse_strategy={strategy:?}")).await;
     }
 
     let text = match result.content {
         Content::Text(t) => t,
         Content::Binary(_) => {
-            log_line("omniparse returned binary content (not text); returning empty result");
+            solx_package_log::warn("omniparse returned binary content (not text); returning empty result").await;
             print_json(json!({}));
             return;
         }
         Content::None => {
-            log_line("omniparse returned no content; returning empty result");
+            solx_package_log::warn("omniparse returned no content; returning empty result").await;
             print_json(json!({}));
             return;
         }
     };
 
-    log_line(&format!("extracted {} chars of text", text.len()));
+    solx_package_log::info(&format!("extracted {} chars of text", text.len())).await;
 
     if text.trim().is_empty() {
-        log_line("extracted text is empty after trim; returning empty result");
+        solx_package_log::warn("extracted text is empty after trim; returning empty result").await;
         print_json(json!({}));
         return;
     }
 
     let text_bytes = text.into_bytes();
     let bytes_base64 = base64::engine::general_purpose::STANDARD.encode(&text_bytes);
-    log_line(&format!(
+    let file_name = output_name(input.file_name.as_deref());
+    solx_package_log::info(&format!(
         "success: encoded {} bytes -> {} base64 chars; file_name='{}' mime_type=text/plain",
         text_bytes.len(),
         bytes_base64.len(),
-        output_name(input.file_name.as_deref())
-    ));
+        file_name
+    ))
+    .await;
 
-    print_json(json!({
+    let result = json!({
         "bytes_base64": bytes_base64,
-        "file_name": output_name(input.file_name.as_deref()),
+        "file_name": file_name,
         "mime_type": "text/plain"
-    }));
+    });
+
+    if write_mode {
+        // FU-2: persist the extraction result to solx-server, then print the
+        // combined `{saved, result}` envelope. Soft-fails on connection
+        // errors: the v1 `result` is still on stdout so callers can recover.
+        // `tokio::main` provides the runtime reqwest needs for its connection
+        // pool (pollster::block_on alone isn't enough because reqwest 0.12
+        // requires a Tokio reactor to be present).
+        let write_result = write_to_solx_server(&file_name, "text/plain", &text_bytes).await;
+        match write_result {
+            Ok((path, name)) => {
+                solx_package_log::info(&format!("saved preprocessed-text document at {path}/{name}")).await;
+                print_json(json!({
+                    "saved": [{ "path": path, "name": name }],
+                    "result": result,
+                }));
+            }
+            Err(e) => {
+                solx_package_log::warn(&format!("docs/save failed (soft): {e}; returning raw result")).await;
+                print_json(json!({
+                    "saved": [],
+                    "result": result,
+                }));
+            }
+        }
+    } else {
+        print_json(result);
+    }
+}
+
+/// FU-2: POST the omniparse extraction to solx-server. Reads SOLX_SERVER_URL +
+/// SOLX_SERVER_TOKEN from env; returns Err if either is missing or the
+/// request fails (caller soft-handles).
+async fn write_to_solx_server(
+    file_name: &str,
+    mime_type: &str,
+    text_bytes: &[u8],
+) -> Result<(String, String), String> {
+    let server_url = std::env::var("SOLX_SERVER_URL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "SOLX_SERVER_URL is required for --write mode".to_string())?;
+    let token = std::env::var("SOLX_SERVER_TOKEN")
+        .ok()
+        .or_else(|| std::env::var("SOLX_TOKEN").ok())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            "SOLX_SERVER_TOKEN (or SOLX_TOKEN) is required for --write mode".to_string()
+        })?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    persist::save_document(&client, &server_url, &token, file_name, mime_type, text_bytes).await
 }

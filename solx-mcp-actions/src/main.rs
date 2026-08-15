@@ -85,14 +85,6 @@ enum Commands {
     },
 }
 
-fn log_line(line: &str) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| format!("{}.{:03}", d.as_secs(), d.subsec_millis()))
-        .unwrap_or_else(|_| "0.000".to_string());
-    eprintln!("[{now}] {line}");
-}
-
 fn print_json(value: &Value) {
     println!("{}", serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
 }
@@ -124,6 +116,8 @@ fn unix_timestamp() -> String {
 
 #[tokio::main]
 async fn main() {
+    solx_package_log::init("solx-mcp-actions");
+
     let cli = Cli::parse();
     let home = config::resolve_home(cli.home.as_deref());
 
@@ -144,7 +138,7 @@ async fn main() {
             }
         }
         Err(e) => {
-            log_line(&format!("fatal: {e}"));
+            solx_package_log::error(&format!("fatal: {e}")).await;
             print_json(&json!({ "error": e.to_string() }));
             std::process::exit(1);
         }
@@ -165,14 +159,14 @@ async fn run_import(
     let permission_name = permission_arg
         .or_else(|| params.get("permission_name").and_then(|v| v.as_str()).map(str::to_string));
 
-    log_line(&format!("import: server={server} dry_run={dry_run}"));
+    solx_package_log::info(&format!("import: server={server} dry_run={dry_run}")).await;
 
     let servers_cfg = config::load_servers_config(home)?;
     let def = config::find_server(&servers_cfg, &server)?.clone();
 
     let session = McpSession::connect(&def).await?;
     let tools = session.list_tools().await?;
-    log_line(&format!("import: discovered {} tools on '{server}'", tools.len()));
+    solx_package_log::info(&format!("import: discovered {} tools on '{server}'", tools.len())).await;
 
     if dry_run {
         let names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
@@ -189,7 +183,7 @@ async fn run_import(
         match import_one_tool(home, &server, &tool_name, tool, &servers_config_path, permission_name.as_deref()).await {
             Ok(entry) => manifest_entries.push(entry),
             Err(e) => {
-                log_line(&format!("import: tool '{tool_name}' failed: {e}"));
+                solx_package_log::warn(&format!("import: tool '{tool_name}' failed: {e}")).await;
                 errors.push(json!({ "tool": tool_name, "error": e.to_string() }));
             }
         }
@@ -288,12 +282,13 @@ async fn run_invoke() -> anyhow::Result<Value> {
     let cwd = std::env::current_dir()
         .map_err(|e| anyhow::anyhow!("failed to read current working directory: {e}"))?;
     let descriptor = config::read_tool_descriptor(&cwd)?;
-    log_line(&format!(
+    solx_package_log::info(&format!(
         "invoke: server={} tool={} cwd={}",
         descriptor.server,
         descriptor.tool,
         cwd.display()
-    ));
+    ))
+    .await;
 
     let servers_cfg_path = PathBuf::from(&descriptor.servers_config_path);
     let raw = std::fs::read_to_string(&servers_cfg_path)
@@ -327,10 +322,11 @@ async fn run_invoke() -> anyhow::Result<Value> {
                 })
             })
             .unwrap_or_else(|| "(no error text from MCP server)".to_string());
-        log_line(&format!(
+        solx_package_log::warn(&format!(
             "invoke: tool '{}' on '{}' reported is_error=true: {error_text}",
             descriptor.tool, descriptor.server
-        ));
+        ))
+        .await;
         return Ok(json!({
             "error": format!(
                 "MCP tool '{}' on server '{}' reported an error: {}",
@@ -359,7 +355,7 @@ async fn run_remove(home: &Path, server_arg: Option<String>) -> anyhow::Result<V
         .or_else(|| params.get("server").and_then(|v| v.as_str()).map(str::to_string))
         .ok_or_else(|| anyhow::anyhow!("missing required 'server' (pass as CLI arg or stdin params.server)"))?;
 
-    log_line(&format!("remove: server={server}"));
+    solx_package_log::info(&format!("remove: server={server}")).await;
 
     let manifest = config::load_manifest(home, &server)?;
     let mut removed = Vec::new();

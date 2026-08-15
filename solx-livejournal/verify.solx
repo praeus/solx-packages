@@ -1,0 +1,3 @@
+exec /packages/solx-livejournal/lj-extract-entry --json '{"user":"moominmuppet","id":"1699843"}';
+exec /packages/solx-livejournal/lj-harvest-page --json '{"user":"moominmuppet","index":"/"}';
+exec /packages/solx-livejournal/lj-harvest --json '{"user":"moominmuppet","index":"/","max_pages":2}'

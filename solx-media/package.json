@@ -1,0 +1,5 @@
+{
+  "name": "solx-media",
+  "version": "0.1.0",
+  "description": "Media extraction actions for solx-core (image, audio, video) via Ollama + ffmpeg + whisper"
+}

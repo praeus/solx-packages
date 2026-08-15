@@ -1,0 +1,10 @@
+delete action /packages/solx-livejournal/lj-harvest;
+delete action /packages/solx-livejournal/lj-harvest-page;
+delete action /packages/solx-livejournal/lj-extract-entry;
+delete type /packages/solx-livejournal/LjHarvestResult;
+delete type /packages/solx-livejournal/LjHarvestPageResult;
+delete type /packages/solx-livejournal/LjEntryResult;
+delete type /packages/solx-livejournal/LjHarvestParams;
+delete type /packages/solx-livejournal/LjHarvestPageParams;
+delete type /packages/solx-livejournal/LjExtractEntryParams;
+delete file files/actions/shared/solx-livejournal.wasm

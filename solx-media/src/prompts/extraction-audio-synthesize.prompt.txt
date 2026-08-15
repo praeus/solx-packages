@@ -1,0 +1,26 @@
+You are summarizing an audio recording. You are given:
+1. Audio metadata (duration, codec, bitrate, channels)
+2. A transcript with timestamped segments
+3. (placeholder) An acoustic description
+4. A short summary of the first 20 timestamped segments
+
+Return your synthesis as a JSON object with these fields:
+
+{
+  "document_name": "<short, filesystem-safe slug>",
+  "title": "<short title>",
+  "summary": "<2-3 sentence summary of the audio>",
+  "description": "<1-2 paragraph synthesis of what's discussed and any notable acoustic events>",
+  "metadata_notes": "<optional; noteworthy observations about audio quality, languages detected, music, etc.>"
+}
+
+Rules:
+- "document_name" must be filesystem-safe (a-z, 0-9, dashes only). Example: "interview-with-jane", "lecture-week-3".
+- If the transcript is empty or marked "(no transcription available)", base your summary on metadata alone and note the missing transcript in metadata_notes.
+- Do NOT include markdown, code fences, or commentary. Output the JSON object only.
+
+Audio metadata: {{audio_metadata}}
+Transcript: {{transcript}}
+Acoustic description: {{acoustic_description}}
+First 20 segments:
+{{segments_summary}}

@@ -90,6 +90,8 @@ mod tests {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    solx_package_log::init("solx-quickjs");
+
     use std::io::{IsTerminal, Read};
     let stdin_params = if std::io::stdin().is_terminal() {
         String::new()
@@ -130,6 +132,12 @@ async fn main() -> Result<()> {
         return Err(anyhow!("wit file not found: {}", wit_path.display()));
     }
 
+    solx_package_log::info(&format!(
+        "compiling action '{}': entry={}, sources={:?}",
+        args.action_name, args.entry_artifact_name, args.source_artifact_names
+    ))
+    .await;
+
     let opts = ComponentizeOpts {
         wit_path: &wit_path,
         js_source: &std::fs::read_to_string(&entry_path).context("read entry artifact")?,
@@ -151,6 +159,12 @@ async fn main() -> Result<()> {
         output_artifact_name: output_artifact_name.clone(),
         wasm_bytes: fs::metadata(&output_path)?.len() as usize,
     };
+
+    solx_package_log::info(&format!(
+        "compiled {output_artifact_name}: {} bytes",
+        result.wasm_bytes
+    ))
+    .await;
 
     println!("{}", serde_json::to_string(&result).unwrap());
     Ok(())

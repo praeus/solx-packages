@@ -1,5 +1,15 @@
 {
   "name": "solx-omniparse",
   "version": "0.1.0",
-  "description": "Omniparse-based extraction preprocess action package for solx-core with OCR support"
+  "description": "Omniparse-based extraction preprocess action package for solx-core with OCR support",
+  "command_actions": {
+    "solx-omniparse-process-file": {
+      "command": ".\\solx-omniparse-process-file.exe",
+      "cwd": "D:/Projects/solx-packages/solx-omniparse/bin"
+    },
+    "solx-omniparse-process-file-write": {
+      "command": ".\\solx-omniparse-process-file.exe --write",
+      "cwd": "D:/Projects/solx-packages/solx-omniparse/bin"
+    }
+  }
 }

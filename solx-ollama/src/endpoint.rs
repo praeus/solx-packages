@@ -7,16 +7,36 @@
 //! Two invariants this table encodes, both asserted in the tests:
 //!
 //! * `"stream"` never appears in a `passthrough` list, so a caller cannot
-//!   re-enable streaming. `force_stream_false` then writes it unconditionally.
-//!   A WASM action returns exactly one value and has no channel to emit
-//!   chunks, so a streamed NDJSON response would arrive as an unparseable
-//!   body and collapse to `Value::Null`.
+//!   override it either way. `streaming` then writes it unconditionally
+//!   (`true` when `Some`, `false` when `None`). `request::call_streaming`
+//!   drives the `Some` endpoints through `/builtin/http_stream/*`
+//!   (`solx-actions`), which lets the guest read Ollama's NDJSON response as
+//!   it arrives — one `run()` invocation both emits each chunk to the
+//!   action's own console and folds them into the single aggregate value the
+//!   caller ultimately gets back, so the caller-facing contract (one final
+//!   JSON result) is unchanged from the old blocking call.
 //! * `max_timeout` is the inner (per-HTTP-request) ceiling. `install.solx`
 //!   sets each action's outer `action_config.timeout_secs` to
 //!   `max_timeout + TIMEOUT_HEADROOM_SECS`, so the outer wall-clock budget can
 //!   never fire before the inner one for any caller-supplied value.
 
 use serde_json::{Map, Value};
+
+/// How to fold a streaming endpoint's NDJSON chunks into one aggregate
+/// result and what to say about each chunk in the console.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StreamKind {
+    /// `/api/generate` — each chunk carries a `response` text delta; the
+    /// final chunk (`done: true`) carries the run's stats.
+    Generate,
+    /// `/api/chat` — each chunk carries a `message.content` (and optionally
+    /// `message.thinking`) text delta; the final chunk carries the stats.
+    Chat,
+    /// `/api/pull`, `/api/push`, `/api/create` — each chunk is a standalone
+    /// status object (`{"status": "...", "completed": N, "total": M}`).
+    /// There is nothing to concatenate; the last chunk is the result.
+    Progress,
+}
 
 /// Headroom between the inner HTTP timeout ceiling and the outer wasm
 /// `action_config.timeout_secs`. Covers first-call component compilation
@@ -34,10 +54,12 @@ pub struct Endpoint {
     pub required: &'static [&'static str],
     /// Optional params copied into the request body verbatim when present.
     pub passthrough: &'static [&'static str],
-    /// Whether to inject `"stream": false`. False for endpoints that have no
-    /// streaming mode at all (`/api/show`, `/api/copy`, ...), where sending
-    /// the field would just be noise.
-    pub force_stream_false: bool,
+    /// `Some` injects `"stream": true` and routes the call through
+    /// `request::call_streaming`. `None` injects `"stream": false` (for
+    /// endpoints with no streaming mode at all — `/api/show`, `/api/copy`,
+    /// ... — sending the field there would just be noise) and keeps the
+    /// existing single blocking `http_request` call.
+    pub streaming: Option<StreamKind>,
     pub default_timeout: u64,
     pub max_timeout: u64,
 }
@@ -84,7 +106,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
             "logprobs",
             "top_logprobs",
         ],
-        force_stream_false: true,
+        streaming: Some(StreamKind::Generate),
         default_timeout: 300,
         max_timeout: 1800,
     },
@@ -102,7 +124,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
             "logprobs",
             "top_logprobs",
         ],
-        force_stream_false: true,
+        streaming: Some(StreamKind::Chat),
         default_timeout: 300,
         max_timeout: 1800,
     },
@@ -112,7 +134,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/embed",
         required: &["model", "input"],
         passthrough: &["truncate", "dimensions", "keep_alive", "options"],
-        force_stream_false: false,
+        streaming: None,
         default_timeout: 120,
         max_timeout: 600,
     },
@@ -122,7 +144,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/tags",
         required: &[],
         passthrough: &[],
-        force_stream_false: false,
+        streaming: None,
         default_timeout: 30,
         max_timeout: 300,
     },
@@ -132,7 +154,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/show",
         required: &["model"],
         passthrough: &["verbose"],
-        force_stream_false: false,
+        streaming: None,
         default_timeout: 60,
         max_timeout: 300,
     },
@@ -142,7 +164,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/ps",
         required: &[],
         passthrough: &[],
-        force_stream_false: false,
+        streaming: None,
         default_timeout: 30,
         max_timeout: 300,
     },
@@ -152,7 +174,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/version",
         required: &[],
         passthrough: &[],
-        force_stream_false: false,
+        streaming: None,
         default_timeout: 15,
         max_timeout: 300,
     },
@@ -162,7 +184,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/pull",
         required: &["model"],
         passthrough: &["insecure"],
-        force_stream_false: true,
+        streaming: Some(StreamKind::Progress),
         default_timeout: 3600,
         max_timeout: 7200,
     },
@@ -172,7 +194,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/push",
         required: &["model"],
         passthrough: &["insecure"],
-        force_stream_false: true,
+        streaming: Some(StreamKind::Progress),
         default_timeout: 3600,
         max_timeout: 7200,
     },
@@ -194,7 +216,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
             "messages",
             "quantize",
         ],
-        force_stream_false: true,
+        streaming: Some(StreamKind::Progress),
         default_timeout: 1800,
         max_timeout: 7200,
     },
@@ -204,7 +226,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/copy",
         required: &["source", "destination"],
         passthrough: &[],
-        force_stream_false: false,
+        streaming: None,
         default_timeout: 60,
         max_timeout: 300,
     },
@@ -215,7 +237,7 @@ pub static ENDPOINTS: &[Endpoint] = &[
         path: "/api/delete",
         required: &["model"],
         passthrough: &[],
-        force_stream_false: false,
+        streaming: None,
         default_timeout: 60,
         max_timeout: 300,
     },
@@ -262,8 +284,12 @@ pub fn build_body(ep: &Endpoint, params: &Value) -> Result<Option<Value>, Vec<St
             }
         }
     }
-    if ep.force_stream_false {
-        body.insert("stream".to_string(), Value::Bool(false));
+    // Endpoints with no streaming mode at all (`show_model`, `copy_model`,
+    // ...) never got a `stream` field before and still don't — sending it
+    // would just be noise. Streaming endpoints always get `true` now,
+    // unconditionally, mirroring the old unconditional `false`.
+    if ep.streaming.is_some() {
+        body.insert("stream".to_string(), Value::Bool(true));
     }
     Ok(Some(Value::Object(body)))
 }

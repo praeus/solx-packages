@@ -4,8 +4,11 @@ Ollama REST API actions for solx-core. One `wasm32-wasip2` component
 (`bin/solx-ollama.wasm`, ~150 KB) backs **thirteen** registered actions, each
 selected by the `fn_name` on its action row.
 
-All outbound HTTP goes through `/builtin/http_request` — the guest has no
-sockets of its own, because the host stubs WASI.
+All outbound HTTP goes through solx-actions' HTTP built-ins — the guest has
+no sockets of its own, because the host stubs WASI. `generate`, `chat`,
+`pull_model`, `push_model`, and `create_model` stream through
+`/builtin/http_stream/*`; every other action is a single blocking
+`/builtin/http_request` call. See "Streaming" below.
 
 ## Build and install
 
@@ -57,27 +60,40 @@ solx exec /packages/solx-ollama/ollama-version --json '{}'
 solx exec /packages/solx-ollama/ollama-chat --json '{"model":"qwen3:4b","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-## Streaming is not supported
+## Streaming
 
-Every request body gets `"stream": false` injected, and `stream` is not an
-accepted parameter on any action — passing it is silently dropped rather than
-honoured.
+`generate`, `chat`, `pull_model`, `push_model`, and `create_model` always
+send `"stream": true` — `stream` is not an accepted parameter on any action;
+passing it is silently dropped rather than honoured, the same as before, just
+with the opposite forced value.
 
-This is structural, not an oversight: a WASM action returns exactly one value
-and has no channel to emit chunks, so a streamed NDJSON body would arrive as
-unparseable text and collapse to `null`.
+The action's return value is unchanged: one final JSON result, shaped exactly
+like the old blocking response (`generate`'s `response` and `chat`'s
+`message.content` are the concatenation of every token delta; the transfer
+endpoints return the last status object). What's new is that you can now
+*watch* the call while it runs, and cancel it:
 
-The practical consequence is on **`pull-model`** and `push-model`: with
-streaming off there is no progress output at all, so a first pull of a large
-model blocks silently for as long as the download takes (the timeout ceiling
-is 2 hours). Prefer `ollama pull` on the command line for large models.
+- **Live output** — every NDJSON chunk Ollama sends is written to the
+  action's own console (`level: "chunk"`, with the raw chunk as `data`) as it
+  arrives. Tail it with `console/tail`:
 
-Real streaming would need new `http_stream_start` / `http_stream_poll` /
-`http_stream_close` built-ins in solx-core, holding the response in a
-host-side registry keyed by a minted id — the shape `internal/oauth.rs`
-already uses. That is a solx-core change, not a package change. Full design,
-including the cursor-based poll API and why it's shaped that way:
-[docs/streaming-design.md](docs/streaming-design.md).
+  ```bash
+  solx exec /builtin/console/tail --json '{"action_ref":"/packages/solx-ollama/ollama-chat","wait_secs":30}'
+  ```
+
+- **Cancellation** — start the call detached with `/builtin/action/start`,
+  then `/builtin/action/stop` it. The guest checks
+  `/builtin/action/cancelled` between chunks and closes the upstream
+  connection promptly rather than only being caught by the outer force-abort
+  after the grace period.
+
+This is built on three new solx-core built-ins,
+`/builtin/http_stream/{start,poll,close}` (`solx-actions`), which hold the
+response in a host-side registry keyed by a minted `stream_id` — the guest
+has no sockets and no state across invocations, so the stream has to live in
+the host process. Full background:
+[docs/streaming-design.md](docs/streaming-design.md) (the design doc that
+scoped this out originally; the built-ins described there now exist).
 
 ## Configuration
 
@@ -196,7 +212,7 @@ src/lib.rs       dispatch on fn_name, plus set_api_key
 src/host.rs      the Host trait — the seam that keeps everything host-testable
 src/endpoint.rs  the endpoint table: fn_name -> method, path, params, timeouts
 src/config.rs    base-url normalization and auth resolution
-src/request.rs   marshal to /builtin/http_request, interpret the response
+src/request.rs   marshal to /builtin/http_request or /builtin/http_stream/*, interpret the response
 src/guest.rs     wit-bindgen shim (wasm32 only)
 wit/             vendored copy of solx-core/solx-wasm/wit/custom-action.wit
 ```

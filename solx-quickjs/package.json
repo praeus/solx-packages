@@ -1,5 +1,11 @@
 {
   "name": "solx-quickjs",
   "version": "0.1.0",
-  "description": "JavaScript action build package for solx-core using componentize-qjs"
+  "description": "JavaScript action build package for solx-core using componentize-qjs",
+  "command_actions": {
+    "build-javascript-action": {
+      "command": ".\\solx-quickjs.exe",
+      "cwd": "D:/Projects/solx-packages/solx-quickjs/target/release"
+    }
+  }
 }

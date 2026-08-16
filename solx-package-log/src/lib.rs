@@ -1,4 +1,5 @@
-//! Shared logging for solx-core Command-action packages.
+//! Shared logging *and* host-integration for solx-core Command-action
+//! packages.
 //!
 //! One call site (`info`/`warn`/`error`/`with_data`) does three things:
 //!
@@ -13,9 +14,16 @@
 //!    the caller: the POST has a short timeout and every error is
 //!    swallowed.
 //!
-//! Any of the three can be independently absent — a binary run by hand
-//! outside solx-core (no env vars set at all) still gets its stderr output,
-//! exactly as if this crate weren't here.
+//! [`cancelled`] is a fourth, separate call: a best-effort GET against
+//! `SOLX_CONSOLE_URL`'s sibling `SOLX_CONTROL_URL`, asking "has `action_stop`
+//! been called for this invocation?" — see solx-core's
+//! `docs/async-actions-plan.md` §5c. A package that wants to support
+//! cooperative cancellation calls it periodically in its own progress loop
+//! and returns early once it reports `true`.
+//!
+//! Any of these can be independently absent — a binary run by hand outside
+//! solx-core (no env vars set at all) still gets its stderr output, exactly
+//! as if this crate weren't here, and `cancelled()` fails closed to `false`.
 //!
 //! Call [`init`] once at startup with the package's own name, before any
 //! logging call — it's what names the log file. Skipping it just means a
@@ -23,16 +31,16 @@
 //!
 //! ## Sync callers
 //!
-//! `info`/`warn`/`error`/`with_data` are `async fn`s, for packages that
-//! already run under `#[tokio::main]` (every solx-core Command package
-//! except `solx-firefox`, as of this writing). A caller with no ambient
-//! tokio runtime should use the [`blocking`] module instead — calling the
-//! async functions directly with no runtime panics.
+//! `info`/`warn`/`error`/`with_data`/`cancelled` are `async fn`s, for
+//! packages that already run under `#[tokio::main]` (every solx-core
+//! Command package except `solx-firefox`, as of this writing). A caller
+//! with no ambient tokio runtime should use the [`blocking`] module instead
+//! — calling the async functions directly with no runtime panics.
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -113,6 +121,63 @@ async fn post_to_console(level: &str, message: &str, data: Option<Value>) {
     let _ = client.post(url).bearer_auth(token).json(&body).send().await;
 }
 
+/// How long a `cancelled()` answer is cached, so a tight progress loop
+/// (checking every iteration) doesn't hammer the loopback with one request
+/// per check.
+const CANCELLED_CACHE_TTL: Duration = Duration::from_millis(500);
+
+static CANCELLED_CACHE: OnceLock<Mutex<Option<(Instant, bool)>>> = OnceLock::new();
+
+/// Ask solx-core whether `action_stop` has been called for this invocation.
+/// Call this periodically from a Command action's own progress loop and
+/// return early once it answers `true` — see the module doc for the whole
+/// cooperative-cancellation contract.
+///
+/// **Fails closed to `false`**: no `SOLX_CONTROL_URL`/`SOLX_CONSOLE_TOKEN`
+/// (this binary wasn't started as a detached solx invocation, or wasn't
+/// started by solx-core at all), a dead/slow loopback, or a non-2xx
+/// response are all indistinguishable from "not cancelled" — a broken check
+/// must never spuriously abort real work. Answers are cached for
+/// [`CANCELLED_CACHE_TTL`].
+pub async fn cancelled() -> bool {
+    let cache = CANCELLED_CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((checked_at, value)) = *guard {
+            if checked_at.elapsed() < CANCELLED_CACHE_TTL {
+                return value;
+            }
+        }
+    }
+
+    let value = fetch_cancelled().await;
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((Instant::now(), value));
+    }
+    value
+}
+
+async fn fetch_cancelled() -> bool {
+    let (Ok(url), Ok(token)) = (
+        std::env::var("SOLX_CONTROL_URL"),
+        std::env::var("SOLX_CONSOLE_TOKEN"),
+    ) else {
+        return false;
+    };
+    if url.is_empty() || token.is_empty() {
+        return false;
+    }
+    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(2)).build() else {
+        return false;
+    };
+    let Ok(resp) = client.get(url).bearer_auth(token).send().await else {
+        return false;
+    };
+    let Ok(body) = resp.json::<Value>().await else {
+        return false;
+    };
+    body.get("cancelled").and_then(Value::as_bool).unwrap_or(false)
+}
+
 /// Sync entry points for a caller with no ambient tokio runtime (as of this
 /// writing, only `solx-firefox` among solx-core's Command packages). Each
 /// call runs on a runtime built once and reused — safe here specifically
@@ -149,6 +214,10 @@ pub mod blocking {
     pub fn with_data(level: &str, message: &str, data: Value) {
         runtime().block_on(super::with_data(level, message, data));
     }
+
+    pub fn cancelled() -> bool {
+        runtime().block_on(super::cancelled())
+    }
 }
 
 #[cfg(test)]
@@ -163,6 +232,16 @@ mod tests {
         std::env::remove_var("SOL_LOG_DIR");
         std::env::remove_var("SOLX_CONSOLE_URL");
         std::env::remove_var("SOLX_CONSOLE_TOKEN");
+        std::env::remove_var("SOLX_CONTROL_URL");
+    }
+
+    /// Resets the process-global cache `cancelled()` keeps — needed because
+    /// every `#[serial]` test in this module shares it, and a leftover
+    /// cached answer from one test would otherwise leak into the next.
+    fn clear_cancelled_cache() {
+        if let Some(cache) = CANCELLED_CACHE.get() {
+            *cache.lock().unwrap() = None;
+        }
     }
 
     #[tokio::test]
@@ -272,5 +351,93 @@ mod tests {
         // mirroring solx-firefox's plain `fn main()`.
         clear_env();
         blocking::info("from a sync caller");
+    }
+
+    /// Minimal single-shot server: replies to the first request it accepts
+    /// with `body` as a JSON response, regardless of what was requested.
+    async fn start_json_server(body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else { return };
+            let mut buf = vec![0u8; 8192];
+            let _ = stream.read(&mut buf).await;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes()).await;
+        });
+        format!("http://{addr}/cancelled")
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cancelled_is_false_with_no_env_vars_set() {
+        clear_env();
+        clear_cancelled_cache();
+        assert!(!cancelled().await);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cancelled_reports_true_from_the_control_endpoint() {
+        clear_env();
+        clear_cancelled_cache();
+        let url = start_json_server(r#"{"cancelled": true}"#).await;
+        std::env::set_var("SOLX_CONTROL_URL", &url);
+        std::env::set_var("SOLX_CONSOLE_TOKEN", "tok-123");
+
+        assert!(cancelled().await);
+        clear_env();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cancelled_reports_false_from_the_control_endpoint() {
+        clear_env();
+        clear_cancelled_cache();
+        let url = start_json_server(r#"{"cancelled": false}"#).await;
+        std::env::set_var("SOLX_CONTROL_URL", &url);
+        std::env::set_var("SOLX_CONSOLE_TOKEN", "tok-123");
+
+        assert!(!cancelled().await);
+        clear_env();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn a_dead_control_url_fails_closed_and_does_not_hang() {
+        clear_env();
+        clear_cancelled_cache();
+        // Nothing listens here — a fast, deterministic connection refusal.
+        std::env::set_var("SOLX_CONTROL_URL", "http://127.0.0.1:1/cancelled");
+        std::env::set_var("SOLX_CONSOLE_TOKEN", "whatever");
+
+        let result = tokio::time::timeout(Duration::from_secs(5), cancelled())
+            .await
+            .expect("a dead control target must not block the caller");
+        assert!(!result);
+        clear_env();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cancelled_caches_the_answer_briefly() {
+        clear_env();
+        clear_cancelled_cache();
+        // Server only ever accepts one connection — a second real request
+        // within the TTL would find nothing listening and fail closed to
+        // `false`, so seeing `true` twice in a row proves the second call
+        // was served from the cache rather than hitting the network again.
+        let url = start_json_server(r#"{"cancelled": true}"#).await;
+        std::env::set_var("SOLX_CONTROL_URL", &url);
+        std::env::set_var("SOLX_CONSOLE_TOKEN", "tok-123");
+
+        assert!(cancelled().await);
+        assert!(cancelled().await);
+        clear_env();
     }
 }

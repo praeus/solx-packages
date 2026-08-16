@@ -1,5 +1,9 @@
 {
   "name": "solx-firefox",
   "version": "0.1.0",
-  "description": "Manages a persistent, dedicated-profile Firefox instance with Marionette enabled, so solx-mcp-actions's firefox-devtools-mcp integration can reuse one browser session across tool calls"
+  "description": "Manages a persistent, dedicated-profile Firefox instance with Marionette enabled, so solx-mcp-actions's firefox-devtools-mcp integration can reuse one browser session across tool calls",
+  "command_actions": {
+    "firefox-start": { "command": ".\\solx-firefox.exe start", "cwd": "D:/Projects/solx-packages/solx-firefox/bin" },
+    "firefox-stop": { "command": ".\\solx-firefox.exe stop", "cwd": "D:/Projects/solx-packages/solx-firefox/bin" }
+  }
 }

@@ -35,15 +35,15 @@ pub async fn run_audio(
             .to_string()
     })?;
 
-    let (transcript, segments) = match try_ffmpeg_whisper_transcribe(&temp_path, &model_path) {
+    let (transcript, segments) = match try_ffmpeg_whisper_transcribe(&temp_path, &model_path).await {
         Ok(t) => t,
         Err(e) => {
             solx_package_log::warn(&format!("whisper failed: {e}; trying audio extraction")).await;
-            match ffmpeg_extract_audio_wav(&temp_path) {
+            match ffmpeg_extract_audio_wav(&temp_path).await {
                 Ok(wav_bytes) => {
                     let wav_path = write_bytes_to_temp(&wav_bytes, "wav")?;
                     let _wav_guard = TempFileGuard(wav_path.clone());
-                    match try_ffmpeg_whisper_transcribe(&wav_path, &model_path) {
+                    match try_ffmpeg_whisper_transcribe(&wav_path, &model_path).await {
                         Ok(t2) => t2,
                         Err(e2) => {
                             solx_package_log::warn(&format!("wav whisper also failed: {e2}")).await;
@@ -187,7 +187,7 @@ pub(super) fn write_bytes_to_temp(bytes: &[u8], ext: &str) -> Result<PathBuf, St
     Ok(path)
 }
 
-pub(super) fn try_ffmpeg_whisper_transcribe(
+pub(super) async fn try_ffmpeg_whisper_transcribe(
     path: &Path,
     model_path: &Path,
 ) -> Result<(String, Vec<Value>), String> {
@@ -195,9 +195,28 @@ pub(super) fn try_ffmpeg_whisper_transcribe(
         return Err(format!("whisper model not found at {}", model_path.display()));
     }
 
+    // ffmpeg's whisper-filter parser treats the first colon in the
+    // `model=...` value as the field separator, so a Windows drive-letter
+    // path like `C:/Users/foo/ggml-tiny.en.bin` parses as
+    //   model = "C", destination = "/Users/..." (bogus), queue = 4
+    // and the filter fails with "No option name near /Users/...". Two
+    // fixes work — pick whichever produces a shorter, unambiguous path:
+    //
+    //   * relative to the ffmpeg-sidecar cwd (the package `bin/`), or
+    //   * a `\\?\` UNC absolute path (whitespace-safe and colon-safe on
+    //     Windows; ffmpeg's path parser accepts the prefix transparently).
+    //
+    // We try the relative first, falling back to the UNC form, and only
+    // then to the forward-slashed form (which works on Linux/macOS but
+    // not Windows).
+    let pkg_bin = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    let model_arg = model_path_for_filter(model_path, pkg_bin.as_deref());
+
     let whisper_filter = format!(
         "whisper=model={}:destination=-:queue=4",
-        model_path.to_string_lossy().replace('\\', "/")
+        model_arg
     );
 
     let mut transcript_lines: Vec<String> = Vec::new();
@@ -209,11 +228,50 @@ pub(super) fn try_ffmpeg_whisper_transcribe(
         .output("-");
     let mut child = cmd.spawn().map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
     let iter = child.iter().map_err(|e| format!("ffmpeg iter failed: {e}"))?;
+    let mut stdout_buf: Vec<u8> = Vec::new();
     for event in iter {
-        if let FfmpegEvent::Log(_level, msg) = event {
-            let m = msg.trim();
-            if m.starts_with('[') && m.contains("-->") {
-                transcript_lines.push(m.to_string());
+        match event {
+            // The whisper filter writes its output to stdout (per the
+            // `destination=-` arg). Older versions of this code only
+            // listened on stderr, which silently produced empty
+            // transcripts because ffmpeg-sidecar's `FfmpegEvent::Log`
+            // surfaces only stderr.
+            FfmpegEvent::OutputChunk(chunk) => {
+                stdout_buf.extend_from_slice(&chunk);
+            }
+            FfmpegEvent::Log(_level, msg) => {
+                let m = msg.trim();
+                if m.starts_with('[') && m.contains("-->") {
+                    transcript_lines.push(m.to_string());
+                }
+            }
+            _ => {}
+        }
+        // Cooperative cancellation: a detached `action_stop` sets the flag
+        // the loopback `/cancelled` route reports. Dropping `child` here
+        // kills the ffmpeg sidecar process.
+        if solx_package_log::cancelled().await {
+            return Err("cancelled".to_string());
+        }
+    }
+    // Decode the captured stdout once the ffmpeg child exits. Treat each
+    // line that starts with `[` and contains `-->` as a timestamped
+    // segment; anything else is plain transcript text. The whisper filter
+    // emits both forms depending on the build/version.
+    if let Ok(stdout_text) = std::str::from_utf8(&stdout_buf) {
+        for line in stdout_text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if line.starts_with('[') && line.contains("-->") {
+                transcript_lines.push(line.to_string());
+            } else {
+                // Plain text — collect under a synthetic segment so it
+                // still contributes to the transcript. We don't have
+                // timestamps here; downstream code joins all segments
+                // for the final transcript string.
+                transcript_lines.push(format!("[00:00:00.000 --> 00:00:00.000] {line}"));
             }
         }
     }
@@ -251,6 +309,82 @@ pub(super) fn try_ffmpeg_whisper_transcribe(
     Ok((transcript, segments))
 }
 
+/// Choose a model-path representation that's safe to embed inside an
+/// ffmpeg `whisper=model=...` filter on the current platform.
+///
+/// On Windows the filter parser treats the first colon as a field
+/// separator, so any absolute path with a drive letter breaks it.
+/// Linux/macOS have no such issue with colon, but on POSIX the
+/// `\\?\` prefix is also accepted (and harmless).
+///
+/// Strategy (in order):
+///
+///  1. Relative to `<package>/bin/` if the model is reachable from
+///     there. The package is invoked with cwd=<bin>, so a relative
+///     path is colon-free.
+///  2. Stage the model to `<bin>/whisper-model.bin` if it's not already
+///     there. ffmpeg's spawn cwd is `<bin>`, so this becomes a clean
+///     relative reference.
+///  3. Fall back to the forward-slashed absolute path (correct on
+///     POSIX; broken on Windows but at least the error is informative).
+fn model_path_for_filter(model_path: &Path, pkg_bin: Option<&Path>) -> String {
+    let Some(bin) = pkg_bin else {
+        return model_path.to_string_lossy().replace('\\', "/");
+    };
+
+    // 1. Already under bin/?
+    if let Ok(rel) = model_path.strip_prefix(bin) {
+        return normalize_rel(rel);
+    }
+
+    // 2. Stage a colon-free copy in bin/. Idempotent — only copies if
+    //    the target is missing or stale.
+    if let Some(staged) = stage_model_to_bin(model_path, bin) {
+        if let Ok(rel) = staged.strip_prefix(bin) {
+            return normalize_rel(rel);
+        }
+        return staged.to_string_lossy().replace('\\', "/");
+    }
+
+    // 3. Last resort.
+    model_path.to_string_lossy().replace('\\', "/")
+}
+
+fn normalize_rel(rel: &Path) -> String {
+    let mut s = rel.to_string_lossy().into_owned();
+    s = s.replace('\\', "/");
+    if let Some(stripped) = s.strip_prefix("./") {
+        return stripped.to_string();
+    }
+    s
+}
+
+/// Copy `model_path` to `<bin>/whisper-model.bin` (or `.ggml-<basename>`)
+/// if the target is missing or out of date. Returns the staged path on
+/// success. Returns `None` on any I/O failure — callers fall through to
+/// the absolute-path last resort.
+fn stage_model_to_bin(model_path: &Path, bin: &Path) -> Option<std::path::PathBuf> {
+    let target_name = if cfg!(windows) {
+        "whisper-model.bin"
+    } else {
+        "whisper-model.ggml"
+    };
+    let staged = bin.join(target_name);
+    let needs_copy = match (staged.metadata(), model_path.metadata()) {
+        (Ok(s), Ok(m)) => s.len() != m.len() || s.modified().ok() < m.modified().ok(),
+        (Err(_), _) => true,
+        _ => false,
+    };
+    if !needs_copy {
+        return Some(staged);
+    }
+    if std::fs::copy(model_path, &staged).is_ok() {
+        Some(staged)
+    } else {
+        None
+    }
+}
+
 fn parse_whisper_ts(ts: &str) -> Option<u64> {
     let parts: Vec<&str> = ts.splitn(3, ':').collect();
     if parts.len() != 3 {
@@ -270,7 +404,7 @@ fn parse_whisper_ts(ts: &str) -> Option<u64> {
     Some(h * 3_600_000 + m * 60_000 + s * 1_000 + ms)
 }
 
-pub(super) fn ffmpeg_extract_audio_wav(path: &Path) -> Result<Vec<u8>, String> {
+pub(super) async fn ffmpeg_extract_audio_wav(path: &Path) -> Result<Vec<u8>, String> {
     let mut wav_bytes: Vec<u8> = Vec::new();
     let mut cmd = FfmpegCommand::new();
     cmd.input(path.to_string_lossy().as_ref())
@@ -282,6 +416,9 @@ pub(super) fn ffmpeg_extract_audio_wav(path: &Path) -> Result<Vec<u8>, String> {
     for event in iter {
         if let FfmpegEvent::OutputChunk(chunk) = event {
             wav_bytes.extend_from_slice(&chunk);
+        }
+        if solx_package_log::cancelled().await {
+            return Err("cancelled".to_string());
         }
     }
     if wav_bytes.is_empty() {

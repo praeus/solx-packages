@@ -38,15 +38,15 @@ pub async fn run_video(
             .to_string()
     })?;
 
-    let (transcript, segments) = match audio::try_ffmpeg_whisper_transcribe(&temp_path, &model_path) {
+    let (transcript, segments) = match audio::try_ffmpeg_whisper_transcribe(&temp_path, &model_path).await {
         Ok(t) => t,
         Err(e) => {
             solx_package_log::warn(&format!("direct whisper failed: {e}; trying audio extraction")).await;
-            match audio::ffmpeg_extract_audio_wav(&temp_path) {
+            match audio::ffmpeg_extract_audio_wav(&temp_path).await {
                 Ok(wav_bytes) => {
                     let wav_path = audio::write_bytes_to_temp(&wav_bytes, "wav")?;
                     let _wav_guard = audio::TempFileGuard(wav_path.clone());
-                    match audio::try_ffmpeg_whisper_transcribe(&wav_path, &model_path) {
+                    match audio::try_ffmpeg_whisper_transcribe(&wav_path, &model_path).await {
                         Ok(t2) => t2,
                         Err(e2) => {
                             solx_package_log::warn(&format!("wav whisper also failed: {e2}")).await;
@@ -64,9 +64,13 @@ pub async fn run_video(
 
     // 2) Scene captions (per-frame vision calls).
     let mut scene_captions: Vec<Value> = Vec::new();
-    match ffmpeg_extract_frames(&temp_path, 20) {
+    match ffmpeg_extract_frames(&temp_path, 20).await {
         Ok(frames) => {
             for (ts_ms, jpeg_bytes) in &frames {
+                if solx_package_log::cancelled().await {
+                    solx_package_log::warn("video frame captioning cancelled").await;
+                    break;
+                }
                 let ts_secs = *ts_ms as f64 / 1000.0;
                 let frame_prompt = format!(
                     "Describe what you see in this video frame (timestamp: {:.1}s). \
@@ -212,7 +216,7 @@ pub async fn run_video(
     }))
 }
 
-fn ffmpeg_extract_frames(path: &Path, max_frames: usize) -> Result<Vec<(u64, Vec<u8>)>, String> {
+async fn ffmpeg_extract_frames(path: &Path, max_frames: usize) -> Result<Vec<(u64, Vec<u8>)>, String> {
     const INTERVAL_SECS: f64 = 10.0;
     let fps_filter = format!("fps=1/{},scale=640:-1", INTERVAL_SECS as u32);
 
@@ -228,6 +232,9 @@ fn ffmpeg_extract_frames(path: &Path, max_frames: usize) -> Result<Vec<(u64, Vec
     for event in iter {
         if let FfmpegEvent::OutputChunk(chunk) = event {
             raw_bytes.extend_from_slice(&chunk);
+        }
+        if solx_package_log::cancelled().await {
+            return Err("cancelled".to_string());
         }
     }
 

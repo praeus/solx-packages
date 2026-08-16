@@ -32,6 +32,20 @@ function callExec(ref, params) {
   return r.output ? JSON.parse(r.output) : null;
 }
 
+// Ask solx-core whether `action_stop` has been requested for this invocation.
+// `/builtin/action/cancelled` resolves the *calling* action's own invocation
+// (there is no way to pass an arbitrary id), so this is always "did someone
+// stop *me*". Fails closed to `false`: a missing builtin or a failed call
+// must never spuriously abort real work.
+function isCancelled() {
+  try {
+    const r = callExec("/builtin/action/cancelled", {});
+    return !!(r && r.cancelled);
+  } catch (e) {
+    return false;
+  }
+}
+
 // Pull the script's return value back out of the MCP text envelope, which
 // wraps it in a ```json fence.
 function unwrapEval(output) {
@@ -315,6 +329,13 @@ function harvest(input) {
   const pages = [];
   let totalSaved = 0, totalFailed = 0;
   for (let i = 0; i < maxPages; i++) {
+    // Check for a stop request before pulling the next index page. The
+    // cursor is advanced after every completed page, so stopping here loses
+    // nothing: a resumed run picks up exactly where this one left off.
+    if (isCancelled()) {
+      log("harvest: cancelled after " + i + " page(s) — cursor=" + index);
+      break;
+    }
     log("harvest: page " + (i + 1) + "/" + maxPages + " — index=" + index);
     const page = harvestPage({ user: input.user, index: index, path: input.path });
     totalSaved += page.saved.length;

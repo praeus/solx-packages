@@ -78,6 +78,35 @@ impl FakeHost {
         }))
     }
 
+    /// Queue the full call sequence a streaming endpoint drives through
+    /// `/builtin/http_stream/*`: `start` (returning `status`), one
+    /// cancellation check (not cancelled), one `poll` returning every line
+    /// of `ndjson` as chunks with `done: true`, one `console/print` per
+    /// chunk, then `close`. Mirrors `push_http`'s ergonomics for the
+    /// common case of "one poll drains the whole response".
+    fn push_stream(&self, status: u64, ndjson: &str) -> &Self {
+        let chunks: Vec<Value> = ndjson
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).expect("test NDJSON line must be valid JSON"))
+            .collect();
+        self.push_ok(json!({ "stream_id": "test-stream", "status": status }));
+        self.push_ok(json!({ "cancelled": false }));
+        self.push_ok(json!({
+            "chunks": chunks,
+            "next_cursor": chunks.len(),
+            "done": true,
+            "dropped": 0,
+            "status": status,
+            "error": Value::Null,
+        }));
+        for _ in &chunks {
+            self.push_ok(json!({ "seq": 1 }));
+        }
+        self.push_ok(json!({ "closed": true }));
+        self
+    }
+
     fn call_named(&self, name: &str) -> Option<Value> {
         self.calls
             .borrow()
@@ -86,9 +115,24 @@ impl FakeHost {
             .map(|(_, p)| p.clone())
     }
 
+    fn calls_named(&self, name: &str) -> Vec<Value> {
+        self.calls
+            .borrow()
+            .iter()
+            .filter(|(n, _)| n == name)
+            .map(|(_, p)| p.clone())
+            .collect()
+    }
+
+    /// The payload sent to whichever HTTP built-in the call actually used —
+    /// the one-shot `/builtin/http_request` for a blocking endpoint, or
+    /// `/builtin/http_stream/start` for a streaming one. Both take the same
+    /// `{url, method, headers, timeout_secs, body?}` shape, so most request-
+    /// shape assertions don't need to know which path was taken.
     fn http_payload(&self) -> Value {
         self.call_named("/builtin/http_request")
-            .expect("no /builtin/http_request call was made")
+            .or_else(|| self.call_named("/builtin/http_stream/start"))
+            .expect("no /builtin/http_request or /builtin/http_stream/start call was made")
     }
 
     /// The JSON request body actually sent to Ollama.
@@ -220,10 +264,10 @@ fn base_url_falls_back_to_env_then_default() {
     );
 }
 
-// ── streaming is forced off ──────────────────────────────────────────────────
+// ── streaming ────────────────────────────────────────────────────────────────
 
 #[test]
-fn streaming_endpoints_force_stream_false() {
+fn streaming_endpoints_send_stream_true() {
     for (fn_name, params) in [
         ("generate", json!({ "model": "m", "prompt": "hi" })),
         ("chat", json!({ "model": "m", "messages": [] })),
@@ -233,34 +277,115 @@ fn streaming_endpoints_force_stream_false() {
     ] {
         let host = FakeHost::new();
         queue_no_config(&host);
-        host.push_http(200, r#"{"done":true}"#);
+        host.push_stream(200, r#"{"done":true}"#);
 
         run(&host, fn_name, params);
         assert_eq!(
             host.http_body()["stream"],
-            json!(false),
-            "{fn_name} must force stream:false"
+            json!(true),
+            "{fn_name} must send stream:true and drive http_stream/start"
+        );
+        assert!(
+            host.call_names().contains(&"/builtin/http_stream/start".to_string()),
+            "{fn_name} must call http_stream/start"
         );
     }
 }
 
 #[test]
 fn caller_cannot_re_enable_streaming() {
+    // A caller-supplied `stream` is dropped either way — this endpoint
+    // always streams, so a caller-supplied `false` can't turn it off.
     let host = FakeHost::new();
     queue_no_config(&host);
-    host.push_http(200, r#"{"done":true}"#);
+    host.push_stream(200, r#"{"done":true}"#);
 
     run(
         &host,
         "chat",
-        json!({ "model": "m", "messages": [], "stream": true }),
+        json!({ "model": "m", "messages": [], "stream": false }),
     );
 
     assert_eq!(
         host.http_body()["stream"],
-        json!(false),
-        "a caller-supplied stream:true must be dropped, not honoured"
+        json!(true),
+        "a caller-supplied stream:false must be dropped, not honoured"
     );
+}
+
+#[test]
+fn streaming_chunks_are_logged_to_the_console_and_folded_into_one_result() {
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_stream(
+        200,
+        "{\"response\":\"Hel\",\"done\":false}\n\
+         {\"response\":\"lo\",\"done\":true,\"total_duration\":100}",
+    );
+
+    let out = run(&host, "generate", json!({ "model": "m", "prompt": "hi" }));
+
+    assert!(out.success, "{:?}", out.message);
+    // The two `response` deltas are concatenated into one final string,
+    // exactly like the old single blocking response used to carry.
+    assert_eq!(out.output["response"], json!("Hello"));
+    assert_eq!(out.output["done"], json!(true));
+    assert_eq!(out.output["total_duration"], json!(100));
+
+    let prints = host.calls_named("/builtin/console/print");
+    assert_eq!(prints.len(), 2, "{prints:?}");
+    assert_eq!(prints[0]["message"], json!("Hel"));
+    assert_eq!(prints[0]["data"]["response"], json!("Hel"));
+    assert_eq!(prints[1]["message"], json!("lo"));
+    assert_eq!(prints[0]["level"], json!("chunk"));
+
+    assert!(host.call_names().contains(&"/builtin/http_stream/close".to_string()));
+}
+
+#[test]
+fn mid_stream_cancellation_closes_the_stream_and_fails_the_outcome() {
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_ok(json!({ "stream_id": "s1", "status": 200 }));
+    // The cancellation check runs before the first poll, so a cancelled
+    // stream never issues one.
+    host.push_ok(json!({ "cancelled": true }));
+    host.push_ok(json!({ "closed": true }));
+
+    let out = run(&host, "chat", json!({ "model": "m", "messages": [] }));
+
+    assert!(!out.success);
+    assert_eq!(kind(&out), "cancelled");
+    assert!(
+        !host.call_names().contains(&"/builtin/http_stream/poll".to_string()),
+        "a stream cancelled before its first poll must not poll"
+    );
+    assert!(host.call_names().contains(&"/builtin/http_stream/close".to_string()));
+}
+
+#[test]
+fn streaming_start_non_2xx_status_maps_to_http_status() {
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_ok(json!({ "stream_id": "s1", "status": 404 }));
+    host.push_ok(json!({ "cancelled": false }));
+    host.push_ok(json!({
+        "chunks": [{ "error": "model \"x\" not found" }],
+        "next_cursor": 1,
+        "done": true,
+        "dropped": 0,
+        "status": 404,
+        "error": Value::Null,
+    }));
+    host.push_ok(json!({ "seq": 1 })); // console/print for the one chunk
+    host.push_ok(json!({ "closed": true }));
+
+    let out = run(&host, "chat", json!({ "model": "m", "messages": [] }));
+
+    assert!(!out.success);
+    assert_eq!(kind(&out), "http_status");
+    assert_eq!(out.output["status"], json!(404));
+    assert!(out.message.unwrap().contains(r#"model "x" not found"#));
 }
 
 #[test]
@@ -318,7 +443,7 @@ fn delete_model_sends_delete_with_a_body() {
 fn passthrough_params_are_forwarded_and_unknown_ones_dropped() {
     let host = FakeHost::new();
     queue_no_config(&host);
-    host.push_http(200, r#"{"done":true}"#);
+    host.push_stream(200, r#"{"done":true}"#);
 
     run(
         &host,
@@ -351,7 +476,7 @@ fn null_valued_optional_params_are_omitted() {
     // forwarding them would make Ollama reject the request instead.
     let host = FakeHost::new();
     queue_no_config(&host);
-    host.push_http(200, r#"{"done":true}"#);
+    host.push_stream(200, r#"{"done":true}"#);
 
     run(
         &host,
@@ -482,7 +607,7 @@ fn non_2xx_without_an_error_field_echoes_the_body() {
 fn two_hundred_with_an_error_object_is_a_failure() {
     let host = FakeHost::new();
     queue_no_config(&host);
-    host.push_http(200, r#"{"error":"model requires more system memory"}"#);
+    host.push_stream(200, r#"{"error":"model requires more system memory"}"#);
 
     let out = run(&host, "chat", json!({ "model": "m", "messages": [] }));
 
@@ -733,7 +858,7 @@ fn timeout_is_clamped_to_the_endpoint_ceiling() {
     ] {
         let host = FakeHost::new();
         queue_no_config(&host);
-        host.push_http(200, r#"{"done":true}"#);
+        host.push_stream(200, r#"{"done":true}"#);
 
         let mut params = json!({ "model": "m", "messages": [] });
         if let Some(t) = given {
@@ -795,7 +920,7 @@ fn endpoint_table_is_well_formed() {
         if ep.method == "GET" {
             assert!(ep.required.is_empty(), "{} is a GET with required params", ep.fn_name);
             assert!(ep.passthrough.is_empty(), "{} is a GET with passthrough params", ep.fn_name);
-            assert!(!ep.force_stream_false, "{} is a GET forcing stream", ep.fn_name);
+            assert!(ep.streaming.is_none(), "{} is a GET forcing stream", ep.fn_name);
         }
         // A locally-handled param must never collide with a forwarded one.
         for common in endpoint::COMMON_PARAMS {

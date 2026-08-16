@@ -1,9 +1,17 @@
 # Phase 2 — streaming via pollable host-side streams
 
-Not built. This is the design that was scoped out when `solx-ollama` shipped
-with `"stream": false` forced on every request (see the README's "Streaming
-is not supported" section for the user-facing summary). It lives here because
-it requires changes to `solx-core`, not to this package, and needs to survive
+**Status: implemented.** `http_stream_start`/`http_stream_poll`/
+`http_stream_close` now exist in `solx-actions/src/internal/http_stream.rs`,
+and `generate`/`chat`/`pull_model`/`push_model`/`create_model` in this
+package drive them from `src/request.rs`. See the README's "Streaming"
+section for the user-facing summary. The rest of this document is the
+original design write-up, kept for the reasoning behind the shape (registry
+pattern, cursor semantics, reaper) — the "not built" framing below is
+historical.
+
+This is the design that was scoped out when `solx-ollama` shipped
+with `"stream": false` forced on every request. It lives here because
+it required changes to `solx-core`, not to this package, and needed to survive
 independently of any one conversation or plan file.
 
 ## Why the package can't do this alone
@@ -84,6 +92,13 @@ replay for reconnects.
   `oauth_stop`; nothing does that for an abandoned generation.
 - **Caller attribution.** `InternalCtx.caller` should own the stream, so one
   action can't poll or close a stream started by another.
+  **As implemented, this was dropped in favor of the same unrestricted,
+  bearer-capability model `oauth_await`/`oauth_stop` and
+  `console_read`/`tail`/`clear` already use**: access is gated purely on
+  knowing the unguessable `stream_id`, no caller check. Caller-scoping would
+  have broken this doc's own script-loop example above, where
+  `ollama-chat-poll` (a different action_ref, and a different invocation)
+  polls a stream `ollama-chat-start` created.
 - Seed rows in `solx-actions/src/seed.rs` and param schemas in
   `solx-types/src/seed.rs`, matching the existing built-in registration
   pattern.

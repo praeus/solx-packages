@@ -1,5 +1,12 @@
 {
   "name": "solx-google",
   "version": "0.1.0",
-  "description": "Google Docs, Drive, Gmail, Tasks, and Calendar REST action package for solx-core, including a one-shot login-to-google orchestrator as a solx script."
+  "description": "Google Docs, Drive, Gmail, Tasks, and Calendar REST action package for solx-core, including a one-shot login-to-google orchestrator as a solx script.",
+  "allowed_webhook_base_urls": [
+    "https://docs.googleapis.com/",
+    "https://www.googleapis.com/",
+    "https://gmail.googleapis.com/",
+    "https://tasks.googleapis.com/",
+    "https://oauth2.googleapis.com/"
+  ]
 }

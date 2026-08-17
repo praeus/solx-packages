@@ -249,7 +249,7 @@ function saveEntry(entry, path, security) {
     });
   });
   const paras = entry.contents.paragraphs || [];
-  callExec("/builtin/entity_save_document", {
+  callExec("/builtin/document/entity_save_document", {
     path: path,
     name: name,
     title: entry.title || "(untitled)",
@@ -321,7 +321,7 @@ function harvest(input) {
 
   let index = input.index;
   if (!index) {
-    const got = callExec("/builtin/get_env", { namespace: namespace, key: cursorKey });
+    const got = callExec("/builtin/env/get_env", { namespace: namespace, key: cursorKey });
     index = (got && got.value) || "/";
   }
   log("harvest: user=" + input.user + " starting at cursor=" + index + " max_pages=" + maxPages);
@@ -349,7 +349,7 @@ function harvest(input) {
     // Advance the cursor after every page, not at the end: a run killed
     // mid-way then resumes at the first page it has not finished.
     if (page.prev) {
-      callExec("/builtin/set_env", {
+      callExec("/builtin/env/set_env", {
         namespace: namespace, key: cursorKey, value: page.prev, persist: true
       });
       index = page.prev;

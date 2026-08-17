@@ -124,7 +124,12 @@ fn convert_sol_to_google_doc(params: &str) -> Result<ActionResult, String> {
         (text, body)
     };
 
-    let create_body = json!({ "title": &title, "text": &text });
+    // Shaped to match GoogleDriveCreateFileParams (required: name, mimeType)
+    // so this can be piped directly into create-google-file — `text` is
+    // carried separately at the top level for the subsequent
+    // post-google-doc batch_update_body step, not inside create_body, since
+    // Drive's create endpoint doesn't recognize a "text" field.
+    let create_body = json!({ "name": &title, "mimeType": "application/vnd.google-apps.document" });
     let request_count = batch_update_body
         .get("requests")
         .and_then(|r| r.as_array())
@@ -223,11 +228,11 @@ fn resolve_sol_document(input: &Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| "provide sol_document or sol_document_name".to_string())?;
 
-    // Recursive call into /builtin/entity_get_document. The solx-core
+    // Recursive call into /builtin/document/entity_get_document. The solx-core
     // custom-action WIT world exposes `action-exec.exec` as a synchronous
     // import (no `.await`); see the WIT for details.
     let payload = json!({ "name": name });
-    exec_action_json("/builtin/entity_get_document", &payload)
+    exec_action_json("/builtin/document/entity_get_document", &payload)
 }
 
 fn exec_action_json(action_name: &str, payload: &Value) -> Result<Value, String> {

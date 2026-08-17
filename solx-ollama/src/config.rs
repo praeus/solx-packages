@@ -3,7 +3,7 @@
 //! A guest cannot read its own `action_config` — the host never exposes it,
 //! only the secret *keys* inside it, and then only indirectly through
 //! `get_secret`. So the only ambient configuration channels available here
-//! are `/builtin/get_env` and `/builtin/get_secret`.
+//! are `/builtin/env/get_env` and `/builtin/secrets/get_secret`.
 
 use serde_json::{json, Value};
 
@@ -89,7 +89,7 @@ pub fn normalize_base_url(raw: &str) -> String {
 /// `Some` only for a non-empty string value. A missing key returns
 /// `{"value": null}` rather than failing, so this must filter.
 pub fn env_lookup(host: &dyn Host, key: &str) -> Option<String> {
-    let call = host.exec("/builtin/get_env", &json!({ "key": key })).ok()?;
+    let call = host.exec("/builtin/env/get_env", &json!({ "key": key })).ok()?;
     if !call.success {
         return None;
     }
@@ -143,7 +143,7 @@ pub fn resolve_auth(host: &dyn Host, params: &Value) -> Result<Option<String>, S
 
 /// `Ok(None)` = no usable value. `Err` = no key configured for this name.
 pub fn read_secret(host: &dyn Host, name: &str) -> Result<Option<String>, String> {
-    let call = host.exec("/builtin/get_secret", &json!({ "name": name }))?;
+    let call = host.exec("/builtin/secrets/get_secret", &json!({ "name": name }))?;
     if !call.success {
         return Err(call
             .message

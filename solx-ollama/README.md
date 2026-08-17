@@ -1,14 +1,18 @@
 # solx-ollama
 
 Ollama REST API actions for solx-core. One `wasm32-wasip2` component
-(`bin/solx-ollama.wasm`, ~150 KB) backs **thirteen** registered actions, each
-selected by the `fn_name` on its action row.
+(`bin/solx-ollama.wasm`) backs **four** registered actions, each selected by
+the `fn_name` on its action row — deliberately scoped to chat, listing
+installed models, installing a model, and the auth bootstrap those need.
+Ollama's broader surface (raw completion, embeddings, model introspection,
+registry push, custom model derivation/quantization, copy, and delete) is
+intentionally not exposed here; delete in particular is the kind of
+irreversible operation this package avoids surfacing at all.
 
 All outbound HTTP goes through solx-actions' HTTP built-ins — the guest has
-no sockets of its own, because the host stubs WASI. `generate`, `chat`,
-`pull_model`, `push_model`, and `create_model` stream through
-`/builtin/http_stream/*`; every other action is a single blocking
-`/builtin/http_request` call. See "Streaming" below.
+no sockets of its own, because the host stubs WASI. `chat` and `pull_model`
+stream through `/builtin/web/stream/*`; `list_models` is a single blocking
+`/builtin/web/http_request` call. See "Streaming" below.
 
 ## Build and install
 
@@ -37,41 +41,29 @@ because the wit-bindgen surface lives in `src/guest.rs` behind
 
 | action | `fn_name` | endpoint |
 |---|---|---|
-| `/packages/solx-ollama/ollama-generate` | `generate` | `POST /api/generate` |
 | `/packages/solx-ollama/ollama-chat` | `chat` | `POST /api/chat` |
-| `/packages/solx-ollama/ollama-embed` | `embed` | `POST /api/embed` |
 | `/packages/solx-ollama/ollama-list-models` | `list_models` | `GET /api/tags` |
-| `/packages/solx-ollama/ollama-show-model` | `show_model` | `POST /api/show` |
-| `/packages/solx-ollama/ollama-ps` | `ps` | `GET /api/ps` |
-| `/packages/solx-ollama/ollama-version` | `version` | `GET /api/version` |
-| `/packages/solx-ollama/ollama-pull-model` | `pull_model` | `POST /api/pull` |
-| `/packages/solx-ollama/ollama-push-model` | `push_model` | `POST /api/push` |
-| `/packages/solx-ollama/ollama-create-model` | `create_model` | `POST /api/create` |
-| `/packages/solx-ollama/ollama-copy-model` | `copy_model` | `POST /api/copy` |
-| `/packages/solx-ollama/ollama-delete-model` | `delete_model` | `DELETE /api/delete` |
+| `/packages/solx-ollama/ollama-pull-model` | `pull_model` | `POST /api/pull` (install a model) |
 | `/packages/solx-ollama/ollama-set-api-key` | `set_api_key` | — (writes a secret) |
 
 Ollama's response JSON is returned **verbatim** as the action `result`.
-`/api/copy` and `/api/delete` answer 200 with an empty body, which becomes
-`{"status": "success"}`.
 
 ```bash
-solx exec /packages/solx-ollama/ollama-version --json '{}'
+solx exec /packages/solx-ollama/ollama-list-models --json '{}'
 solx exec /packages/solx-ollama/ollama-chat --json '{"model":"qwen3:4b","messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ## Streaming
 
-`generate`, `chat`, `pull_model`, `push_model`, and `create_model` always
-send `"stream": true` — `stream` is not an accepted parameter on any action;
-passing it is silently dropped rather than honoured, the same as before, just
-with the opposite forced value.
+`chat` and `pull_model` always send `"stream": true` — `stream` is not an
+accepted parameter on either action; passing it is silently dropped rather
+than honoured, the same as before, just with the opposite forced value.
 
 The action's return value is unchanged: one final JSON result, shaped exactly
-like the old blocking response (`generate`'s `response` and `chat`'s
-`message.content` are the concatenation of every token delta; the transfer
-endpoints return the last status object). What's new is that you can now
-*watch* the call while it runs, and cancel it:
+like the old blocking response (`chat`'s `message.content` is the
+concatenation of every token delta; `pull_model` returns the last status
+object). What's new is that you can now *watch* the call while it runs, and
+cancel it:
 
 - **Live output** — every NDJSON chunk Ollama sends is written to the
   action's own console (`level: "chunk"`, with the raw chunk as `data`) as it
@@ -88,7 +80,7 @@ endpoints return the last status object). What's new is that you can now
   after the grace period.
 
 This is built on three new solx-core built-ins,
-`/builtin/http_stream/{start,poll,close}` (`solx-actions`), which hold the
+`/builtin/web/stream/{start,poll,close}` (`solx-actions`), which hold the
 response in a host-side registry keyed by a minted `stream_id` — the guest
 has no sockets and no state across invocations, so the stream has to live in
 the host process. Full background:
@@ -102,7 +94,7 @@ scoped this out originally; the built-ins described there now exist).
 Resolved in order:
 
 1. `base_url` param on the call.
-2. `/builtin/get_env` for `OLLAMA_HOST`.
+2. `/builtin/env/get_env` for `OLLAMA_HOST`.
 3. `http://localhost:11434`.
 
 The env route needs an `env_mappings` entry in `solx-config.json`, since the
@@ -143,13 +135,13 @@ To store the token:
 solx exec /packages/solx-ollama/ollama-set-api-key --json '{"value":"<token>"}'
 ```
 
-That action exists to break a chicken-and-egg problem: `/builtin/set_secret`
+That action exists to break a chicken-and-egg problem: `/builtin/secrets/set_secret`
 encrypts using a key taken from the *calling* action's `action_config.secrets`,
 so only an action that already holds the key can write the secret. The secret
 name is hardcoded, so this action cannot overwrite an unrelated one.
 
 **Re-installing rotates the key.** `install.solx` generates a fresh AES key with
-`random 32` and writes it onto all thirteen rows. Running `solx install-package`
+`random 32` and writes it onto all four rows. Running `solx install-package`
 again mints a new one, after which the previously stored token fails to decrypt
 (`secret decryption failed`). Recovery is one command: run `ollama-set-api-key`
 again.
@@ -159,8 +151,8 @@ again.
 Two budgets, and the outer one is always the larger:
 
 - **Inner** — the per-HTTP-request timeout. Set with `timeout_secs` on the
-  call; clamped to a per-endpoint ceiling (1800s for generate/chat, 7200s for
-  pull/push/create, 600s for embed, 300s elsewhere).
+  call; clamped to a per-endpoint ceiling (1800s for chat, 7200s for pull,
+  300s for list-models).
 - **Outer** — `action_config.timeout_secs` on the action row, a wall-clock
   budget for the whole guest invocation. `install.solx` sets it to the inner
   ceiling plus 60s of headroom for first-call component compilation.
@@ -190,14 +182,6 @@ The guest's own check is defence in depth.
 
 ## Notes and limitations
 
-- **`/api/create` with `files` or `adapters`** is passed through, but those
-  fields reference blobs that must already exist on the server, uploaded via
-  `POST /api/blobs/sha256:<digest>`. This package does not implement blob
-  upload, so those two fields only work for digests already present.
-- **Legacy embeddings**: pass `{"legacy": true}` to `ollama-embed` to use the
-  older `/api/embeddings` endpoint, which takes a single `prompt` string and
-  returns `embedding` (one vector) rather than `embeddings` (a list). An array
-  input is rejected in that mode.
 - **Uninstall is not resilient to a partial install**: `delete` on a missing
   row is a hard error, so if an install failed midway, `solx uninstall-package`
   will stop at the first absent row. Delete the surviving rows by hand and
@@ -212,7 +196,7 @@ src/lib.rs       dispatch on fn_name, plus set_api_key
 src/host.rs      the Host trait — the seam that keeps everything host-testable
 src/endpoint.rs  the endpoint table: fn_name -> method, path, params, timeouts
 src/config.rs    base-url normalization and auth resolution
-src/request.rs   marshal to /builtin/http_request or /builtin/http_stream/*, interpret the response
+src/request.rs   marshal to /builtin/web/http_request or /builtin/web/stream/*, interpret the response
 src/guest.rs     wit-bindgen shim (wasm32 only)
 wit/             vendored copy of solx-core/solx-wasm/wit/custom-action.wit
 ```

@@ -1,11 +1,7 @@
 delete action /packages/solx-media/solx-media-install-whisper-model;
-delete action /packages/solx-media/solx-media-materialize-html-return;
 delete action /packages/solx-media/solx-media-materialize-html;
-delete action /packages/solx-media/solx-media-video-return;
 delete action /packages/solx-media/solx-media-video;
-delete action /packages/solx-media/solx-media-audio-return;
 delete action /packages/solx-media/solx-media-audio;
-delete action /packages/solx-media/solx-media-image-return;
 delete action /packages/solx-media/solx-media-image;
 delete type /packages/solx-media/MediaInstallParams;
 delete type /packages/solx-media/MediaDocument

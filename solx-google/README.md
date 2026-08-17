@@ -15,8 +15,8 @@ encrypted and persisted to the scoped secret store.
 The package ships a one-shot `login-to-google` Script action that runs
 the entire OAuth 2.0 authorization-code choreography through the
 dispatcher: bind the loopback listener, open the system browser (via the
-new `/builtin/open_url` internal action), wait for the callback, exchange
-the code for tokens, persist the credentials via `/builtin/set_secret`
+new `/builtin/web/open_url` internal action), wait for the callback, exchange
+the code for tokens, persist the credentials via `/builtin/secrets/set_secret`
 (encrypted with the key configured in this action's own
 `action_config.secrets` map), and release the port. After it returns
 successfully, `get-google-doc` and `post-google-doc` work without any
@@ -36,7 +36,7 @@ browser on the Google consent screen. Sign in, approve the requested
 scopes, and the script continues.
 
 On subsequent runs you can omit the params entirely — the script reads
-them back via `/builtin/get_secret`:
+them back via `/builtin/secrets/get_secret`:
 
 ```sh
 solx exec /packages/solx-google/login-to-google
@@ -63,14 +63,14 @@ This:
 
 1. Generates a fresh random 32-byte encryption key (`/builtin/random_string`).
 2. Posts 35 JSON-schema types under `/packages/solx-google/`.
-3. Uploads the login script content via `/builtin/file_put` at
+3. Uploads the login script content via `/builtin/file/file_put` at
    `shared/solx-google-login.solx` (the script body is inlined into
    `install.solx` — no separate template / build step required).
 4. Posts the `login-to-google` Script action pointing at the uploaded
    file.
 5. Posts 14 webhook actions (Docs, Drive, Gmail, Tasks, Calendar) plus
-   the `oauth-token-exchange` action — each with the same encryption key
-   baked into its `action_config.secrets` map.
+   the internal `_internal/oauth-token-exchange` action — each with the same
+   encryption key baked into its `action_config.secrets` map.
 
 The login script and WASM binary are stored as files in the file store;
 no `artifact` registry is involved.
@@ -79,7 +79,8 @@ no `artifact` registry is involved.
 
 - **35 types** under `/packages/solx-google/`
 - **16 actions**: 14 webhooks (Docs/Drive/Gmail/Tasks/Calendar) +
-  1 oauth-token-exchange webhook + 1 login-to-google script action
+  1 internal `_internal/oauth-token-exchange` webhook (not meant to be
+  invoked standalone) + 1 login-to-google script action
 - **1 file**: `shared/solx-google-login.solx`
 
 ## WASM converters
@@ -109,7 +110,7 @@ binary via `file_put` and post each action manually (these are NOT in
 
 ```sh
 # 1. Upload the binary
-solx exec /builtin/file_put --json '{
+solx exec /builtin/file/file_put --json '{
   "rel_path": "shared/solx-google-actions.wasm",
   "content_base64": "...",  # base64 of the .wasm bytes
   "encoding": "base64"
@@ -155,7 +156,7 @@ above trigger that path, no separate step needed.
 | Old (`sol-google`) | New (`solx-google`) |
 |---|---|
 | `action_type: "Actions"` for login | `action_type: "script"` (solx has no `Actions` type) |
-| Built-in `open system browser` action | New `/builtin/open_url` internal action (added in solx-core) |
+| Built-in `open system browser` action | New `/builtin/web/open_url` internal action (added in solx-core) |
 | Login script as a 14-step ActionScript JSON file | Login script as a `script`-typed action pointing at `login.solx` |
 | WASM converters in `sol-google-actions.wasm` (Python + Rust dispatch) | Same converter logic, ported to Rust in `solx-google-actions` |
 | `bin_name: "shared::sol-google-actions.wasm"` | `bin_name: "solx-google-actions.wasm"` (file store convention, no `shared::` prefix) |

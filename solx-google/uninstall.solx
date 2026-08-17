@@ -7,7 +7,7 @@
 # ── Actions (webhooks) ───────────────────────────────────────────────────────
 
 delete action /packages/solx-google/login-to-google;
-delete action /packages/solx-google/oauth-token-exchange;
+delete action /packages/solx-google/_internal/oauth-token-exchange;
 delete action /packages/solx-google/post-google-doc;
 delete action /packages/solx-google/get-google-doc;
 
@@ -29,8 +29,8 @@ delete action /packages/solx-google/send-gmail-message;
 
 # ── Files (the login script source and the WASM binary) ─────────────────────
 
-exec /builtin/file_delete --json '{"rel_path":"shared/solx-google-login.solx"}';
-exec /builtin/file_delete --json '{"rel_path":"shared/solx-google-actions.wasm"}';
+exec /builtin/file/file_delete --json '{"rel_path":"shared/solx-google-login.solx"}';
+exec /builtin/file/file_delete --json '{"rel_path":"shared/solx-google-actions.wasm"}';
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 

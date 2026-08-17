@@ -23,7 +23,7 @@ read from Ollama.
 
 Three things rule out doing it inside the guest:
 
-- `/builtin/http_request` awaits the entire response body before returning.
+- `/builtin/web/http_request` awaits the entire response body before returning.
 - WASI is stubbed by the host (`WasiCtxBuilder::new().build()` in
   `wasm_host.rs`), so the guest has no sockets of its own.
 - Decisively: **a guest has no state across invocations.** `wasm_host.rs`

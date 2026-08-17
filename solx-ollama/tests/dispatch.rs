@@ -1,7 +1,7 @@
 //! Host-target tests for everything except the wit-bindgen shim.
 //!
 //! `FakeHost` replays canned `exec` responses in order and records every call,
-//! so the exact payload handed to `/builtin/http_request` can be asserted
+//! so the exact payload handed to `/builtin/web/http_request` can be asserted
 //! without a network or a wasm runtime.
 
 use std::cell::RefCell;
@@ -79,7 +79,7 @@ impl FakeHost {
     }
 
     /// Queue the full call sequence a streaming endpoint drives through
-    /// `/builtin/http_stream/*`: `start` (returning `status`), one
+    /// `/builtin/web/stream/*`: `start` (returning `status`), one
     /// cancellation check (not cancelled), one `poll` returning every line
     /// of `ndjson` as chunks with `done: true`, one `console/print` per
     /// chunk, then `close`. Mirrors `push_http`'s ergonomics for the
@@ -125,14 +125,14 @@ impl FakeHost {
     }
 
     /// The payload sent to whichever HTTP built-in the call actually used —
-    /// the one-shot `/builtin/http_request` for a blocking endpoint, or
-    /// `/builtin/http_stream/start` for a streaming one. Both take the same
+    /// the one-shot `/builtin/web/http_request` for a blocking endpoint, or
+    /// `/builtin/web/stream/start` for a streaming one. Both take the same
     /// `{url, method, headers, timeout_secs, body?}` shape, so most request-
     /// shape assertions don't need to know which path was taken.
     fn http_payload(&self) -> Value {
-        self.call_named("/builtin/http_request")
-            .or_else(|| self.call_named("/builtin/http_stream/start"))
-            .expect("no /builtin/http_request or /builtin/http_stream/start call was made")
+        self.call_named("/builtin/web/http_request")
+            .or_else(|| self.call_named("/builtin/web/stream/start"))
+            .expect("no /builtin/web/http_request or /builtin/web/stream/start call was made")
     }
 
     /// The JSON request body actually sent to Ollama.
@@ -219,21 +219,21 @@ fn base_url_precedence_params_over_env() {
     // No get_env call for the base url — params win before it is consulted.
     host.push_secret_unconfigured();
     host.push_env_miss();
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    let out = run(&host, "version", json!({ "base_url": "http://box:9999" }));
+    let out = run(&host, "list_models", json!({ "base_url": "http://box:9999" }));
 
     assert!(out.success, "{:?}", out.message);
     assert_eq!(
         host.http_payload()["url"],
-        json!("http://box:9999/api/version")
+        json!("http://box:9999/api/tags")
     );
     assert!(
         !host
             .calls
             .borrow()
             .iter()
-            .any(|(n, p)| n == "/builtin/get_env" && p["key"] == "OLLAMA_HOST"),
+            .any(|(n, p)| n == "/builtin/env/get_env" && p["key"] == "OLLAMA_HOST"),
         "params.base_url should short-circuit the OLLAMA_HOST lookup"
     );
 }
@@ -244,23 +244,23 @@ fn base_url_falls_back_to_env_then_default() {
     host.push_ok(json!({ "value": "0.0.0.0:11434" }));
     host.push_secret_unconfigured();
     host.push_env_miss();
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    run(&host, "version", json!({}));
+    run(&host, "list_models", json!({}));
     assert_eq!(
         host.http_payload()["url"],
-        json!("http://127.0.0.1:11434/api/version")
+        json!("http://127.0.0.1:11434/api/tags")
     );
 
     // And with a null env value, the compiled-in default.
     let host = FakeHost::new();
     queue_no_config(&host);
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    run(&host, "version", json!({}));
+    run(&host, "list_models", json!({}));
     assert_eq!(
         host.http_payload()["url"],
-        json!("http://localhost:11434/api/version")
+        json!("http://localhost:11434/api/tags")
     );
 }
 
@@ -269,11 +269,8 @@ fn base_url_falls_back_to_env_then_default() {
 #[test]
 fn streaming_endpoints_send_stream_true() {
     for (fn_name, params) in [
-        ("generate", json!({ "model": "m", "prompt": "hi" })),
         ("chat", json!({ "model": "m", "messages": [] })),
         ("pull_model", json!({ "model": "m" })),
-        ("push_model", json!({ "model": "m" })),
-        ("create_model", json!({ "model": "m", "from": "base" })),
     ] {
         let host = FakeHost::new();
         queue_no_config(&host);
@@ -286,7 +283,7 @@ fn streaming_endpoints_send_stream_true() {
             "{fn_name} must send stream:true and drive http_stream/start"
         );
         assert!(
-            host.call_names().contains(&"/builtin/http_stream/start".to_string()),
+            host.call_names().contains(&"/builtin/web/stream/start".to_string()),
             "{fn_name} must call http_stream/start"
         );
     }
@@ -319,27 +316,27 @@ fn streaming_chunks_are_logged_to_the_console_and_folded_into_one_result() {
     queue_no_config(&host);
     host.push_stream(
         200,
-        "{\"response\":\"Hel\",\"done\":false}\n\
-         {\"response\":\"lo\",\"done\":true,\"total_duration\":100}",
+        "{\"message\":{\"content\":\"Hel\"},\"done\":false}\n\
+         {\"message\":{\"content\":\"lo\"},\"done\":true,\"total_duration\":100}",
     );
 
-    let out = run(&host, "generate", json!({ "model": "m", "prompt": "hi" }));
+    let out = run(&host, "chat", json!({ "model": "m", "messages": [] }));
 
     assert!(out.success, "{:?}", out.message);
-    // The two `response` deltas are concatenated into one final string,
-    // exactly like the old single blocking response used to carry.
-    assert_eq!(out.output["response"], json!("Hello"));
+    // The two `message.content` deltas are concatenated into one final
+    // string, exactly like the old single blocking response used to carry.
+    assert_eq!(out.output["message"]["content"], json!("Hello"));
     assert_eq!(out.output["done"], json!(true));
     assert_eq!(out.output["total_duration"], json!(100));
 
     let prints = host.calls_named("/builtin/console/print");
     assert_eq!(prints.len(), 2, "{prints:?}");
     assert_eq!(prints[0]["message"], json!("Hel"));
-    assert_eq!(prints[0]["data"]["response"], json!("Hel"));
+    assert_eq!(prints[0]["data"]["message"]["content"], json!("Hel"));
     assert_eq!(prints[1]["message"], json!("lo"));
     assert_eq!(prints[0]["level"], json!("chunk"));
 
-    assert!(host.call_names().contains(&"/builtin/http_stream/close".to_string()));
+    assert!(host.call_names().contains(&"/builtin/web/stream/close".to_string()));
 }
 
 #[test]
@@ -357,10 +354,10 @@ fn mid_stream_cancellation_closes_the_stream_and_fails_the_outcome() {
     assert!(!out.success);
     assert_eq!(kind(&out), "cancelled");
     assert!(
-        !host.call_names().contains(&"/builtin/http_stream/poll".to_string()),
+        !host.call_names().contains(&"/builtin/web/stream/poll".to_string()),
         "a stream cancelled before its first poll must not poll"
     );
-    assert!(host.call_names().contains(&"/builtin/http_stream/close".to_string()));
+    assert!(host.call_names().contains(&"/builtin/web/stream/close".to_string()));
 }
 
 #[test]
@@ -408,7 +405,7 @@ fn no_passthrough_list_contains_stream() {
 
 #[test]
 fn get_endpoints_send_no_body_and_no_content_type() {
-    for fn_name in ["list_models", "ps", "version"] {
+    for fn_name in ["list_models"] {
         let host = FakeHost::new();
         queue_no_config(&host);
         host.push_http(200, r#"{"models":[]}"#);
@@ -426,20 +423,6 @@ fn get_endpoints_send_no_body_and_no_content_type() {
 }
 
 #[test]
-fn delete_model_sends_delete_with_a_body() {
-    let host = FakeHost::new();
-    queue_no_config(&host);
-    host.push_http(200, "");
-
-    run(&host, "delete_model", json!({ "model": "junk:latest" }));
-    let payload = host.http_payload();
-
-    assert_eq!(payload["method"], json!("DELETE"));
-    assert_eq!(payload["url"], json!("http://localhost:11434/api/delete"));
-    assert_eq!(host.http_body()["model"], json!("junk:latest"));
-}
-
-#[test]
 fn passthrough_params_are_forwarded_and_unknown_ones_dropped() {
     let host = FakeHost::new();
     queue_no_config(&host);
@@ -447,10 +430,10 @@ fn passthrough_params_are_forwarded_and_unknown_ones_dropped() {
 
     run(
         &host,
-        "generate",
+        "chat",
         json!({
             "model": "m",
-            "prompt": "hi",
+            "messages": [],
             "options": { "temperature": 0 },
             "think": true,
             // Handled locally, never forwarded:
@@ -480,72 +463,13 @@ fn null_valued_optional_params_are_omitted() {
 
     run(
         &host,
-        "generate",
-        json!({ "model": "m", "prompt": "hi", "suffix": null, "options": null }),
+        "chat",
+        json!({ "model": "m", "messages": [], "format": null, "options": null }),
     );
 
     let body = host.http_body();
-    assert!(body.get("suffix").is_none());
+    assert!(body.get("format").is_none());
     assert!(body.get("options").is_none());
-}
-
-// ── legacy embeddings ────────────────────────────────────────────────────────
-
-#[test]
-fn legacy_embed_retargets_and_renames_input() {
-    let host = FakeHost::new();
-    queue_no_config(&host);
-    host.push_http(200, r#"{"embedding":[0.1,0.2]}"#);
-
-    let out = run(
-        &host,
-        "embed",
-        json!({ "model": "m", "input": "alpha", "legacy": true }),
-    );
-
-    assert!(out.success, "{:?}", out.message);
-    assert_eq!(
-        host.http_payload()["url"],
-        json!("http://localhost:11434/api/embeddings")
-    );
-    let body = host.http_body();
-    assert_eq!(body["prompt"], json!("alpha"));
-    assert!(body.get("input").is_none());
-}
-
-#[test]
-fn legacy_embed_rejects_array_input() {
-    let host = FakeHost::new();
-    host.push_env_miss();
-
-    let out = run(
-        &host,
-        "embed",
-        json!({ "model": "m", "input": ["a", "b"], "legacy": true }),
-    );
-
-    assert!(!out.success);
-    assert_eq!(kind(&out), "bad_params");
-    assert!(
-        !host.call_names().contains(&"/builtin/http_request".to_string()),
-        "a rejected legacy embed must not issue a request"
-    );
-}
-
-#[test]
-fn non_legacy_embed_uses_the_modern_endpoint() {
-    let host = FakeHost::new();
-    queue_no_config(&host);
-    host.push_http(200, r#"{"embeddings":[[0.1],[0.2]]}"#);
-
-    let out = run(&host, "embed", json!({ "model": "m", "input": ["a", "b"] }));
-
-    assert!(out.success);
-    assert_eq!(
-        host.http_payload()["url"],
-        json!("http://localhost:11434/api/embed")
-    );
-    assert_eq!(host.http_body()["input"], json!(["a", "b"]));
 }
 
 // ── error mapping ────────────────────────────────────────────────────────────
@@ -556,7 +480,7 @@ fn transport_failure_from_host_err() {
     queue_no_config(&host);
     host.push_err("http request failed: connection refused");
 
-    let out = run(&host, "version", json!({}));
+    let out = run(&host, "list_models", json!({}));
 
     assert!(!out.success);
     assert_eq!(kind(&out), "transport");
@@ -570,7 +494,7 @@ fn transport_failure_from_unsuccessful_call() {
     queue_no_config(&host);
     host.push_fail("something went wrong");
 
-    let out = run(&host, "version", json!({}));
+    let out = run(&host, "list_models", json!({}));
 
     assert!(!out.success);
     assert_eq!(kind(&out), "transport");
@@ -582,7 +506,7 @@ fn non_2xx_maps_to_http_status_with_ollamas_error_text() {
     queue_no_config(&host);
     host.push_http(404, r#"{"error":"model \"x\" not found"}"#);
 
-    let out = run(&host, "show_model", json!({ "model": "x" }));
+    let out = run(&host, "list_models", json!({}));
 
     assert!(!out.success);
     assert_eq!(kind(&out), "http_status");
@@ -596,7 +520,7 @@ fn non_2xx_without_an_error_field_echoes_the_body() {
     queue_no_config(&host);
     host.push_http(502, "<html>bad gateway</html>");
 
-    let out = run(&host, "version", json!({}));
+    let out = run(&host, "list_models", json!({}));
 
     assert_eq!(kind(&out), "http_status");
     assert!(out.message.unwrap().contains("bad gateway"));
@@ -618,12 +542,11 @@ fn two_hundred_with_an_error_object_is_a_failure() {
 
 #[test]
 fn empty_200_body_becomes_status_success() {
-    // /api/copy and /api/delete answer 200 with no body at all.
     let host = FakeHost::new();
     queue_no_config(&host);
     host.push_http(200, "");
 
-    let out = run(&host, "copy_model", json!({ "source": "a", "destination": "b" }));
+    let out = run(&host, "list_models", json!({}));
 
     assert!(out.success, "{:?}", out.message);
     assert_eq!(out.output, json!({ "status": "success" }));
@@ -635,13 +558,13 @@ fn non_utf8_body_is_reported() {
     queue_no_config(&host);
     host.push_ok(json!({
         "status": 200,
-        "url": "http://localhost:11434/api/version",
+        "url": "http://localhost:11434/api/tags",
         "headers": {},
         "body": "AAECAw==",
         "body_encoding": "base64",
     }));
 
-    let out = run(&host, "version", json!({}));
+    let out = run(&host, "list_models", json!({}));
 
     assert!(!out.success);
     assert_eq!(kind(&out), "non_utf8");
@@ -681,16 +604,16 @@ fn unknown_and_absent_fn_names() {
 fn malformed_params() {
     let host = FakeHost::new();
 
-    let out = solx_ollama::dispatch(&host, Some("version"), "not json");
+    let out = solx_ollama::dispatch(&host, Some("list_models"), "not json");
     assert_eq!(kind(&out), "bad_params");
 
-    let out = solx_ollama::dispatch(&host, Some("version"), "[1,2,3]");
+    let out = solx_ollama::dispatch(&host, Some("list_models"), "[1,2,3]");
     assert_eq!(kind(&out), "bad_params");
 
     // A bare `null` is how "no arguments" arrives; it must not be an error.
     queue_no_config(&host);
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
-    let out = solx_ollama::dispatch(&host, Some("version"), "null");
+    host.push_http(200, r#"{"models":[]}"#);
+    let out = solx_ollama::dispatch(&host, Some("list_models"), "null");
     assert!(out.success, "{:?}", out.message);
 }
 
@@ -700,15 +623,15 @@ fn malformed_params() {
 fn inline_api_key_wins_and_skips_secret_lookup() {
     let host = FakeHost::new();
     host.push_env_miss();
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    run(&host, "version", json!({ "api_key": "sk-inline" }));
+    run(&host, "list_models", json!({ "api_key": "sk-inline" }));
 
     assert_eq!(
         host.http_payload()["headers"]["authorization"],
         json!("Bearer sk-inline")
     );
-    assert!(!host.call_names().contains(&"/builtin/get_secret".to_string()));
+    assert!(!host.call_names().contains(&"/builtin/secrets/get_secret".to_string()));
 }
 
 #[test]
@@ -716,9 +639,9 @@ fn convention_secret_is_used_when_present() {
     let host = FakeHost::new();
     host.push_env_miss();
     host.push_ok(json!({ "value": "sk-stored" }));
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    run(&host, "version", json!({}));
+    run(&host, "list_models", json!({}));
 
     assert_eq!(
         host.http_payload()["headers"]["authorization"],
@@ -732,9 +655,9 @@ fn unconfigured_convention_secret_is_silent() {
     // and crucially no error.
     let host = FakeHost::new();
     queue_no_config(&host);
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    let out = run(&host, "version", json!({}));
+    let out = run(&host, "list_models", json!({}));
 
     assert!(out.success, "{:?}", out.message);
     assert!(host.http_payload()["headers"].get("authorization").is_none());
@@ -747,9 +670,9 @@ fn configured_but_empty_convention_secret_is_also_silent() {
     // Key configured, nothing stored: get_secret succeeds with a null value.
     host.push_ok(json!({ "value": Value::Null }));
     host.push_env_miss();
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    let out = run(&host, "version", json!({}));
+    let out = run(&host, "list_models", json!({}));
 
     assert!(out.success, "{:?}", out.message);
     assert!(host.http_payload()["headers"].get("authorization").is_none());
@@ -763,11 +686,11 @@ fn explicit_auth_secret_name_failure_is_fatal() {
     host.push_env_miss();
     host.push_err("no key configured for secret MY_TOKEN");
 
-    let out = run(&host, "version", json!({ "auth_secret_name": "MY_TOKEN" }));
+    let out = run(&host, "list_models", json!({ "auth_secret_name": "MY_TOKEN" }));
 
     assert!(!out.success);
     assert_eq!(kind(&out), "auth");
-    assert!(!host.call_names().contains(&"/builtin/http_request".to_string()));
+    assert!(!host.call_names().contains(&"/builtin/web/http_request".to_string()));
 }
 
 #[test]
@@ -776,7 +699,7 @@ fn explicit_auth_secret_name_with_no_stored_value_is_fatal() {
     host.push_env_miss();
     host.push_ok(json!({ "value": Value::Null }));
 
-    let out = run(&host, "version", json!({ "auth_secret_name": "MY_TOKEN" }));
+    let out = run(&host, "list_models", json!({ "auth_secret_name": "MY_TOKEN" }));
 
     assert!(!out.success);
     assert_eq!(kind(&out), "auth");
@@ -788,9 +711,9 @@ fn env_token_is_the_last_resort() {
     host.push_env_miss();
     host.push_secret_unconfigured();
     host.push_ok(json!({ "value": "sk-from-env" }));
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
-    run(&host, "version", json!({}));
+    run(&host, "list_models", json!({}));
 
     assert_eq!(
         host.http_payload()["headers"]["authorization"],
@@ -802,11 +725,11 @@ fn env_token_is_the_last_resort() {
 fn resolved_auth_overrides_a_caller_supplied_authorization_header() {
     let host = FakeHost::new();
     host.push_env_miss();
-    host.push_http(200, r#"{"version":"0.5.0"}"#);
+    host.push_http(200, r#"{"models":[]}"#);
 
     run(
         &host,
-        "version",
+        "list_models",
         json!({
             "api_key": "sk-real",
             "headers": { "Authorization": "Bearer stale", "X-Trace": "abc" },
@@ -829,7 +752,7 @@ fn set_api_key_writes_the_hardcoded_secret_name() {
     let out = run(&host, "set_api_key", json!({ "value": "sk-abc", "name": "EVIL" }));
 
     assert!(out.success, "{:?}", out.message);
-    let payload = host.call_named("/builtin/set_secret").unwrap();
+    let payload = host.call_named("/builtin/secrets/set_secret").unwrap();
     assert_eq!(payload["name"], json!(config::DEFAULT_SECRET));
     assert_eq!(payload["value"], json!("sk-abc"));
 }
@@ -931,7 +854,7 @@ fn endpoint_table_is_well_formed() {
             );
         }
     }
-    assert_eq!(seen.len(), 12, "endpoint count changed - update install.solx");
+    assert_eq!(seen.len(), 3, "endpoint count changed - update install.solx");
 }
 
 // ── vendored wit ─────────────────────────────────────────────────────────────

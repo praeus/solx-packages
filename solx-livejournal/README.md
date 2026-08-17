@@ -49,8 +49,8 @@ interrupted run resumes at the first page it did not finish. With no cursor set,
 the harvest starts at page one.
 
 ```
-solx exec /builtin/get_env --json '{"namespace":"livejournal","key":"<user>"}'
-solx exec /builtin/set_env --json '{"namespace":"livejournal","key":"<user>","value":"/"}'
+solx exec /builtin/env/get_env --json '{"namespace":"livejournal","key":"<user>"}'
+solx exec /builtin/env/set_env --json '{"namespace":"livejournal","key":"<user>","value":"/"}'
 ```
 
 To clear the cursor entirely and start over, delete the entry from `env_vars` in

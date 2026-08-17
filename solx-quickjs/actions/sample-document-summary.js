@@ -7,14 +7,14 @@ import { exec } from "sol:actions/action-exec@0.1.0";
 export const runner = {
   run(actionName, params) {
     const input = JSON.parse(params || "{}");
-    const listResult = exec("/builtin/entity_list_documents", JSON.stringify({}));
+    const listResult = exec("/builtin/document/entity_list_documents", JSON.stringify({}));
     if (!listResult.success) {
       return { success: false, message: listResult.message || "list documents failed", output: null };
     }
 
     const documents = JSON.parse(listResult.output || "{}").items || [];
     const summary = documents.slice(0, input.limit || 10).map((doc) => {
-      const getResult = exec("/builtin/entity_get_document", JSON.stringify({ path: doc.path, name: doc.name }));
+      const getResult = exec("/builtin/document/entity_get_document", JSON.stringify({ path: doc.path, name: doc.name }));
       if (!getResult.success) {
         return { name: doc.name, firstLine: null, error: getResult.message || "get document failed" };
       }

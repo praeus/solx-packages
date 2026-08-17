@@ -5,7 +5,7 @@
 ## Implementation status
 
 - **v1 (core package)** — shipped 2026-08-14. `d:\Projects\solx-packages\solx-media\` exists with 26 files, 5 actions registered, `MediaDocument` JSON-Schema registered in `solx-types/seed.rs`. 18/18 unit tests passing (including 3 FU-1 return-shape tests). Release binary at `bin/solx-media.exe`.
-- **FU-1: return-docs mode for solx-media** — shipped 2026-08-14. `--return` flag in `argv[2]` switches every extraction mode to caller-persists semantics. 4 new actions registered (`solx-media-image-return`, `-audio-return`, `-video-return`, `-materialize-html-return`). Implementation: `src/main.rs::return_document()` + `argv[2]` detection + per-mode branch.
+- **FU-1: return-docs mode for solx-media** — shipped 2026-08-14, **removed 2026-08-17** in an action-audit pass. `--return` flag in `argv[2]` switched every extraction mode to caller-persists semantics via 4 actions (`solx-media-image-return`, `-audio-return`, `-video-return`, `-materialize-html-return`). Removed because the persisting actions already soft-fail to returning the raw document (with an empty `saved` list) on a `/docs/save` failure — the `-return` variants were a duplicate of what a user/model would actually invoke, not a distinct capability. `return_document()`/`return_mode` plumbing removed from `src/main.rs` along with the action registrations.
 - **FU-2: write-docs mode for solx-omniparse** — shipped 2026-08-14. `--write` flag in `argv[1]` triggers `POST /docs/save` of the extracted text before printing. 1 new action registered (`solx-omniparse-process-file-write`). Implementation: `src/persist.rs` + `write_to_solx_server()` in main.rs + `#[tokio::main(flavor = "current_thread")]` (reqwest needs a Tokio reactor; `pollster::block_on` alone isn't enough).
 - **FU-3: `rel_path` input** — not started; documented in the original plan's "Followups (post-v1)" section at the bottom of this file.
 
@@ -504,7 +504,7 @@ Workflow author who wants the document in a script without server-side persist:
 
 ```solx
 exec /packages/solx-media/solx-media-image-return --json '{"source_path":"C:/x.png"}' as $doc;
-exec /builtin/entity_save_document --json '{path:"/media", name:$doc.document_name, document:$doc.document}';
+exec /builtin/document/entity_save_document --json '{path:"/media", name:$doc.document_name, document:$doc.document}';
 ```
 
 ## Followup 2 — implementation plan: `solx-omniparse` write-docs mode (FU-2)
@@ -575,14 +575,17 @@ The omniparse binary's value comes from the OCR + format-detection + multi-tier 
 ### Caller patterns after FU-2
 
 ```solx
-# Caller persists manually (v1):
-exec /packages/solx-omniparse/solx-omniparse-process-file --json '{...}' as $result;
-exec /builtin/entity_save_document --json '{path:"/docs/preprocessed",name:"x",document:{"text":$result.bytes_base64,"mime":"text/plain"}}';
-
-# Caller lets the action persist (FU-2):
+# The action persists itself (FU-2):
 exec /packages/solx-omniparse/solx-omniparse-process-file-write --json '{...}' as $saved;
 # $saved.saved[0].path is the persisted path; $saved.result has the raw bytes.
 ```
+
+**Update (action-audit pass):** the v1 `solx-omniparse-process-file` action
+(caller-persists-manually) was removed from `install.solx` — a duplicate of
+what a user/model would actually invoke, since `-write` is the one that
+creates a document directly and already soft-falls-back to a raw
+(unsaved) result if the server is unreachable. The binary's raw-extraction
+code path is unchanged internally; only the standalone registration is gone.
 
 ## Implementation order
 

@@ -82,14 +82,7 @@ async fn main() {
             std::process::exit(2);
         }
     };
-    // FU-1: `--return` flag in argv[2] switches every extraction mode to
-    // "return document, don't persist" semantics. install-whisper-model is
-    // unchanged.
-    let return_mode = std::env::args().nth(2).as_deref() == Some("--return");
-    solx_package_log::info(&format!(
-        "solx-media invoked; mode={mode}; return_mode={return_mode}; config=ok"
-    ))
-    .await;
+    solx_package_log::info(&format!("solx-media invoked; mode={mode}; config=ok")).await;
 
     // Apply config-file overrides on top of env defaults. Env vars still win
     // because we only apply the file override when the env var didn't set a
@@ -103,10 +96,10 @@ async fn main() {
         .expect("failed to build HTTP client");
 
     let result: Result<Value, String> = match mode.as_str() {
-        "image" => mode_image(&http_client, &cfg, &input, return_mode).await,
-        "audio" => mode_audio(&http_client, &cfg, &input, return_mode).await,
-        "video" => mode_video(&http_client, &cfg, &input, return_mode).await,
-        "materialize-html" => mode_materialize_html(&cfg, &input, return_mode).await,
+        "image" => mode_image(&http_client, &cfg, &input).await,
+        "audio" => mode_audio(&http_client, &cfg, &input).await,
+        "video" => mode_video(&http_client, &cfg, &input).await,
+        "materialize-html" => mode_materialize_html(&cfg, &input).await,
         "install-whisper-model" => mode_install_whisper(&cfg, &input).await,
         other => Err(format!("unknown mode '{other}'")),
     };
@@ -140,7 +133,6 @@ async fn mode_image(
     client: &reqwest::Client,
     cfg: &MediaConfig,
     input: &Value,
-    return_mode: bool,
 ) -> Result<Value, String> {
     let source_path = require_source_path(input)?;
     let source_path_str = source_path.to_string_lossy().into_owned();
@@ -151,18 +143,13 @@ async fn mode_image(
     let bytes = std::fs::read(&source_path)
         .map_err(|e| format!("failed reading source '{source_path_str}': {e}"))?;
     let doc = vision::run_image(client, &bytes, file_name.as_deref(), cfg).await?;
-    if return_mode {
-        return_document(doc)
-    } else {
-        save_and_summarize(client, cfg, doc).await
-    }
+    save_and_summarize(client, cfg, doc).await
 }
 
 async fn mode_audio(
     client: &reqwest::Client,
     cfg: &MediaConfig,
     input: &Value,
-    return_mode: bool,
 ) -> Result<Value, String> {
     let source_path = require_source_path(input)?;
     let source_path_str = source_path.to_string_lossy().into_owned();
@@ -173,18 +160,13 @@ async fn mode_audio(
     let bytes = std::fs::read(&source_path)
         .map_err(|e| format!("failed reading source '{source_path_str}': {e}"))?;
     let doc = audio::run_audio(client, &bytes, file_name.as_deref(), cfg).await?;
-    if return_mode {
-        return_document(doc)
-    } else {
-        save_and_summarize(client, cfg, doc).await
-    }
+    save_and_summarize(client, cfg, doc).await
 }
 
 async fn mode_video(
     client: &reqwest::Client,
     cfg: &MediaConfig,
     input: &Value,
-    return_mode: bool,
 ) -> Result<Value, String> {
     let source_path = require_source_path(input)?;
     let source_path_str = source_path.to_string_lossy().into_owned();
@@ -195,18 +177,10 @@ async fn mode_video(
     let bytes = std::fs::read(&source_path)
         .map_err(|e| format!("failed reading source '{source_path_str}': {e}"))?;
     let doc = video::run_video(client, &bytes, file_name.as_deref(), cfg).await?;
-    if return_mode {
-        return_document(doc)
-    } else {
-        save_and_summarize(client, cfg, doc).await
-    }
+    save_and_summarize(client, cfg, doc).await
 }
 
-async fn mode_materialize_html(
-    cfg: &MediaConfig,
-    input: &Value,
-    return_mode: bool,
-) -> Result<Value, String> {
+async fn mode_materialize_html(cfg: &MediaConfig, input: &Value) -> Result<Value, String> {
     let source_path = input
         .get("source_path")
         .and_then(|v| v.as_str())
@@ -221,64 +195,8 @@ async fn mode_materialize_html(
         input,
     )
     .await?;
-    if return_mode {
-        return_document(doc)
-    } else {
-        let http_client = reqwest::Client::new();
-        save_and_summarize(&http_client, cfg, doc).await
-    }
-}
-
-// Caller-persists output shape. Returns the raw MediaDocument wrapped
-// in a thin envelope (`kind` + `document_name` for caller convenience, plus
-// the full `document` so they can pass it straight to `entity_save_document`).
-fn return_document(doc: Value) -> Result<Value, String> {
-    let kind = doc
-        .get("kind")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "MediaDocument missing 'kind' field".to_string())?
-        .to_string();
-    let document_name = doc
-        .get("document_name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "MediaDocument missing 'document_name' field".to_string())?
-        .to_string();
-    Ok(json!({
-        "kind": kind,
-        "document_name": document_name,
-        "document": doc,
-    }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn return_document_envelope_shape() {
-        let doc = json!({
-            "kind": "image-text",
-            "document_name": "cat-photo",
-            "title": "Cat",
-            "contents": { "extracted_text": "a cat" },
-        });
-        let out = return_document(doc.clone()).unwrap();
-        assert_eq!(out["kind"], "image-text");
-        assert_eq!(out["document_name"], "cat-photo");
-        assert_eq!(out["document"], doc);
-    }
-
-    #[test]
-    fn return_document_rejects_missing_kind() {
-        let doc = json!({"document_name": "x", "contents": {}});
-        assert!(return_document(doc).is_err());
-    }
-
-    #[test]
-    fn return_document_rejects_missing_name() {
-        let doc = json!({"kind": "image-text", "contents": {}});
-        assert!(return_document(doc).is_err());
-    }
+    let http_client = reqwest::Client::new();
+    save_and_summarize(&http_client, cfg, doc).await
 }
 
 async fn mode_install_whisper(cfg: &MediaConfig, input: &Value) -> Result<Value, String> {
@@ -313,7 +231,7 @@ async fn save_and_summarize(
         }
         Err(e) => {
             // Soft failure: still return the document so the caller can
-            // persist it themselves (FU-1: return-documents mode).
+            // persist it themselves.
             solx_package_log::warn(&format!(
                 "docs/save failed (soft): {e}; returning document to caller"
             ))

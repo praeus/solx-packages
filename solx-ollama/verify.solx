@@ -1,7 +1,2 @@
-exec /packages/solx-ollama/ollama-version --json '{}';
 exec /packages/solx-ollama/ollama-list-models --json '{}';
-exec /packages/solx-ollama/ollama-ps --json '{}';
-exec /packages/solx-ollama/ollama-show-model --json '{"model":"qwen3:4b"}';
-exec /packages/solx-ollama/ollama-generate --json '{"model":"qwen3:4b","prompt":"Reply with the single word OK.","think":false,"options":{"num_predict":8,"temperature":0}}';
-exec /packages/solx-ollama/ollama-chat --json '{"model":"qwen3:4b","messages":[{"role":"user","content":"Reply with the single word OK."}],"think":false,"options":{"num_predict":8,"temperature":0}}';
-exec /packages/solx-ollama/ollama-embed --json '{"model":"qwen3:4b","input":["alpha","beta"]}'
+exec /packages/solx-ollama/ollama-chat --json '{"model":"qwen3:4b","messages":[{"role":"user","content":"Reply with the single word OK."}],"think":false,"options":{"num_predict":8,"temperature":0}}'

@@ -2,15 +2,15 @@
 //!
 //! Two call shapes, chosen by `ep.streaming`:
 //!
-//! * [`call_blocking`] — the original path, through `/builtin/http_request`.
+//! * [`call_blocking`] — the original path, through `/builtin/web/http_request`.
 //!   `http_request` treats a non-2xx as a *successful call that returned a
 //!   status* — it only errors on transport failure. That split is preserved
 //!   here as two distinct failure kinds (`transport` vs `http_status`),
 //!   because they mean very different things to a caller: one says the
 //!   server is unreachable, the other says the server rejected the request.
-//! * [`call_streaming`] — for endpoints Ollama can stream (`generate`,
-//!   `chat`, `pull_model`, `push_model`, `create_model`). Drives the call
-//!   through `/builtin/http_stream/*` (`solx-actions`): starts the request,
+//! * [`call_streaming`] — for endpoints Ollama can stream (`chat`,
+//!   `pull_model`). Drives the call
+//!   through `/builtin/web/stream/*` (`solx-actions`): starts the request,
 //!   then repeatedly polls, emitting each NDJSON chunk to the action's own
 //!   console and folding it into a running aggregate, checking
 //!   `/builtin/action/cancelled` between polls so a `action_stop` on a
@@ -23,7 +23,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::config;
-use crate::endpoint::{self, Endpoint, StreamKind, LEGACY_EMBED_PATH};
+use crate::endpoint::{self, Endpoint, StreamKind};
 use crate::host::{truncate, Host, Outcome};
 
 /// Longest error body echoed back in the failure output.
@@ -55,23 +55,14 @@ struct PreparedRequest {
 }
 
 fn prepare_request(host: &dyn Host, ep: &Endpoint, params: &Value) -> Result<PreparedRequest, Outcome> {
-    let mut body = endpoint::build_body(ep, params).map_err(|missing| {
+    let body = endpoint::build_body(ep, params).map_err(|missing| {
         Outcome::fail(
             "bad_params",
             format!("{} requires: {}", ep.fn_name, missing.join(", ")),
             json!({ "missing": missing }),
         )
     })?;
-
-    // `legacy: true` on `embed` retargets the older single-prompt endpoint,
-    // which names the field `prompt` and accepts only a string.
-    let mut path = ep.path;
-    if ep.fn_name == "embed" && params.get("legacy").and_then(Value::as_bool) == Some(true) {
-        match rewrite_legacy_embed(&mut body) {
-            Ok(()) => path = LEGACY_EMBED_PATH,
-            Err(e) => return Err(Outcome::fail("bad_params", e, json!({}))),
-        }
-    }
+    let path = ep.path;
 
     let base = config::resolve_base_url(host, params);
     let url = format!("{base}{path}");
@@ -128,7 +119,7 @@ fn call_blocking(host: &dyn Host, ep: &Endpoint, params: &Value) -> Outcome {
         ep.method, prepared.url, prepared.timeout
     ));
 
-    let call = match host.exec("/builtin/http_request", &prepared.payload) {
+    let call = match host.exec("/builtin/web/http_request", &prepared.payload) {
         Ok(c) => c,
         Err(e) => {
             return Outcome::fail(
@@ -165,7 +156,7 @@ fn call_streaming(host: &dyn Host, ep: &Endpoint, kind: StreamKind, params: &Val
         ep.method, prepared.url, prepared.timeout
     ));
 
-    let start = match host.exec("/builtin/http_stream/start", &prepared.payload) {
+    let start = match host.exec("/builtin/web/stream/start", &prepared.payload) {
         Ok(c) => c,
         Err(e) => {
             return Outcome::fail(
@@ -201,7 +192,7 @@ fn call_streaming(host: &dyn Host, ep: &Endpoint, kind: StreamKind, params: &Val
 
     let stream_error: Option<String> = loop {
         if is_cancelled(host) {
-            let _ = host.exec("/builtin/http_stream/close", &json!({ "stream_id": stream_id }));
+            let _ = host.exec("/builtin/web/stream/close", &json!({ "stream_id": stream_id }));
             return Outcome::fail(
                 "cancelled",
                 format!("{} {} cancelled", ep.method, prepared.url),
@@ -210,13 +201,13 @@ fn call_streaming(host: &dyn Host, ep: &Endpoint, kind: StreamKind, params: &Val
         }
 
         let poll = host.exec(
-            "/builtin/http_stream/poll",
+            "/builtin/web/stream/poll",
             &json!({ "stream_id": stream_id, "cursor": cursor, "wait_secs": POLL_WAIT_SECS }),
         );
         let poll = match poll {
             Ok(c) if c.success => c,
             Ok(c) => {
-                let _ = host.exec("/builtin/http_stream/close", &json!({ "stream_id": stream_id }));
+                let _ = host.exec("/builtin/web/stream/close", &json!({ "stream_id": stream_id }));
                 return Outcome::fail(
                     "transport",
                     format!(
@@ -229,7 +220,7 @@ fn call_streaming(host: &dyn Host, ep: &Endpoint, kind: StreamKind, params: &Val
                 );
             }
             Err(e) => {
-                let _ = host.exec("/builtin/http_stream/close", &json!({ "stream_id": stream_id }));
+                let _ = host.exec("/builtin/web/stream/close", &json!({ "stream_id": stream_id }));
                 return Outcome::fail(
                     "transport",
                     format!("{} {} poll failed: {e}", ep.method, prepared.url),
@@ -253,7 +244,7 @@ fn call_streaming(host: &dyn Host, ep: &Endpoint, kind: StreamKind, params: &Val
         }
     };
 
-    let _ = host.exec("/builtin/http_stream/close", &json!({ "stream_id": stream_id }));
+    let _ = host.exec("/builtin/web/stream/close", &json!({ "stream_id": stream_id }));
 
     if let Some(err) = stream_error {
         return Outcome::fail(
@@ -292,7 +283,6 @@ fn is_cancelled(host: &dyn Host) -> bool {
 /// text `call_streaming` logs to the console.
 struct Aggregate {
     kind: StreamKind,
-    response: String,
     content: String,
     thinking: String,
     last: Value,
@@ -302,7 +292,6 @@ impl Aggregate {
     fn new(kind: StreamKind) -> Self {
         Aggregate {
             kind,
-            response: String::new(),
             content: String::new(),
             thinking: String::new(),
             last: Value::Null,
@@ -311,7 +300,6 @@ impl Aggregate {
 
     fn summarize(&self, chunk: &Value) -> String {
         match self.kind {
-            StreamKind::Generate => chunk.get("response").and_then(Value::as_str).unwrap_or("").to_string(),
             StreamKind::Chat => chunk
                 .pointer("/message/content")
                 .and_then(Value::as_str)
@@ -332,11 +320,6 @@ impl Aggregate {
 
     fn fold(&mut self, chunk: &Value) {
         match self.kind {
-            StreamKind::Generate => {
-                if let Some(s) = chunk.get("response").and_then(Value::as_str) {
-                    self.response.push_str(s);
-                }
-            }
             StreamKind::Chat => {
                 if let Some(s) = chunk.pointer("/message/content").and_then(Value::as_str) {
                     self.content.push_str(s);
@@ -357,9 +340,6 @@ impl Aggregate {
         let mut out = if self.last.is_object() { self.last } else { json!({}) };
         if let Some(obj) = out.as_object_mut() {
             match self.kind {
-                StreamKind::Generate => {
-                    obj.insert("response".to_string(), json!(self.response));
-                }
                 StreamKind::Chat => {
                     if let Some(msg) = obj.get_mut("message").and_then(Value::as_object_mut) {
                         msg.insert("content".to_string(), json!(self.content));
@@ -372,29 +352,6 @@ impl Aggregate {
             }
         }
         out
-    }
-}
-
-/// `/api/embeddings` takes `prompt` (a single string) where `/api/embed`
-/// takes `input` (string or array).
-fn rewrite_legacy_embed(body: &mut Option<Value>) -> Result<(), String> {
-    let Some(obj) = body.as_mut().and_then(Value::as_object_mut) else {
-        return Err("embed: internal error, no request body to rewrite".to_string());
-    };
-    let input = obj.remove("input").unwrap_or(Value::Null);
-    match input {
-        Value::String(s) => {
-            obj.insert("prompt".to_string(), Value::String(s));
-            obj.remove("dimensions");
-            obj.remove("truncate");
-            Ok(())
-        }
-        Value::Array(_) => Err(
-            "embed: legacy mode targets /api/embeddings, which accepts a single \
-             prompt string - pass a string input or drop legacy"
-                .to_string(),
-        ),
-        _ => Err("embed: input must be a string in legacy mode".to_string()),
     }
 }
 
@@ -445,7 +402,7 @@ fn interpret(ep: &Endpoint, path: &str, url: &str, resp: &Value) -> Outcome {
         );
     }
 
-    // /api/copy and /api/delete answer 200 with an empty body.
+    // Some Ollama endpoints answer 200 with an empty body.
     Outcome::ok(if parsed.is_null() {
         json!({ "status": "success" })
     } else {

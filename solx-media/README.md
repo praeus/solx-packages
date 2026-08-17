@@ -6,8 +6,6 @@ Mirrors the structure of [solx-omniparse](../solx-omniparse): one binary, `insta
 
 ## Actions
 
-### Persisting actions (POST `/docs/save` themselves)
-
 | Action | Kind | Description |
 |---|---|---|
 | `solx-media-image` | `command` | Vision-LLM pass on an image → `MediaDocument` (kind=`image-text`) |
@@ -16,25 +14,13 @@ Mirrors the structure of [solx-omniparse](../solx-omniparse): one binary, `insta
 | `solx-media-materialize-html` | `command` | Fetch embedded images from an HTML rich-text payload → `MediaDocument` (kind=`materialized-html`) |
 | `solx-media-install-whisper-model` | `command` | Download + SHA-verify a whisper.cpp ggml model from huggingface |
 
-### Return-actions (FU-1: caller persists)
-
-These mirror the four extraction actions but skip the internal `POST /docs/save`; the caller is responsible for `entity_save_document`. Use them when the workflow needs to inspect or rewrite the document before persistence, or when solx-server isn't available.
-
-| Action | Returns |
-|---|---|
-| `solx-media-image-return` | `{kind, document_name, document: <MediaDocument>}` |
-| `solx-media-audio-return` | same shape |
-| `solx-media-video-return` | same shape |
-| `solx-media-materialize-html-return` | same shape |
-
-Caller pattern:
-
-```solx
-exec /packages/solx-media/solx-media-image-return --json '{"source_path":"C:/x.png"}' as $doc;
-exec /builtin/entity_save_document --json '{path:"/media", name:$doc.document_name, document:$doc.document}';
-```
-
-Persisting actions POST their result to `{SOLX_SERVER_URL}/docs/save` and print a summary on stdout. Saved documents land at `/media/{kind}/{document_name}`.
+Each POSTs its result to `{SOLX_SERVER_URL}/docs/save` itself and prints a
+summary on stdout — this is what a user/model would actually invoke, so a
+separate caller-persists-manually variant isn't registered as an action.
+Saved documents land at `/media/{kind}/{document_name}`. If `/docs/save`
+fails (e.g. solx-server unreachable), the call soft-fails: it still returns
+the full `document` on stdout with an empty `saved` list, so nothing is
+lost — the caller can persist it via `entity_save_document` themselves.
 
 ## Install
 
@@ -156,8 +142,12 @@ solx list docs /media/image-text
 
 ## Followups
 
-- **FU-1**: ✅ shipped — return-docs mode (`*-return` actions).
-- **FU-2**: � in progress — `solx-omniparse-process-file-write` action.
+- **FU-1**: return-docs mode (`*-return` actions) — shipped, then removed in
+  an action-audit pass: each persisting action already soft-fails to
+  returning the raw document on a `/docs/save` failure, so the separate
+  caller-persists-manually actions were a duplicate of what a user/model
+  would invoke, not a distinct capability.
+- **FU-2**: ✅ shipped — `solx-omniparse-process-file-write` action.
 - **FU-3**: not started — `rel_path` input support.
 
 See `../docs/media-actions.md` for the full plan and status.

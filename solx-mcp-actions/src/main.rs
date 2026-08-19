@@ -44,7 +44,7 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
-use config::{Manifest, ManifestEntry, ServersConfig, ToolDescriptor};
+use config::{Manifest, ManifestEntry, ServersConfig, ToolDescriptor, ToolFilter};
 use mcp_client::McpSession;
 
 #[derive(Parser)]
@@ -73,6 +73,16 @@ enum Commands {
         /// which callers may invoke the imported MCP tools.
         #[arg(long)]
         permission_name: Option<String>,
+        /// Only import tools whose raw MCP name matches one of these
+        /// patterns (one `*` wildcard allowed per pattern). Overrides, does
+        /// not merge with, any `tool_filter.include` in mcp-servers.json.
+        #[arg(long)]
+        include: Vec<String>,
+        /// Never import tools whose raw MCP name matches one of these
+        /// patterns, applied after `include`. Overrides, does not merge
+        /// with, any `tool_filter.exclude` in mcp-servers.json.
+        #[arg(long)]
+        exclude: Vec<String>,
     },
     /// Invoke a single MCP tool. Reads {server,tool} from ./tool.json
     /// (process cwd) and call arguments from stdin.
@@ -122,8 +132,8 @@ async fn main() {
     let home = config::resolve_home(cli.home.as_deref());
 
     let result = match cli.command {
-        Commands::Import { server, dry_run, permission_name } => {
-            run_import(&home, server, dry_run, permission_name).await
+        Commands::Import { server, dry_run, permission_name, include, exclude } => {
+            run_import(&home, server, dry_run, permission_name, include, exclude).await
         }
         Commands::Invoke => run_invoke().await,
         Commands::Remove { server } => run_remove(&home, server).await,
@@ -145,11 +155,20 @@ async fn main() {
     }
 }
 
+fn string_array_param(params: &Value, key: &str) -> Option<Vec<String>> {
+    params
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+}
+
 async fn run_import(
     home: &Path,
     server_arg: Option<String>,
     dry_run_flag: bool,
     permission_arg: Option<String>,
+    include_arg: Vec<String>,
+    exclude_arg: Vec<String>,
 ) -> anyhow::Result<Value> {
     let params = stdin_params();
     let server = server_arg
@@ -159,14 +178,30 @@ async fn run_import(
     let permission_name = permission_arg
         .or_else(|| params.get("permission_name").and_then(|v| v.as_str()).map(str::to_string));
 
+    // A CLI/stdin-supplied include or exclude entirely replaces (never
+    // merges with) the server's default `tool_filter` in mcp-servers.json —
+    // see ToolFilter's doc comment for why.
+    let include_override = if include_arg.is_empty() { string_array_param(&params, "include") } else { Some(include_arg) };
+    let exclude_override = if exclude_arg.is_empty() { string_array_param(&params, "exclude") } else { Some(exclude_arg) };
+
     solx_package_log::info(&format!("import: server={server} dry_run={dry_run}")).await;
 
     let servers_cfg = config::load_servers_config(home)?;
     let def = config::find_server(&servers_cfg, &server)?.clone();
 
+    let filter = if include_override.is_some() || exclude_override.is_some() {
+        ToolFilter { include: include_override, exclude: exclude_override }
+    } else {
+        def.tool_filter.clone().unwrap_or_default()
+    };
+
     let session = McpSession::connect(&def).await?;
-    let tools = session.list_tools().await?;
-    solx_package_log::info(&format!("import: discovered {} tools on '{server}'", tools.len())).await;
+    let all_tools = session.list_tools().await?;
+    let discovered = all_tools.len();
+    let tools: Vec<_> = all_tools.into_iter().filter(|t| filter.allows(&t.name)).collect();
+    solx_package_log::info(&format!(
+        "import: discovered {discovered} tools on '{server}', {} pass the filter", tools.len()
+    )).await;
 
     if dry_run {
         let names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
@@ -191,6 +226,28 @@ async fn run_import(
 
     let _ = session.close().await;
 
+    // If a prior import (with a broader filter, or before this server had a
+    // filter at all) created actions for tools that the current filter no
+    // longer selects, remove them now — otherwise a narrowing re-import
+    // would silently leave those old actions orphaned in solx instead of
+    // actually enforcing the new filter.
+    let mut tools_pruned: Vec<String> = Vec::new();
+    if let Ok(old_manifest) = config::load_manifest(home, &server) {
+        let kept: std::collections::HashSet<&str> =
+            manifest_entries.iter().map(|e| e.tool.as_str()).collect();
+        for stale in old_manifest.tools.iter().filter(|e| !kept.contains(e.tool.as_str())) {
+            if let Err(e) = solx::delete_action(&stale.action_name).await {
+                errors.push(json!({ "entity": stale.action_name, "error": e.to_string() }));
+                continue;
+            }
+            if let Err(e) = solx::delete_type(&stale.param_type_name).await {
+                errors.push(json!({ "entity": stale.param_type_name, "error": e.to_string() }));
+            }
+            let _ = std::fs::remove_dir_all(&stale.dir);
+            tools_pruned.push(stale.action_name.clone());
+        }
+    }
+
     let manifest = Manifest {
         server: server.clone(),
         imported_at: unix_timestamp(),
@@ -201,6 +258,7 @@ async fn run_import(
     Ok(json!({
         "server": server,
         "tools_imported": manifest_entries.iter().map(|e| e.action_name.clone()).collect::<Vec<_>>(),
+        "tools_pruned": tools_pruned,
         "errors": errors,
     }))
 }

@@ -1,14 +1,34 @@
 {
   "servers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:/Projects/solx-packages"],
-      "env": {}
-    },
     "firefox": {
       "command": "npx",
       "args": ["-y", "@mozilla/firefox-devtools-mcp@latest", "--connect-existing", "--marionette-port", "2828", "--tool-preset", "developer"],
-      "env": {}
+      "env": {},
+      "tool_filter": {
+        "include": [
+          "list_pages",
+          "new_page",
+          "navigate_page",
+          "select_page",
+          "close_page",
+          "navigate_history",
+          "take_snapshot",
+          "resolve_uid_to_selector",
+          "screenshot_page",
+          "screenshot_by_uid",
+          "list_console_messages",
+          "list_network_requests",
+          "get_network_request",
+          "click_by_uid",
+          "fill_by_uid",
+          "fill_form_by_uid",
+          "hover_by_uid",
+          "drag_by_uid_to_uid",
+          "upload_file_by_uid",
+          "accept_dialog",
+          "dismiss_dialog"
+        ]
+      }
     }
   }
 }

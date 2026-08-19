@@ -26,9 +26,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
-static FFMPEG_SETUP: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+static FFMPEG_SETUP: Mutex<Option<Result<PathBuf, String>>> = Mutex::new(None);
 
 /// When `1`/`true`, force the "use local ffmpeg, never auto-download"
 /// path even if `bin/ffmpeg.exe` is missing. Useful for reproducible CI
@@ -40,9 +40,13 @@ const FORCE_LOCAL_ENV: &str = "SOLX_MEDIA_FORCE_LOCAL_FFMPEG";
 /// ffmpeg is reachable. Returns the resolved binary path so the caller
 /// can pass it to `FfmpegCommand` if needed.
 pub fn ensure_ffmpeg_available() -> Result<PathBuf, String> {
-    FFMPEG_SETUP
-        .get_or_init(|| resolve_and_verify_ffmpeg())
-        .clone()
+    let mut guard = FFMPEG_SETUP.lock().unwrap();
+    if let Some(cached) = guard.as_ref() {
+        return cached.clone();
+    }
+    let result = resolve_and_verify_ffmpeg();
+    *guard = Some(result.clone());
+    result
 }
 
 fn resolve_and_verify_ffmpeg() -> Result<PathBuf, String> {
@@ -142,11 +146,11 @@ fn force_local_env_is_truthy() -> bool {
 
 /// Test-only helper. Drop the cached result so the next
 /// `ensure_ffmpeg_available()` re-runs verification. Currently unused
-/// outside tests; kept as a doc anchor for the `OnceLock` semantics.
+/// outside tests; kept as a doc anchor for the `Mutex` semantics.
 #[cfg(test)]
 pub(crate) fn reset_for_test() {
     // Safe: tests don't run concurrently with the main process.
-    FFMPEG_SETUP.take();
+    *FFMPEG_SETUP.lock().unwrap() = None;
 }
 
 // Helper retained for callers that might want to know if a path is the

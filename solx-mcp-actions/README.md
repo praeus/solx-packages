@@ -90,9 +90,9 @@ Create `mcp-servers.json` in the solx-mcp-actions package directory:
 ```json
 {
   "servers": {
-    "filesystem": {
+    "git": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/path/to/dir"],
+      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "C:/path/to/repo"],
       "env": {}
     }
   }
@@ -109,24 +109,68 @@ shell.
 **plaintext**. A natural future improvement is resolving `"$SECRET:NAME"`
 placeholders through solx's secret store — out of scope for this phase.
 
+### Filtering which tools get imported
+
+Most real MCP servers expose far more tools than are actually useful once
+imported as solx actions — a server can add `tool_filter` to keep only the
+ones you want:
+
+```json
+{
+  "servers": {
+    "firefox": {
+      "command": "npx",
+      "args": ["-y", "@mozilla/firefox-devtools-mcp@latest"],
+      "env": {},
+      "tool_filter": {
+        "include": ["navigate_page", "take_snapshot", "screenshot_*"],
+        "exclude": ["screenshot_by_uid"]
+      }
+    }
+  }
+}
+```
+
+Patterns match the tool's raw MCP name (e.g. `read_file`, not
+`mcp-<server>-read-file`) and support at most one `*` wildcard. `include`
+is an allowlist — when present, only matching tools are considered at
+all; `exclude` is then applied on top, so a tool can be pulled in by
+`include` and still dropped by `exclude`. Omit `tool_filter` entirely to
+import everything the server exposes.
+
+This default filter applies on every import of that server. To override
+it for one call without editing `mcp-servers.json` — e.g. to test a
+narrower set before committing to it — pass `include`/`exclude` directly
+in the import params (CLI: `--include`/`--exclude`, repeatable); a
+per-call filter **replaces** the server's default rather than merging
+with it.
+
+Re-running import after narrowing a filter (in config or via the
+per-call override) removes the actions/types for any previously-imported
+tool that no longer passes — reported as `tools_pruned` in the result —
+so tightening the filter actually enforces it instead of just skipping
+new tools going forward.
+
 ## Importing a server
 
 ```bash
-echo '{"server":"filesystem"}' | solx exec /packages/solx-mcp-actions/solx-mcp-actions-import
+echo '{"server":"git"}' | solx exec /packages/solx-mcp-actions/solx-mcp-actions-import
 ```
 
 Or, for fast local iteration without touching the database:
 
 ```bash
-bin/solx-mcp-actions.exe import filesystem --dry-run
+bin/solx-mcp-actions.exe import git --dry-run
 ```
 
 Successful import prints
-`{"server", "tools_imported": [...], "errors": [...]}` and writes a
-manifest to `<package>/tools/<server>/manifest.json` — this manifest
-(not a name-prefix scan) is what `solx-mcp-actions-remove` uses to know
-exactly which entities it created. Re-running import is safe (idempotent
-up) if you want to refresh a server's tool list after it changes.
+`{"server", "tools_imported": [...], "tools_pruned": [...], "errors": [...]}`
+and writes a manifest to `<package>/tools/<server>/manifest.json` — this
+manifest (not a name-prefix scan) is what `solx-mcp-actions-remove` uses
+to know exactly which entities it created. Re-running import is safe
+(idempotent up) if you want to refresh a server's tool list after it
+changes; `tools_pruned` lists any previously-imported tool removed
+because it no longer passes the current filter.
 
 Optionally pass `"permission_name"` to stamp a solx `Permission` onto
 every generated action, scoping which callers may invoke the imported
@@ -135,16 +179,16 @@ tools.
 ## Using an imported tool
 
 Generated actions are named `mcp-<server>-<tool>` (e.g.
-`mcp-filesystem-read-file`) and behave like any other solx action:
+`mcp-git-git-log`) and behave like any other solx action:
 
 ```bash
-echo '{"path":"C:/path/to/dir/test.txt"}' | solx exec mcp-filesystem-read-file
+echo '{"repo_path":"C:/path/to/repo"}' | solx exec mcp-git-git-log
 ```
 
 ## Removing a server
 
 ```bash
-echo '{"server":"filesystem"}' | solx exec /packages/solx-mcp-actions/solx-mcp-actions-remove
+echo '{"server":"git"}' | solx exec /packages/solx-mcp-actions/solx-mcp-actions-remove
 ```
 
 Run this for **every** configured server before uninstalling the package

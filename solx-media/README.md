@@ -1,6 +1,6 @@
 # solx-media
 
-Media extraction actions for solx-core: image (vision), audio (whisper), and video (whisper + scene captions), with persistence back to solx-server via `POST /docs/save`.
+Media extraction actions for solx-core: image (vision), audio (whisper), and video (whisper + scene captions), with persistence back to solx-server via `PUT /docs/{path}/{name}`.
 
 Mirrors the structure of [solx-omniparse](../solx-omniparse): one binary, `install.solx` / `uninstall.solx`, command-type actions.
 
@@ -14,10 +14,10 @@ Mirrors the structure of [solx-omniparse](../solx-omniparse): one binary, `insta
 | `solx-media-materialize-html` | `command` | Fetch embedded images from an HTML rich-text payload → `MediaDocument` (kind=`materialized-html`) |
 | `solx-media-install-whisper-model` | `command` | Download + SHA-verify a whisper.cpp ggml model from huggingface |
 
-Each POSTs its result to `{SOLX_SERVER_URL}/docs/save` itself and prints a
+Each PUTs its result to `{SOLX_SERVER_URL}/docs/media/{kind}/{document_name}` itself and prints a
 summary on stdout — this is what a user/model would actually invoke, so a
 separate caller-persists-manually variant isn't registered as an action.
-Saved documents land at `/media/{kind}/{document_name}`. If `/docs/save`
+Saved documents land at `/media/{kind}/{document_name}`. If the save
 fails (e.g. solx-server unreachable), the call soft-fails: it still returns
 the full `document` on stdout with an empty `saved` list, so nothing is
 lost — the caller can persist it via `entity_save_document` themselves.
@@ -144,7 +144,7 @@ solx list docs /media/image-text
 
 - **FU-1**: return-docs mode (`*-return` actions) — shipped, then removed in
   an action-audit pass: each persisting action already soft-fails to
-  returning the raw document on a `/docs/save` failure, so the separate
+  returning the raw document on a save failure, so the separate
   caller-persists-manually actions were a duplicate of what a user/model
   would invoke, not a distinct capability.
 - **FU-2**: ✅ shipped — `solx-omniparse-process-file-write` action.

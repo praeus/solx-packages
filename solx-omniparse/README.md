@@ -6,7 +6,7 @@ for scanned and image-only PDFs.
 This package provides one `Command` action:
 
 `solx-omniparse-process-file-write` — extracts text, then POSTs the result to
-solx-server's `/docs/save` itself and returns
+solx-server's `PUT /docs/{path}/{name}` itself and returns
 `{saved: [{path, name}], result: {...}}`. Requires `SOLX_SERVER_URL` +
 `SOLX_SERVER_TOKEN` env vars; soft-fails to the raw `result` (with an empty
 `saved` list) if the server is unreachable — this is what a user/model would

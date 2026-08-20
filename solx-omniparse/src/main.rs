@@ -186,7 +186,7 @@ async fn main() {
     solx_package_log::info(&format!("solx-omniparse invoked; stdin bytes={}", raw.len())).await;
 
     // FU-2: `--write` flag (read from argv[1]) switches the action to also
-    // POST the result to solx-server's /docs/save. install.solx wires this
+    // PUT the result to its own URL on solx-server. install.solx wires this
     // up via per-action `fn_name: ".\\solx-omniparse-process-file.exe --write"`.
     let write_mode = std::env::args().nth(1).as_deref() == Some("--write");
     solx_package_log::info(&format!("write_mode={write_mode}")).await;
@@ -319,7 +319,7 @@ async fn main() {
                 }));
             }
             Err(e) => {
-                solx_package_log::warn(&format!("docs/save failed (soft): {e}; returning raw result")).await;
+                solx_package_log::warn(&format!("doc save failed (soft): {e}; returning raw result")).await;
                 print_json(json!({
                     "saved": [],
                     "result": result,
@@ -331,32 +331,24 @@ async fn main() {
     }
 }
 
-/// FU-2: POST the omniparse extraction to solx-server. Reads SOLX_SERVER_URL +
-/// SOLX_SERVER_TOKEN from env; returns Err if either is missing or the
-/// request fails (caller soft-handles).
+/// FU-2: POST the omniparse extraction to solx-server. Resolves the
+/// connection via `solx_package_log::server::ServerConfig::from_env`
+/// (`SOLX_SERVER_URL` required; `SOLX_SERVER_TOKEN`/`SOLX_TOKEN`/a
+/// `solx-config.json` fallback for the token); returns Err if either is
+/// missing or the request fails (caller soft-handles).
 async fn write_to_solx_server(
     file_name: &str,
     mime_type: &str,
     text_bytes: &[u8],
 ) -> Result<(String, String), String> {
-    let server_url = std::env::var("SOLX_SERVER_URL")
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| "SOLX_SERVER_URL is required for --write mode".to_string())?;
-    let token = std::env::var("SOLX_SERVER_TOKEN")
-        .ok()
-        .or_else(|| std::env::var("SOLX_TOKEN").ok())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            "SOLX_SERVER_TOKEN (or SOLX_TOKEN) is required for --write mode".to_string()
-        })?;
+    let solx_package_log::server::ServerConfig { server_url, server_token } =
+        solx_package_log::server::ServerConfig::from_env()
+            .map_err(|e| format!("{e} for --write mode"))?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| format!("failed to build HTTP client: {e}"))?;
 
-    persist::save_document(&client, &server_url, &token, file_name, mime_type, text_bytes).await
+    persist::save_document(&client, &server_url, &server_token, file_name, mime_type, text_bytes).await
 }

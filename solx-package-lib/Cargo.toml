@@ -1,8 +1,8 @@
 [package]
-name = "solx-package-log"
+name = "solx-package-lib"
 version = "0.1.0"
 edition = "2021"
-description = "Shared logging for solx-core Command-action packages: stderr, a SOL_LOG_DIR file, and the solx-core console loopback, from one call."
+description = "Shared runtime for solx-core Command-action packages: logging (stderr, a SOL_LOG_DIR file, and the console loopback), cooperative cancellation, solx-server connection config, and document persistence."
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

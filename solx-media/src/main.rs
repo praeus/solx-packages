@@ -2,7 +2,7 @@
 //!
 //! Reads JSON on stdin, dispatches on `argv[1]` to image / audio / video /
 //! materialize-html / install-whisper-model. Extraction modes POST their
-//! result to solx-server (`POST /docs/save`) and print a summary to stdout.
+//! result to solx-server (`PUT /docs/{path}/{name}`) and print a summary to stdout.
 //!
 //! Contract:
 //! - input:  JSON on stdin (e.g. `{"source_path": "C:/img.png", "file_name": "img.png"}`)
@@ -47,7 +47,7 @@ fn usage_and_exit() -> ! {
     eprintln!("  install-whisper-model [name] [force=true]");
     eprintln!();
     eprintln!("Reads JSON params from stdin (source_path, file_name, source_url, name, force, ...).");
-    eprintln!("Prints JSON result on stdout; persists extracted MediaDocuments via /docs/save.");
+    eprintln!("Prints JSON result on stdout; persists extracted MediaDocuments via PUT /docs/<path>/<name>.");
     std::process::exit(2);
 }
 
@@ -233,7 +233,7 @@ async fn save_and_summarize(
             // Soft failure: still return the document so the caller can
             // persist it themselves.
             solx_package_log::warn(&format!(
-                "docs/save failed (soft): {e}; returning document to caller"
+                "doc save failed (soft): {e}; returning document to caller"
             ))
             .await;
             json!([])

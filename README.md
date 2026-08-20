@@ -68,9 +68,12 @@ commands and outbound hosts that package is asking for.
 | `solx-livejournal` | WASM | Extracts a LiveJournal into `BlogPostWithComments` documents with the full comment tree, resumably. |
 | `solx-quickjs`     | Command | Build tool: compiles a JavaScript action into a WASM component via `componentize-qjs`. |
 
-`solx-package-log/` is not a package — it's a shared Rust crate that
-`Command`-action packages depend on for logging to stderr, a log file, and
-the solx-core action console in one call.
+`solx-package-lib/` is not a package — it's a shared Rust crate (`solx-package-log`
+in code, since every consumer still calls it via `solx_package_log::...`)
+that `Command`-action packages depend on for logging to stderr, a log file,
+and the solx-core action console in one call; resolving where solx-server is
+and how to authenticate to it (`SOLX_SERVER_URL`/`SOLX_SERVER_TOKEN`, falling
+back to `solx-config.json`); and persisting a document to it.
 
 ## Building
 

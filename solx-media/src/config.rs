@@ -27,8 +27,10 @@ pub struct MediaConfig {
 
 impl MediaConfig {
     /// Read every env var, applying defaults. Returns the first missing
-    /// required value as `Err`. Required: `SOLX_SERVER_URL`, `SOLX_SERVER_TOKEN`
-    /// (or `SOLX_TOKEN`). Everything else has a default or is optional.
+    /// required value as `Err`. Required: `SOLX_SERVER_URL`, and
+    /// `SOLX_SERVER_TOKEN`/`SOLX_TOKEN`/a `server_token` in
+    /// `solx-config.json` (see `solx_package_log::server::ServerConfig`).
+    /// Everything else has a default or is optional.
     pub fn from_env() -> Result<Self, String> {
         let ollama_url = env_or_default("OLLAMA_URL", DEFAULT_OLLAMA_URL);
         let multimedia_model = env_or_default("MULTIMEDIA_MODEL", DEFAULT_MULTIMEDIA_MODEL);
@@ -52,18 +54,8 @@ impl MediaConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| packages_dir.join("solx-media").join("models"));
 
-        let server_url = std::env::var("SOLX_SERVER_URL")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| "SOLX_SERVER_URL is required".to_string())?;
-
-        let server_token = std::env::var("SOLX_SERVER_TOKEN")
-            .ok()
-            .or_else(|| std::env::var("SOLX_TOKEN").ok())
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| "SOLX_SERVER_TOKEN (or SOLX_TOKEN) is required".to_string())?;
+        let solx_package_log::server::ServerConfig { server_url, server_token } =
+            solx_package_log::server::ServerConfig::from_env()?;
 
         Ok(Self {
             ollama_url,
@@ -136,6 +128,7 @@ mod tests {
             "SOLX_SERVER_URL",
             "SOLX_SERVER_TOKEN",
             "SOLX_TOKEN",
+            "SOLX_APPDATA_DIR",
             "SOL_LOG_DIR",
             "SOLX_PACKAGES_DIR",
             "APPDATA",
@@ -151,8 +144,14 @@ mod tests {
     fn from_env_requires_server_url_and_token() {
         clear_env();
         std::env::set_var("SOLX_SERVER_URL", "http://localhost:8766");
-        // No token -> Err
+        // No token anywhere `ServerConfig` looks — env, alias, or config
+        // file — so this must fail. Point SOLX_APPDATA_DIR at an empty temp
+        // dir so a real solx-config.json on this machine can't accidentally
+        // supply a token and turn this into a false pass.
+        let empty = tempfile::tempdir().unwrap();
+        std::env::set_var("SOLX_APPDATA_DIR", empty.path());
         assert!(MediaConfig::from_env().is_err());
+        std::env::remove_var("SOLX_APPDATA_DIR");
 
         std::env::set_var("SOLX_SERVER_TOKEN", "secret");
         let cfg = MediaConfig::from_env().expect("ok with URL + token");

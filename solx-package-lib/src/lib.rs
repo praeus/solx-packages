@@ -1,5 +1,5 @@
-//! Shared logging *and* host-integration for solx-core Command-action
-//! packages.
+//! Shared logging, host-integration, and solx-server access for solx-core
+//! Command-action packages.
 //!
 //! One call site (`info`/`warn`/`error`/`with_data`) does three things:
 //!
@@ -36,6 +36,17 @@
 //! Command package except `solx-firefox`, as of this writing). A caller
 //! with no ambient tokio runtime should use the [`blocking`] module instead
 //! — calling the async functions directly with no runtime panics.
+//!
+//! ## Talking to solx-server directly
+//!
+//! Logging/cancellation go over the console loopback above, keyed off
+//! per-invocation env vars `run_command` sets. A package that also needs to
+//! read/write documents (or anything else on the HTTP API) resolves its own
+//! connection via [`server::ServerConfig::from_env`] and calls
+//! [`persist::put_document`] — see those modules.
+
+pub mod persist;
+pub mod server;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -101,6 +112,19 @@ fn write_to_file(ts: &str, level: &str, message: &str) {
     let _ = writeln!(file, "[{ts}] {level} {message}");
 }
 
+/// Shared by [`post_to_console`] and [`fetch_cancelled`] — both loopback
+/// calls, same short timeout. Built once rather than per call: every
+/// `info`/`warn`/`error`/`with_data`/`cancelled` invocation used to pay for
+/// a fresh `reqwest::Client` (its own connection pool + TLS config), which
+/// only matters once a package is logging or cancellation-checking in a
+/// tight loop, but costs nothing to avoid.
+fn loopback_client() -> Option<&'static reqwest::Client> {
+    static CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(2)).build().ok())
+        .as_ref()
+}
+
 /// Best-effort: a dead/slow loopback (or no `SOLX_CONSOLE_URL`/`TOKEN` at
 /// all — e.g. the binary run by hand outside solx-core) must never block or
 /// fail the caller.
@@ -114,10 +138,8 @@ async fn post_to_console(level: &str, message: &str, data: Option<Value>) {
     if url.is_empty() || token.is_empty() {
         return;
     }
+    let Some(client) = loopback_client() else { return };
     let body = serde_json::json!({ "level": level, "message": message, "data": data });
-    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(2)).build() else {
-        return;
-    };
     let _ = client.post(url).bearer_auth(token).json(&body).send().await;
 }
 
@@ -166,9 +188,7 @@ async fn fetch_cancelled() -> bool {
     if url.is_empty() || token.is_empty() {
         return false;
     }
-    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(2)).build() else {
-        return false;
-    };
+    let Some(client) = loopback_client() else { return false };
     let Ok(resp) = client.get(url).bearer_auth(token).send().await else {
         return false;
     };

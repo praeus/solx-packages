@@ -17,9 +17,10 @@ uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 ffmpeg-sidecar = "2"
-solx-package-log = { path = "../solx-package-log" }
+solx-package-log = { package = "solx-package-lib", path = "../solx-package-lib" }
 
 [dev-dependencies]
 serial_test = "3"
+tempfile = "3"
 
 [workspace]

@@ -1,11 +1,14 @@
-//! Save a `MediaDocument` to solx-server via `POST /docs/save`. Mirrors the
-//! `entity_save_document` built-in: pass `{path, name, document, ...}` and
-//! the server returns `{saved_path, saved_name}`.
+//! Save a `MediaDocument` to solx-server via `PUT /docs/{path}/{name}`. The
+//! reference is the URL; the body is a bare `DocumentInput`, and the
+//! response is the saved `Document`.
 //!
-//! This is the action's responsibility in v1 (FU-1 will add a
-//! return-documents mode in a followup).
+//! Thin wrapper over `solx_package_log::persist::put_document`, which does
+//! the actual HTTP work (URL building, percent-encoding, response
+//! parsing) — shared with `solx-omniparse`'s equivalent wrapper. This
+//! module's job is just extracting `kind`/`document_name` from the
+//! MediaDocument and deriving the naming convention below.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// Persist a MediaDocument to solx-server. The `document_name` field of the
 /// MediaDocument becomes the document's name; the kind becomes the directory
@@ -30,51 +33,14 @@ pub async fn save_document(
         .ok_or_else(|| "MediaDocument missing 'document_name' field".to_string())?;
 
     let path = format!("/media/{kind}");
-    let body = json!({
-        "path": path,
-        "name": document_name,
-        "document": document,
-    });
-
-    let url = format!(
-        "{}/docs/save",
-        server_url.trim_end_matches('/')
-    );
-
-    let resp = client
-        .post(&url)
-        .bearer_auth(token)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("docs/save request failed: {e}"))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp
-            .text()
-            .await
-            .unwrap_or_else(|_| "<no body>".to_string());
-        return Err(format!("docs/save returned HTTP {status}: {body}"));
-    }
-
-    let parsed: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("failed to parse docs/save response: {e}"))?;
-
-    let saved_path = parsed
-        .get("saved_path")
-        .or_else(|| parsed.get("path"))
-        .and_then(|v| v.as_str())
-        .unwrap_or(&path)
-        .to_string();
-    let saved_name = parsed
-        .get("saved_name")
-        .or_else(|| parsed.get("name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or(document_name)
-        .to_string();
-
-    Ok((saved_path, saved_name))
+    solx_package_log::persist::put_document(
+        client,
+        server_url,
+        token,
+        &path,
+        document_name,
+        "/builtin/types/MediaDocument",
+        document.clone(),
+    )
+    .await
 }

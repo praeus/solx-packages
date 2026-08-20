@@ -1,4 +1,26 @@
-$build = exec /packages/solx-quickjs/build-javascript-action --json '{"action_name":"demo-js-action","entry_artifact_name":"sample-document-summary.js","source_artifact_names":["sample-document-summary.js"],"artifact_root":"REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR"}';
-save file files/actions/shared/demo-js-action.wasm --file REPLACE_WITH_ABSOLUTE_PATH_TO_THIS_DIR/sample-document-summary.js.wasm;
-save action /packages/solx-quickjs/demo-js-action --json '{"action_type":"wasm","bin_name":"demo-js-action.wasm","caption":"Demo JS action","description":"Sample action built by solx-quickjs from sample-document-summary.js."}';
+$js = str 'export const runner = {
+  run(actionName, params) {
+    const input = JSON.parse(params || "{}");
+    const listResult = exec("/builtin/document/entity_list_documents", JSON.stringify({}));
+    if (!listResult.success) {
+      return { success: false, message: listResult.message || "list documents failed", output: null };
+    }
+    const documents = JSON.parse(listResult.output || "{}").items || [];
+    const summary = documents.slice(0, input.limit || 10).map((doc) => {
+      const getResult = exec("/builtin/document/entity_get_document", JSON.stringify({ path: doc.path, name: doc.name }));
+      if (!getResult.success) {
+        return { name: doc.name, firstLine: null, error: getResult.message || "get document failed" };
+      }
+      const document = JSON.parse(getResult.output || "{}") || {};
+      const contents = document.contents || {};
+      const text = (contents.normalized_text || contents.extracted_text || contents.text || contents.body || "")
+        .toString()
+        .split(/\r?\n/)[0] || "";
+      return { name: doc.name, firstLine: text };
+    });
+    return { success: true, message: null, output: JSON.stringify(summary) };
+  }
+}';
+$escaped = escape $js;
+exec /packages/solx-quickjs/build-javascript-action --json '{"action_name":"demo-js-action","path":"/packages/solx-quickjs","js_source":$escaped}';
 exec /packages/solx-quickjs/demo-js-action --json '{"limit":5}'

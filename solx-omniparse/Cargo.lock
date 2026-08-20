@@ -2684,12 +2684,12 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "solx-package-log",
+ "solx-package-lib",
  "tokio",
 ]
 
 [[package]]
-name = "solx-package-log"
+name = "solx-package-lib"
 version = "0.1.0"
 dependencies = [
  "chrono",

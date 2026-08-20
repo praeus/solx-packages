@@ -940,11 +940,11 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
- "solx-package-log",
+ "solx-package-lib",
 ]
 
 [[package]]
-name = "solx-package-log"
+name = "solx-package-lib"
 version = "0.1.0"
 dependencies = [
  "chrono",

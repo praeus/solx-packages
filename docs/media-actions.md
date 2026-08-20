@@ -1,6 +1,8 @@
 # Plan: Create `solx-media` package (media extraction actions)
 
 > **Document note:** This file is the canonical plan + implementation log for the `solx-media` package. The plan body below was finalized before implementation; the appendices at the bottom track what shipped, followups, and design notes.
+>
+> **Superseded route:** `solx-server` moved to a REST surface on 2026-08-19; documents are now saved with `PUT /docs/{path}/{name}` (a bare `DocumentInput` as the body), not `POST /docs/save`. Mentions of `/docs/save` below are left as written because this is a dated log — see `solx-core/docs/http-api.md` for the current routes, and `persist.rs` in each package for the current code.
 
 ## Implementation status
 

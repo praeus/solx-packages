@@ -5,8 +5,18 @@
 //!
 //! Uses the same `server_token` from `solx-config.json` that `solx-cli`
 //! uses when `SOLX_SERVER_URL` is set.
+//!
+//! solx-server's action/type routes are RESTful: `PUT /actions/{*ref}` and
+//! `PUT /types/{*ref}` create-or-replace the entity at `ref` (its full
+//! `path`+`name`, e.g. `/packages/solx-mcp-actions/firefox/mcp-firefox-hover-by-uid`),
+//! with `ref` carrying the identity instead of a `{path,name,input}` body
+//! wrapper. `DELETE` on the same URL removes it. There is no longer a
+//! `POST /actions/save` — a bare `POST` on an action/type URL *executes* it
+//! (see `solx-server/src/routes/actions.rs`), so getting this wrong doesn't
+//! 404, it silently calls the wrong handler.
 
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use serde_json::Value;
 
 /// Resolve the server URL: `SOLX_SERVER_URL` env var, else default localhost.
@@ -61,38 +71,35 @@ fn solx_config_dir() -> std::path::PathBuf {
     std::env::temp_dir().join("praeus").join("solx")
 }
 
-#[derive(Serialize)]
-struct SaveRequest<T: Serialize> {
-    path: String,
-    name: String,
-    input: T,
-}
-
-#[derive(Serialize)]
-struct RefRequest {
-    path: String,
-    name: String,
-}
-
 #[derive(Deserialize)]
 struct ServerError {
     error: String,
 }
 
-async fn post_json<Req: Serialize, Resp: serde::de::DeserializeOwned>(
+/// Build the `{*ref}` URL segment for an entity at `path`+`name`, matching
+/// `solx_surface::path::full_ref` (root `/` needs no separator, anything
+/// else does).
+fn full_ref(path: &str, name: &str) -> String {
+    if path == "/" {
+        format!("/{name}")
+    } else {
+        format!("{}/{name}", path.trim_end_matches('/'))
+    }
+}
+
+async fn request_json<Req: serde::Serialize, Resp: DeserializeOwned>(
     client: &reqwest::Client,
+    method: reqwest::Method,
     url: &str,
     token: &str,
     route: &str,
-    body: &Req,
+    body: Option<&Req>,
 ) -> anyhow::Result<Resp> {
-    let resp = client
-        .post(format!("{url}{route}"))
-        .bearer_auth(token)
-        .json(body)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("HTTP request to {route} failed: {e}"))?;
+    let mut req = client.request(method, format!("{url}{route}")).bearer_auth(token);
+    if let Some(body) = body {
+        req = req.json(body);
+    }
+    let resp = req.send().await.map_err(|e| anyhow::anyhow!("HTTP request to {route} failed: {e}"))?;
     let status = resp.status();
     let text = resp.text().await.map_err(|e| anyhow::anyhow!("read response: {e}"))?;
     if !status.is_success() {
@@ -104,56 +111,63 @@ async fn post_json<Req: Serialize, Resp: serde::de::DeserializeOwned>(
     serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("parse {route} response: {e} (body: {text})"))
 }
 
-/// Create or update a type via the server API.
-pub async fn new_type(name: &str, body: &Value) -> anyhow::Result<Value> {
-    let url = server_url();
-    let token = server_token()?;
-    let client = reqwest::Client::new();
-    let req = SaveRequest {
-        path: "/packages/solx-mcp-actions".to_string(),
-        name: name.to_string(),
-        input: body.clone(),
-    };
-    let resp: Value = post_json(&client, &url, &token, "/types/save", &req).await?;
-    Ok(resp)
-}
-
-/// Create or update an action via the server API.
-pub async fn new_action(name: &str, body: &Value) -> anyhow::Result<Value> {
-    let url = server_url();
-    let token = server_token()?;
-    let client = reqwest::Client::new();
-    let req = SaveRequest {
-        path: "/".to_string(),
-        name: name.to_string(),
-        input: body.clone(),
-    };
-    let resp: Value = post_json(&client, &url, &token, "/actions/save", &req).await?;
-    Ok(resp)
-}
-
-/// Delete an action via the server API.
-pub async fn delete_action(name: &str) -> anyhow::Result<()> {
-    let url = server_url();
-    let token = server_token()?;
-    let client = reqwest::Client::new();
-    let req = RefRequest {
-        path: "/".to_string(),
-        name: name.to_string(),
-    };
-    let _: Value = post_json(&client, &url, &token, "/actions/delete", &req).await?;
+/// Delete has no response body worth parsing (204 No Content on success).
+async fn request_no_content<Req: serde::Serialize>(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url: &str,
+    token: &str,
+    route: &str,
+    body: Option<&Req>,
+) -> anyhow::Result<()> {
+    let mut req = client.request(method, format!("{url}{route}")).bearer_auth(token);
+    if let Some(body) = body {
+        req = req.json(body);
+    }
+    let resp = req.send().await.map_err(|e| anyhow::anyhow!("HTTP request to {route} failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<ServerError>(&text) {
+            anyhow::bail!("server {route}: {}", err.error);
+        }
+        anyhow::bail!("server {route} returned {status}: {text}");
+    }
     Ok(())
 }
 
-/// Delete a type via the server API.
-pub async fn delete_type(name: &str) -> anyhow::Result<()> {
+/// Create or update a type at `path`/`name` via the server API.
+pub async fn new_type(path: &str, name: &str, body: &Value) -> anyhow::Result<Value> {
     let url = server_url();
     let token = server_token()?;
     let client = reqwest::Client::new();
-    let req = RefRequest {
-        path: "/packages/solx-mcp-actions".to_string(),
-        name: name.to_string(),
-    };
-    let _: Value = post_json(&client, &url, &token, "/types/delete", &req).await?;
-    Ok(())
+    let route = format!("/types{}", full_ref(path, name));
+    request_json(&client, reqwest::Method::PUT, &url, &token, &route, Some(body)).await
+}
+
+/// Create or update an action at `path`/`name` via the server API.
+pub async fn new_action(path: &str, name: &str, body: &Value) -> anyhow::Result<Value> {
+    let url = server_url();
+    let token = server_token()?;
+    let client = reqwest::Client::new();
+    let route = format!("/actions{}", full_ref(path, name));
+    request_json(&client, reqwest::Method::PUT, &url, &token, &route, Some(body)).await
+}
+
+/// Delete an action at `path`/`name` via the server API.
+pub async fn delete_action(path: &str, name: &str) -> anyhow::Result<()> {
+    let url = server_url();
+    let token = server_token()?;
+    let client = reqwest::Client::new();
+    let route = format!("/actions{}", full_ref(path, name));
+    request_no_content::<()>(&client, reqwest::Method::DELETE, &url, &token, &route, None).await
+}
+
+/// Delete a type at `path`/`name` via the server API.
+pub async fn delete_type(path: &str, name: &str) -> anyhow::Result<()> {
+    let url = server_url();
+    let token = server_token()?;
+    let client = reqwest::Client::new();
+    let route = format!("/types{}", full_ref(path, name));
+    request_no_content::<()>(&client, reqwest::Method::DELETE, &url, &token, &route, None).await
 }

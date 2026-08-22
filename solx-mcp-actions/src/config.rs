@@ -210,12 +210,30 @@ pub fn read_tool_descriptor(dir: &Path) -> anyhow::Result<ToolDescriptor> {
 /// truth `solx-mcp remove` uses to know exactly which entities/directories it
 /// created (deliberately not a name-prefix scan, which risks colliding with
 /// unrelated user-created actions).
+/// Types live under one flat path, `TYPES_PATH`, distinguished by their
+/// server/tool-namespaced name — see `naming::param_type_name`.
+pub const TYPES_PATH: &str = "/packages/solx-mcp-actions";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestEntry {
     pub tool: String,
     pub action_name: String,
+    /// `naming::action_path(server)` — needed to delete the action later
+    /// since it no longer lives at the root path.
+    #[serde(default = "default_action_path")]
+    pub action_path: String,
     pub param_type_name: String,
+    /// Only set when the tool declared an output schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_type_name: Option<String>,
     pub dir: String,
+}
+
+/// Manifests written before actions were namespaced per-server lack
+/// `action_path`; treat those older entries as root-path so `remove` can
+/// still find and delete them.
+fn default_action_path() -> String {
+    "/".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

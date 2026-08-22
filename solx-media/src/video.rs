@@ -33,7 +33,7 @@ pub async fn run_video(
 
     // 1) Transcript (mirrors audio path; falls back to wav extract).
     let model_path = whisper_models::active_model_path(cfg).ok_or_else(|| {
-        "no whisper model available: run solx exec /packages/solx-media/solx-media-install-whisper-model first, \
+        "no whisper model available: run solx exec /packages/solx-media/install-whisper-model first, \
          or set WHISPER_MODEL_PATH"
             .to_string()
     })?;

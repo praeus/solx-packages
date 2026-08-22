@@ -18,10 +18,10 @@ ecosystem, not from this package.
 Two solx `Command` actions (a small Rust CLI, no `tokio`-only async
 needed — this package's heavy lifting is done by the `rmcp` crate):
 
-- `solx-mcp-actions-import` — connect to a server configured in
+- `import` — connect to a server configured in
   `mcp-servers.json`, list its tools, and create one solx `Command`
   action per tool (e.g. `mcp-filesystem-read-file`).
-- `solx-mcp-actions-remove` — delete a server's previously imported
+- `remove` — delete a server's previously imported
   actions and types.
 
 Plus one shared internal command key that every dynamically-imported
@@ -78,10 +78,10 @@ Staged binary path:
 solx install-package ./solx-packages/solx-mcp-actions
 ```
 
-This registers `solx-mcp-actions-import`, `solx-mcp-actions-remove`, and
+This registers `import`, `remove`, and
 their parameter/result types. It does **not** run any MCP server or
 create any per-tool actions — those only happen when you actually run
-`solx-mcp-actions-import` (see below).
+`import` (see below).
 
 ## Configuring MCP servers
 
@@ -154,7 +154,7 @@ new tools going forward.
 ## Importing a server
 
 ```bash
-echo '{"server":"git"}' | solx exec /packages/solx-mcp-actions/solx-mcp-actions-import
+echo '{"server":"git"}' | solx exec /packages/solx-mcp-actions/import
 ```
 
 Or, for fast local iteration without touching the database:
@@ -166,7 +166,7 @@ bin/solx-mcp-actions.exe import git --dry-run
 Successful import prints
 `{"server", "tools_imported": [...], "tools_pruned": [...], "errors": [...]}`
 and writes a manifest to `<package>/tools/<server>/manifest.json` — this
-manifest (not a name-prefix scan) is what `solx-mcp-actions-remove` uses
+manifest (not a name-prefix scan) is what `remove` uses
 to know exactly which entities it created. Re-running import is safe
 (idempotent up) if you want to refresh a server's tool list after it
 changes; `tools_pruned` lists any previously-imported tool removed
@@ -188,7 +188,7 @@ echo '{"repo_path":"C:/path/to/repo"}' | solx exec mcp-git-git-log
 ## Removing a server
 
 ```bash
-echo '{"server":"git"}' | solx exec /packages/solx-mcp-actions/solx-mcp-actions-remove
+echo '{"server":"git"}' | solx exec /packages/solx-mcp-actions/remove
 ```
 
 Run this for **every** configured server before uninstalling the package

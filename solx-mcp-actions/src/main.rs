@@ -236,12 +236,17 @@ async fn run_import(
         let kept: std::collections::HashSet<&str> =
             manifest_entries.iter().map(|e| e.tool.as_str()).collect();
         for stale in old_manifest.tools.iter().filter(|e| !kept.contains(e.tool.as_str())) {
-            if let Err(e) = solx::delete_action(&stale.action_name).await {
+            if let Err(e) = solx::delete_action(&stale.action_path, &stale.action_name).await {
                 errors.push(json!({ "entity": stale.action_name, "error": e.to_string() }));
                 continue;
             }
-            if let Err(e) = solx::delete_type(&stale.param_type_name).await {
+            if let Err(e) = solx::delete_type(config::TYPES_PATH, &stale.param_type_name).await {
                 errors.push(json!({ "entity": stale.param_type_name, "error": e.to_string() }));
+            }
+            if let Some(result_type) = &stale.result_type_name {
+                if let Err(e) = solx::delete_type(config::TYPES_PATH, result_type).await {
+                    errors.push(json!({ "entity": result_type.clone(), "error": e.to_string() }));
+                }
             }
             let _ = std::fs::remove_dir_all(&stale.dir);
             tools_pruned.push(stale.action_name.clone());
@@ -272,7 +277,9 @@ async fn import_one_tool(
     permission_name: Option<&str>,
 ) -> anyhow::Result<ManifestEntry> {
     let action = naming::action_name(server, tool_name);
+    let action_path = naming::action_path(server);
     let param_type = naming::param_type_name(server, tool_name);
+    let param_type_ref = format!("{}/{param_type}", config::TYPES_PATH);
     let tool_dir_sanitized = naming::sanitize(tool_name);
     let dir = config::tool_dir(home, server, &tool_dir_sanitized);
 
@@ -292,13 +299,51 @@ async fn import_one_tool(
         .unwrap_or_else(|| format!("MCP tool '{tool_name}' imported from server '{server}'."));
 
     solx::new_type(
+        config::TYPES_PATH,
         &param_type,
         &json!({
-            "name": param_type,
             "description": format!("Input parameters for MCP tool '{tool_name}' on server '{server}'."),
             "schema": schema_value,
         }),
     ).await?;
+
+    // `run_invoke` (below) always wraps whatever the MCP tool returns in the
+    // same envelope — {server, tool, content, structured_content?, error?} —
+    // regardless of whether the tool itself declares an `output_schema` in
+    // its MCP definition (most don't). That envelope shape is something
+    // *this* package guarantees, so a result type can always be generated,
+    // not just when the upstream tool happens to publish one. When the tool
+    // does declare `output_schema`, it's threaded in as the type of
+    // `structured_content` instead of left untyped.
+    let result_type = naming::result_type_name(server, tool_name);
+    let structured_content_schema = match &tool.output_schema {
+        Some(schema) => Value::Object((**schema).clone()),
+        None => json!({
+            "description": "Only present if the MCP tool call returned structuredContent; this tool does not declare a schema for it."
+        }),
+    };
+    solx::new_type(
+        config::TYPES_PATH,
+        &result_type,
+        &json!({
+            "description": format!("Result envelope for MCP tool '{tool_name}' on server '{server}', as returned by solx-mcp-actions invoke."),
+            "schema": {
+                "type": "object",
+                "required": ["server", "tool", "content"],
+                "properties": {
+                    "server": { "type": "string" },
+                    "tool": { "type": "string" },
+                    "content": {
+                        "type": "array",
+                        "description": "MCP content blocks returned by the tool (text/image/resource/etc.)."
+                    },
+                    "structured_content": structured_content_schema,
+                    "error": { "type": "string", "description": "Present only when the tool call failed." },
+                },
+            },
+        }),
+    ).await?;
+    let result_type_ref = format!("{}/{result_type}", config::TYPES_PATH);
 
     // The generated action is a Command type. `fn_name` is the absolute path
     // to the binary. Using an absolute path avoids `cmd.exe /C` wrapping,
@@ -320,18 +365,21 @@ async fn import_one_tool(
         "description": description,
         "capabilities": vec!["mcp".to_string(), server.to_string()],
         "phrases": vec![tool_name.to_string(), format!("mcp {tool_name}"), format!("{server} {tool_name}")],
-        "parameter_type_name": param_type,
+        "param_type_ref": param_type_ref,
+        "result_type_ref": result_type_ref,
         "action_config": { "cwd": dir.to_string_lossy() },
     });
     if let Some(perm) = permission_name {
         action_body["permission_name"] = json!(perm);
     }
-    solx::new_action(&action, &action_body).await?;
+    solx::new_action(&action_path, &action, &action_body).await?;
 
     Ok(ManifestEntry {
         tool: tool_name.to_string(),
         action_name: action,
+        action_path,
         param_type_name: param_type,
+        result_type_name: Some(result_type),
         dir: dir.to_string_lossy().to_string(),
     })
 }
@@ -421,13 +469,19 @@ async fn run_remove(home: &Path, server_arg: Option<String>) -> anyhow::Result<V
 
     for entry in &manifest.tools {
         let mut ok = true;
-        if let Err(e) = solx::delete_action(&entry.action_name).await {
+        if let Err(e) = solx::delete_action(&entry.action_path, &entry.action_name).await {
             ok = false;
             errors.push(json!({ "entity": entry.action_name, "error": e.to_string() }));
         }
-        if let Err(e) = solx::delete_type(&entry.param_type_name).await {
+        if let Err(e) = solx::delete_type(config::TYPES_PATH, &entry.param_type_name).await {
             ok = false;
             errors.push(json!({ "entity": entry.param_type_name, "error": e.to_string() }));
+        }
+        if let Some(result_type) = &entry.result_type_name {
+            if let Err(e) = solx::delete_type(config::TYPES_PATH, result_type).await {
+                ok = false;
+                errors.push(json!({ "entity": result_type.clone(), "error": e.to_string() }));
+            }
         }
         if ok {
             removed.push(entry.action_name.clone());

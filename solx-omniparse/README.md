@@ -5,7 +5,7 @@ for scanned and image-only PDFs.
 
 This package provides one `Command` action:
 
-`solx-omniparse-process-file-write` — extracts text, then POSTs the result to
+`solx-omniparse-process` — extracts text, then POSTs the result to
 solx-server's `PUT /docs/{path}/{name}` itself and returns
 `{saved: [{path, name}], result: {...}}`. Requires `SOLX_SERVER_URL` +
 `SOLX_SERVER_TOKEN` env vars; soft-fails to the raw `result` (with an empty
@@ -17,7 +17,7 @@ Unlike old sol, solx-core has no extraction pipeline or event-hook system, so
 this action does not auto-run on anything — invoke it explicitly:
 
 ```bash
-solx exec /packages/solx-omniparse/solx-omniparse-process-file-write --json '{"source_path":"...","file_name":"...","mime_type":"..."}'
+solx exec /packages/solx-omniparse/solx-omniparse-process --json '{"source_path":"...","file_name":"...","mime_type":"..."}'
 ```
 
 ## Install

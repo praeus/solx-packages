@@ -11,8 +11,8 @@ Mirrors the structure of [solx-omniparse](../solx-omniparse): one binary, `insta
 | `solx-media-image` | `command` | Vision-LLM pass on an image → `MediaDocument` (kind=`image-text`) |
 | `solx-media-audio` | `command` | Whisper-transcribe + summarize → `MediaDocument` (kind=`audio-transcript`) |
 | `solx-media-video` | `command` | Whisper + per-frame captions + summarize → `MediaDocument` (kind=`video-transcript`) |
-| `solx-media-materialize-html` | `command` | Fetch embedded images from an HTML rich-text payload → `MediaDocument` (kind=`materialized-html`) |
-| `solx-media-install-whisper-model` | `command` | Download + SHA-verify a whisper.cpp ggml model from huggingface |
+| `materialize-html` | `command` | Fetch embedded images from an HTML rich-text payload → `MediaDocument` (kind=`materialized-html`) |
+| `install-whisper-model` | `command` | Download + SHA-verify a whisper.cpp ggml model from huggingface |
 
 Each PUTs its result to `{SOLX_SERVER_URL}/docs/media/{kind}/{document_name}` itself and prints a
 summary on stdout — this is what a user/model would actually invoke, so a
@@ -43,9 +43,9 @@ lost — the caller can persist it via `entity_save_document` themselves.
 4. Install a whisper model (one-time):
 
     ```bash
-    solx exec /packages/solx-media/solx-media-install-whisper-model --json '{}'
+    solx exec /packages/solx-media/install-whisper-model --json '{}'
     # or pick a model:
-    solx exec /packages/solx-media/solx-media-install-whisper-model --json '{"name":"base.en"}'
+    solx exec /packages/solx-media/install-whisper-model --json '{"name":"base.en"}'
     ```
 
 ## Configuration (env vars)
@@ -90,7 +90,7 @@ solx exec /packages/solx-media/solx-media-audio --json '{"source_path":"C:/audio
 solx exec /packages/solx-media/solx-media-video --json '{"source_path":"C:/videos/keynote.mp4","file_name":"keynote.mp4"}'
 
 # Materialize HTML (input must contain a `rich_text` field — typically from omniparse output)
-solx exec /packages/solx-media/solx-media-materialize-html --json '{"source_path":"C:/page.html","source_url":"https://example.com","rich_text":{...}}'
+solx exec /packages/solx-media/materialize-html --json '{"source_path":"C:/page.html","source_url":"https://example.com","rich_text":{...}}'
 ```
 
 Each invocation prints a JSON summary like:
@@ -131,7 +131,7 @@ cargo build --release -p solx-media
 solx install-package D:/Projects/solx-packages/solx-media
 
 # 3. Install whisper model
-solx exec /packages/solx-media/solx-media-install-whisper-model --json '{}'
+solx exec /packages/solx-media/install-whisper-model --json '{}'
 
 # 4. Extract an image
 solx exec /packages/solx-media/solx-media-image --json '{"source_path":"C:/test.png","file_name":"test.png"}'

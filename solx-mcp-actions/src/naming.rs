@@ -48,6 +48,23 @@ pub fn param_type_name(server: &str, tool: &str) -> String {
     )
 }
 
+/// solx Type name for an imported MCP tool's output schema (only created
+/// when the tool actually declares one): `Mcp<Server><Tool>Result`.
+pub fn result_type_name(server: &str, tool: &str) -> String {
+    format!(
+        "Mcp{}{}Result",
+        sanitize_pascal(server),
+        sanitize_pascal(tool)
+    )
+}
+
+/// solx path an imported server's per-tool actions live under, namespaced
+/// per-server so different servers' tools don't collide and don't all pile
+/// into the root path: `/packages/solx-mcp-actions/<server>`.
+pub fn action_path(server: &str) -> String {
+    format!("/packages/solx-mcp-actions/{}", sanitize(server))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +91,10 @@ mod tests {
             param_type_name("filesystem", "read_file"),
             "McpFilesystemReadFileParams"
         );
+        assert_eq!(
+            result_type_name("filesystem", "read_file"),
+            "McpFilesystemReadFileResult"
+        );
+        assert_eq!(action_path("firefox"), "/packages/solx-mcp-actions/firefox");
     }
 }

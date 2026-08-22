@@ -1,5 +1,5 @@
-delete action /packages/solx-media/solx-media-install-whisper-model;
-delete action /packages/solx-media/solx-media-materialize-html;
+delete action /packages/solx-media/install-whisper-model;
+delete action /packages/solx-media/materialize-html;
 delete action /packages/solx-media/solx-media-video;
 delete action /packages/solx-media/solx-media-audio;
 delete action /packages/solx-media/solx-media-image;

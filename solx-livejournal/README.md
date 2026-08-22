@@ -64,7 +64,7 @@ way — saves are upserts, so it just refreshes those entries.
 | `title` | `.b-singlepost-title` / `.aentry-post__title`, falling back to `og:title` |
 | `contents.text`, `contents.paragraphs` | entry body, block elements and `<br><br>` both normalised to paragraphs |
 | `contents.content` | the same paragraphs as a ProseMirror-shaped `RichTextDoc`, which is what solx's rich-text indexer walks |
-| `contents.comments` | recursive `{author, text, date, replies}` |
+| `contents.comments` | recursive `{author, icon, text, date, replies}` — `icon` is a best-effort hotlinked userpic URL, `null` when none is found |
 | `author` | the journal username |
 | `pub_date` | the entry's `<time>` text |
 | `summary` | first paragraph, truncated to 300 chars |

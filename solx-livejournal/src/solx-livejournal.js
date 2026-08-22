@@ -189,10 +189,21 @@ function extractEntryScript(user, id) {
     "    d.querySelectorAll('br').forEach(b => b.replaceWith('\\n'));",
     "    return (d.textContent || '').replace(/\\u00a0/g, ' ').replace(/[ \\t]+/g, ' ').trim();",
     "  };",
+    // comment.get_thread's exact userpic field isn't documented anywhere we
+    // could find, so this checks every shape we've seen LJ-family JSON-RPCs
+    // use elsewhere (bare url string, or an object carrying one) rather than
+    // betting on a single name.
+    "  const commentIconUrl = c => {",
+    "    const pic = c.pic_url || c.userpic_url || c.pic || c.userpic;",
+    "    if (typeof pic === 'string') return pic || null;",
+    "    if (pic && typeof pic === 'object' && typeof pic.url === 'string') return pic.url || null;",
+    "    return null;",
+    "  };",
     "  const nodes = new Map();",
     "  flat.forEach(c => nodes.set(c.dtalkid, {",
     "    parent: c.parent || null,",
     "    author: c.dname || c.uname || null,",
+    "    icon: commentIconUrl(c),",
     "    date: c.ctime || null,",
     "    subject: c.subject || '',",
     "    deleted: !!c.deleted,",
@@ -205,7 +216,7 @@ function extractEntryScript(user, id) {
     "    if (p) p.replies.push(n); else roots.push(n);",
     "  });",
     "  const shape = n => {",
-    "    const o = { author: n.author, text: n.text || (n.deleted ? '(deleted)' : ''), date: n.date };",
+    "    const o = { author: n.author, icon: n.icon, text: n.text || (n.deleted ? '(deleted)' : ''), date: n.date };",
     "    if (n.subject) o.text = n.subject + '\\n\\n' + o.text;",
     "    if (n.replies.length) o.replies = n.replies.map(shape);",
     "    return o;",

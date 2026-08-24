@@ -135,7 +135,7 @@ mod tests {
             "tok-123",
             "/media/image-text",
             "cat photo",
-            "/builtin/types/MediaDocument",
+            "/packages/solx-media/MediaDocument",
             json!({"kind": "image-text"}),
         )
         .await
@@ -151,7 +151,7 @@ mod tests {
         assert!(request_line.starts_with("PUT /docs/media/image-text/cat%20photo"), "{request_line}");
         assert!(auth.to_ascii_lowercase().contains("bearer tok-123"), "{auth}");
         let parsed: Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(parsed["type_ref"], "/builtin/types/MediaDocument");
+        assert_eq!(parsed["type_ref"], "/packages/solx-media/MediaDocument");
         assert_eq!(parsed["contents"]["kind"], "image-text");
     }
 
@@ -161,7 +161,7 @@ mod tests {
         let client = reqwest::Client::new();
 
         let (path, name) =
-            put_document(&client, &base, "tok", "/media/audio-transcript", "clip", "/builtin/types/MediaDocument", json!({}))
+            put_document(&client, &base, "tok", "/media/audio-transcript", "clip", "/packages/solx-media/MediaDocument", json!({}))
                 .await
                 .unwrap();
 

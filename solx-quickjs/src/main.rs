@@ -223,6 +223,15 @@ mod tests {
 async fn main() -> Result<()> {
     solx_package_log::init("solx-quickjs");
 
+    // `--file-only` is baked into the `build-javascript-file` command_actions
+    // entry (see solx-quickjs/package.json), never into the JSON params — so
+    // a caller can't opt back into upserting an action by shaping its
+    // request. It's checked directly against argv rather than threaded
+    // through `Args`/`build_args_from_params_json`, since those are built
+    // from stdin JSON only and ignore real CLI args whenever stdin is
+    // non-empty (the normal case when invoked as a Command action).
+    let file_only = std::env::args().any(|a| a == "--file-only");
+
     use std::io::{IsTerminal, Read};
     let stdin_params = if std::io::stdin().is_terminal() {
         String::new()
@@ -367,16 +376,21 @@ async fn main() -> Result<()> {
     // Upsert the target action so its `bin_name` points at the artifact we
     // just stored. Server mode only — in local mode the caller stages the
     // wasm and registers the action themselves (the old 3-step flow).
-    if let (Some(cfg), Some(http)) = (&server, &client) {
-        let path = args
-            .path
-            .clone()
-            .unwrap_or_else(|| "/packages/solx-quickjs".to_string());
-        let body = json!({
-            "action_type": "wasm",
-            "bin_name": output_artifact_name,
-        });
-        put_action(http, cfg, &path, &args.action_name, &body).await.map_err(anyhow::Error::msg)?;
+    // Skipped entirely in `--file-only` mode: the artifact is built and
+    // uploaded, but no action row is touched, so a package's own
+    // `install.solx` can `save action` against it directly.
+    if !file_only {
+        if let (Some(cfg), Some(http)) = (&server, &client) {
+            let path = args
+                .path
+                .clone()
+                .unwrap_or_else(|| "/packages/solx-quickjs".to_string());
+            let body = json!({
+                "action_type": "wasm",
+                "bin_name": output_artifact_name,
+            });
+            put_action(http, cfg, &path, &args.action_name, &body).await.map_err(anyhow::Error::msg)?;
+        }
     }
 
     let result = BuildResult {

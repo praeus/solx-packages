@@ -3,11 +3,18 @@
 //!
 //! Detachment uses only stable `std` APIs — no extra process-management
 //! crate is needed:
-//! - `Stdio::null()` on all three streams is the *load-bearing* fix: solx's
-//!   `Command` action dispatch waits on `cmd.output()`, which reads
-//!   stdout/stderr to EOF. An inherited pipe handle held open by the Firefox
-//!   grandchild would keep that read pending until Firefox itself exits,
-//!   silently defeating the whole point of detaching.
+//! - `Stdio::null()` on all three streams matters: solx's `Command` action
+//!   dispatch waits on `cmd.output()`, which reads stdout/stderr to EOF, and
+//!   an inherited pipe handle held open by the Firefox grandchild would keep
+//!   that read pending until Firefox itself exits, silently defeating the
+//!   whole point of detaching. On Windows this alone isn't enough, though:
+//!   `Stdio::null()` only controls what Firefox's *own* three stdio slots
+//!   point to, while `CreateProcess`'s `bInheritHandles` (which Rust sets
+//!   whenever any non-`inherit()` `Stdio` is used) duplicates every other
+//!   inheritable handle in our process too — including our own stdout/stderr
+//!   when we're ourselves invoked as a `Command` action with piped stdio.
+//!   `disable_stdio_inheritance` clears the inherit flag on those handles
+//!   before spawning so there's nothing left to duplicate.
 //! - Unix: `CommandExt::process_group(0)` (stabilized since Rust 1.64) makes
 //!   the child its own process-group leader, a kernel-level property that
 //!   persists after our own process exits — so a later, separate `stop`
@@ -186,9 +193,49 @@ pub fn resolve_firefox_path(explicit: Option<&str>) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(program))
 }
 
+/// When `solx-firefox` is itself run as a `Command` action (see
+/// `solx-actions/src/exec.rs::run_command`), its own stdin/stdout/stderr are
+/// inherited pipes from the `cmd /C` wrapper that dispatch waits on to EOF
+/// to decide the command finished. Windows' `CreateProcess` duplicates
+/// *every* inheritable handle open in the calling process into a child
+/// whenever `bInheritHandles` is set — which Rust's `std::process::Command`
+/// does internally for any `Stdio` other than `inherit()`, including the
+/// `Stdio::null()` used below. So without this, Firefox — spawned as our
+/// child — would inherit a duplicate of our own stdout/stderr pipe despite
+/// asking for null streams, and since Firefox never exits, that pipe would
+/// never reach EOF: the dispatching action hangs until its timeout even
+/// though `solx-firefox.exe` itself already returned.
+///
+/// Clearing `HANDLE_FLAG_INHERIT` on our own stdio handles first leaves
+/// nothing of ours for `CreateProcess` to duplicate, regardless of
+/// `bInheritHandles`.
+#[cfg(windows)]
+fn disable_stdio_inheritance() {
+    use std::os::windows::io::AsRawHandle;
+
+    const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetHandleInformation(h_object: isize, dw_mask: u32, dw_flags: u32) -> i32;
+    }
+
+    let handles = [
+        std::io::stdin().as_raw_handle() as isize,
+        std::io::stdout().as_raw_handle() as isize,
+        std::io::stderr().as_raw_handle() as isize,
+    ];
+    for handle in handles {
+        unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+    }
+}
+
 /// Spawn Firefox as a fully detached background process. See module docs
 /// for why each piece here matters.
 pub fn spawn_detached(program: &Path, args: &[String]) -> io::Result<Child> {
+    #[cfg(windows)]
+    disable_stdio_inheritance();
+
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(Stdio::null())

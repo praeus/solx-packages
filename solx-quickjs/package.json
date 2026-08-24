@@ -6,6 +6,10 @@
     "build-javascript-action": {
       "command": ".\\solx-quickjs.exe",
       "cwd": "D:/Projects/solx-packages/solx-quickjs/target/release"
+    },
+    "build-javascript-file": {
+      "command": ".\\solx-quickjs.exe --file-only",
+      "cwd": "D:/Projects/solx-packages/solx-quickjs/target/release"
     }
   }
 }

@@ -9,14 +9,25 @@ This package adds a lightweight JavaScript action build flow for solx-core.
   world
 - a `build-javascript-action` Command action (registered by `install.solx`)
   that invokes the CLI through `solx exec`
+- a `build-javascript-file` Command action — the same build, but it only
+  uploads the wasm artifact and never touches an action row, for packages
+  that want to `save action` against the artifact themselves (see below)
 - a sample `.solx` workflow for build → execute
 
-The build action is a **single action** that does the whole pipeline in one
-invocation: it reads the JavaScript source from the file store, compiles it
-to a wasm component, uploads the wasm back to the file store, and points the
-target action's `bin_name` at the uploaded artifact. There is no separate
-`save file` / `save action` step — the target action is created (or updated)
-by the build action itself.
+`build-javascript-action` is a **single action** that does the whole
+pipeline in one invocation: it reads the JavaScript source from the file
+store, compiles it to a wasm component, uploads the wasm back to the file
+store, and points the target action's `bin_name` at the uploaded artifact.
+There is no separate `save file` / `save action` step — the target action is
+created (or updated) by the build action itself.
+
+`build-javascript-file` runs the identical build + upload, but stops there —
+no action row is created or updated, regardless of what params it's called
+with. It exists for packages whose own `install.solx` registers actions
+against a fixed, known `bin_name`: the package stages its JS source, calls
+`build-javascript-file` to compile+upload it, then `save action`s its own
+actions with `bin_name` set to the same `output_artifact_name`. See
+`solx-livejournal/install.solx` for a worked example.
 
 ## Build the CLI
 
@@ -34,15 +45,18 @@ The resulting binary will be available at `target/release/solx-quickjs`.
 `install.solx` itself carries no inline commentary; here is what it does and
 what you need to do first.
 
-`install.solx` registers **only the builder**: the `QuickjsBuildParams` type
-and the `build-javascript-action` Command action. It does not stage any
-sample JavaScript or create any demo action — those are examples of *using*
-the builder, run later by hand (see "Example workflow" below).
+`install.solx` registers **only the builders**: the `QuickjsBuildParams` /
+`QuickjsBuildFileParams` types and the `build-javascript-action` /
+`build-javascript-file` Command actions. It does not stage any sample
+JavaScript or create any demo action — those are examples of *using* the
+builder, run later by hand (see "Example workflow" below).
 
 1. **Build the CLI first** (see above). `install.solx` registers
-   `build-javascript-action` as a `Command` action whose `fn_name` is
-   `.\solx-quickjs.exe`, resolved against `action_config.cwd` — the binary
-   has to already exist at that path when the action is later invoked.
+   `build-javascript-action`/`build-javascript-file` as `Command` actions
+   whose `fn_name` resolves (via `package.json`'s `command_actions`) to
+   `.\solx-quickjs.exe` and `.\solx-quickjs.exe --file-only` respectively,
+   both resolved against the same `cwd` — the binary has to already exist at
+   that path when either action is later invoked.
 2. **Edit `action_config.cwd`** in `install.solx` before installing: replace
    `D:/Projects/solx-packages/solx-quickjs/target/release` with the absolute
    path to this package's `target/release` directory. `.solx` has no path
@@ -71,19 +85,25 @@ Params (`action_name`, `path`, `entry_artifact_name`, `source_artifact_names`,
 `output_artifact_name`, `artifact_root`) are passed to the CLI as JSON on
 stdin, per solx-core's `Command` action contract; the CLI falls back to
 parsing them as flags only when stdin is a terminal (direct manual
-invocation).
+invocation). `build-javascript-file`'s `QuickjsBuildFileParams` is the same
+shape minus `path`, which it ignores — there's no target action to place it
+on.
 
 ### Two source-loading modes
 
 - **Server mode (default)** — `artifact_root` is absent. The CLI reads each
   `source_artifact_names` entry from the file store via
-  `GET /files/...`, compiles, uploads the wasm to
-  `files/actions/shared/<output_artifact_name>`, and upserts the target action
-  (`PUT /actions/{path}/{name}`) with `action_type: "wasm"` and
-  `bin_name: "<output_artifact_name>"`.
+  `GET /files/...`, compiles, and uploads the wasm to
+  `files/actions/shared/<output_artifact_name>`. `build-javascript-action`
+  additionally upserts the target action (`PUT /actions/{path}/{name}`) with
+  `action_type: "wasm"` and `bin_name: "<output_artifact_name>"`;
+  `build-javascript-file` stops after the upload — the `--file-only` flag
+  baked into its `command_actions` entry (not a JSON param, so a caller can't
+  turn it off) skips that step unconditionally.
 - **Local mode** — `artifact_root` is set (manual CLI invocation). The CLI
   reads sources from local disk and writes the wasm back to disk, with no
-  HTTP. This is the old 3-step flow, kept for direct manual use.
+  HTTP. This is the old 3-step flow, kept for direct manual use. Action
+  upsert never applies here either way, since it's server-mode-only.
 
 ## Writing the JS source
 

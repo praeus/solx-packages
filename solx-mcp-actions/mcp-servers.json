@@ -26,7 +26,8 @@
           "drag_by_uid_to_uid",
           "upload_file_by_uid",
           "accept_dialog",
-          "dismiss_dialog"
+          "dismiss_dialog",
+          "evaluate_script"
         ]
       }
     }

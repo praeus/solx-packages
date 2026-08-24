@@ -7,4 +7,5 @@ delete type /packages/solx-livejournal/LjEntryResult;
 delete type /packages/solx-livejournal/LjHarvestParams;
 delete type /packages/solx-livejournal/LjHarvestPageParams;
 delete type /packages/solx-livejournal/LjExtractEntryParams;
-delete file files/actions/shared/solx-livejournal.wasm
+delete file files/actions/shared/solx-livejournal.wasm;
+delete file solx-livejournal.js

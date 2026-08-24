@@ -56,12 +56,12 @@ provider side after a fresh consent with `prompt=consent`).
 
 ```sh
 # from sol-browser/
-solx install-package ../sol-packages/solx-google
+solx install-package ../solx-packages/solx-google
 ```
 
 This:
 
-1. Generates a fresh random 32-byte encryption key (`/builtin/random_string`).
+1. Generates a fresh random 32-byte encryption key (`solx random 32`).
 2. Posts 35 JSON-schema types under `/packages/solx-google/`.
 3. Uploads the login script content via `/builtin/file/file_put` at
    `shared/solx-google-login.solx` (the script body is inlined into
@@ -96,11 +96,24 @@ component (`solx-google-actions`), dispatched by `fn_name`:
 - `convert-google-task-to-sol-doc`
 - `convert-sol-doc-to-calendar-event`
 - `convert-calendar-event-to-sol-doc`
+- `upload-documents-to-google-docs`
 
 The Tiptap-to-Google-Docs converter is the most complex piece — it does
 a two-pass walk emitting `insertText` requests first, then
 `updateTextStyle`/`updateParagraphStyle`/`createParagraphBullets` style
 mutations in the right order.
+
+`upload-documents-to-google-docs` is a batch action built on that same
+converter: given a `path_prefix` and a `count`, it lists Sol documents
+under that path via `/builtin/document/entity_list_documents` (sorted by
+`updated_at`, `order: "asc"|"desc"`, default `desc`), converts each
+document in-process (the same code `convert-sol-doc-to-google-doc` uses,
+factored into a shared `build_google_doc_payload` helper — no extra
+`action-exec` hop through the standalone converter action), then calls
+`create-google-file` (optionally under `parent_folder_id`) and
+`post-google-doc` for each one. It's fail-fast: on the first failure it
+stops and returns `success: false` naming the failing document, with
+`uploaded` still listing whatever succeeded before that.
 
 ### Posting the WASM actions
 
@@ -125,7 +138,26 @@ solx save action /packages/solx-google/convert-sol-doc-to-google-doc \
     "param_type_ref": "/packages/solx-google/SolDocToGoogleDocParams",
     "result_type_ref": "/packages/solx-google/SolDocToGoogleDocResult"
   }'
-# (repeat for the other 7)
+# (repeat for the other 7 converters, then upload-documents-to-google-docs:)
+solx save action /packages/solx-google/upload-documents-to-google-docs \
+  --json '{
+    "action_type": "wasm",
+    "bin_name": "solx-google-actions.wasm",
+    "caption": "Upload documents to Google Docs",
+    "description": "Lists the N most/least-recently-updated Sol documents under a path, converts each to Google Docs format, and creates a populated Google Doc for each one.",
+    "param_type_ref": "/packages/solx-google/UploadDocsToGoogleDocsParams",
+    "result_type_ref": "/packages/solx-google/UploadDocsToGoogleDocsResult"
+  }'
+```
+
+Example usage once posted:
+
+```sh
+solx exec /packages/solx-google/upload-documents-to-google-docs --json '{
+  "path_prefix": "/notes",
+  "count": 5,
+  "order": "desc"
+}'
 ```
 
 ## Security

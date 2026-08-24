@@ -1,3 +1,0 @@
-# Intermediate component emitted by build-javascript-action next to the source.
-# The staged copy in bin/ is the one install.solx reads.
-src/*.wasm

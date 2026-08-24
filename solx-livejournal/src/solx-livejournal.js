@@ -13,7 +13,9 @@
 import { exec } from "sol:actions/action-exec@0.1.0";
 import { log } from "sol:actions/logger@0.1.0";
 
-const FIREFOX_EVAL = "/mcp-firefox-evaluate-script";
+const FIREFOX_EVAL = "/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script";
+const FIREFOX_START = "/packages/solx-firefox/firefox-start";
+const FIREFOX_NAVIGATE = "/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page";
 const TYPE_REF = "/types/docs/BlogPostWithComments";
 
 // The firefox-devtools-mcp BiDi transport hardcodes a 10s per-command timeout
@@ -57,6 +59,27 @@ function unwrapEval(output) {
   const body = text.slice(start + 7);
   const end = body.lastIndexOf("```");
   return JSON.parse(end === -1 ? body : body.slice(0, end));
+}
+
+// Launch (or reuse) the managed Firefox instance solx-mcp-actions'
+// firefox-devtools-mcp connects to, then point it at the journal. Page
+// scripts fetch with relative URLs (same-origin, to carry the session
+// cookie), which only resolve once the tab has a real origin — freshly
+// launched Firefox opens to about:blank, where a relative fetch throws
+// "TypeError: Window.fetch: / is not a valid URL."
+//
+// Cached per component instance: `harvest` calls this once per index page
+// (up to max_pages times) via the same instance, and re-navigating every
+// cycle is visible as a page reload in the tab even though the fetches
+// underneath are same-origin and don't need it. Once a cycle has confirmed
+// the journal is loaded, later cycles for the same user skip both calls.
+let firefoxReadyUser = null;
+
+function ensureFirefox(user) {
+  if (firefoxReadyUser === user) return;
+  callExec(FIREFOX_START, {});
+  callExec(FIREFOX_NAVIGATE, { url: "https://" + user + ".livejournal.com/" });
+  firefoxReadyUser = user;
 }
 
 // A dropped BiDi connection fails every fetch inside one script run, but a
@@ -167,6 +190,23 @@ function extractEntryScript(user, id) {
     "    if (t && tags.indexOf(t) === -1) tags.push(t);",
     "  });",
     "  const date = ((doc.querySelector('time') || {}).textContent || '').trim();",
+    // The poster's userpic for this entry. Known header selectors are tried
+    // first (both template generations); when neither matches, fall back to
+    // any <img> outside the post body whose src looks like a userpic CDN
+    // hotlink — scoped to exclude bodyEl so an image the author embedded in
+    // the post text is never mistaken for their userpic.
+    "  const pickIconUrl = () => {",
+    "    const headerSelectors = ['.b-singlepost-author img', '.b-singlepost-icons img', '.aentry-post__author img', '.aentry-post__icon img', '.aentry-post__userpic img', '.ljuser img', '.i-ljuser-userpic', 'img.userpic'];",
+    "    for (const sel of headerSelectors) {",
+    "      const img = doc.querySelector(sel);",
+    "      if (img && img.getAttribute('src')) return img.getAttribute('src');",
+    "    }",
+    "    const outside = Array.from(doc.querySelectorAll('img[src]')).filter(img => !bodyEl.contains(img));",
+    "    const byPattern = outside.find(img => /userpic/i.test(img.getAttribute('src') || ''));",
+    "    return byPattern ? byPattern.getAttribute('src') : null;",
+    "  };",
+    "  const iconSrc = pickIconUrl();",
+    "  const icon = iconSrc ? new URL(iconSrc, location.origin).href : null;",
     "  const htmlToParas = el => {",
     "    const c = el.cloneNode(true);",
     "    c.querySelectorAll('br').forEach(b => b.replaceWith('\\n'));",
@@ -224,7 +264,7 @@ function extractEntryScript(user, id) {
     "  return {",
     "    id: ID,",
     "    url: 'https://' + USER + '.livejournal.com/' + ID + '.html',",
-    "    title: title, author: USER, date: date, tags: tags,",
+    "    title: title, author: USER, date: date, tags: tags, icon: icon,",
     "    commentCount: flat.length, commentErr: commentErr,",
     "    contents: {",
     "      content: { type: 'doc', content: paragraphs.map(p => ({ type: 'paragraph', content: [{ type: 'text', text: p }] })) },",
@@ -247,6 +287,39 @@ function defaultPath(user) {
   return "/blogs/livejournal/" + user;
 }
 
+const ICON_EXT_BY_CONTENT_TYPE = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp"
+};
+
+// Download the entry's userpic (a hotlinked URL scraped from the page) and
+// land it in the files store, returning the relPath `contents.icon` expects.
+// Unlike comment icons, the post-level icon can't stay a bare hotlink:
+// solx-server's files route is bearer-token-gated, so the preview resolves
+// it client-side from a relPath instead of loading a `src` URL directly.
+// Best-effort: a failed download must never fail the whole entry.
+function storeIcon(user, id, iconUrl) {
+  if (!iconUrl) return null;
+  try {
+    const resp = callExec("/builtin/web/http_request", { url: iconUrl, timeout_secs: 30 });
+    if (!resp || resp.status < 200 || resp.status >= 300) {
+      log("saveEntry: icon fetch failed for " + id + " (" + iconUrl + "): status=" + (resp && resp.status));
+      return null;
+    }
+    const contentType = (resp.content_type || "").split(";")[0].trim().toLowerCase();
+    const ext = ICON_EXT_BY_CONTENT_TYPE[contentType] || "jpg";
+    const relPath = "files/docs/shared/lj-" + user + "-" + id + "-icon." + ext;
+    callExec("/builtin/file/file_put", { rel_path: relPath, content: resp.body, encoding: resp.body_encoding });
+    return relPath;
+  } catch (e) {
+    log("saveEntry: icon download failed for " + id + ": " + String(e).slice(0, 200));
+    return null;
+  }
+}
+
 function saveEntry(entry, path, security) {
   const slug = slugify(entry.title);
   const name = slug ? entry.id + "-" + slug : String(entry.id);
@@ -260,6 +333,8 @@ function saveEntry(entry, path, security) {
     });
   });
   const paras = entry.contents.paragraphs || [];
+  const iconRelPath = storeIcon(entry.author, entry.id, entry.icon);
+  if (iconRelPath) entry.contents.icon = iconRelPath;
   callExec("/builtin/document/entity_save_document", {
     path: path,
     name: name,
@@ -287,6 +362,7 @@ function extractEntry(input) {
   if (!input.user) throw new Error("user is required");
   if (!input.id) throw new Error("id is required");
   const path = input.path || defaultPath(input.user);
+  ensureFirefox(input.user);
   log("extract_entry: user=" + input.user + " id=" + input.id);
   const entry = evaluateInPage(extractEntryScript(input.user, input.id), "contents");
   if (entry.error) throw new Error("entry " + input.id + ": " + entry.error);
@@ -299,6 +375,7 @@ function harvestPage(input) {
   if (!input.user) throw new Error("user is required");
   const path = input.path || defaultPath(input.user);
   const index = input.index || "/";
+  ensureFirefox(input.user);
   log("harvest_page: fetching index " + index);
   const listing = evaluateInPage(listIndexScript(input.user, index), "entries");
   if (listing.error) throw new Error("index " + index + ": " + listing.error);

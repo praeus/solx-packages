@@ -10,6 +10,9 @@
     "solx-mcp-actions-remove": {
       "command": "D:/Projects/solx-packages/solx-mcp-actions/bin/solx-mcp-actions.exe remove",
       "cwd": "D:/Projects/solx-packages/solx-mcp-actions/bin"
+    },
+    "D:\\Projects\\solx-packages\\solx-mcp-actions\\bin\\solx-mcp-actions.exe invoke": {
+      "command": "D:\\Projects\\solx-packages\\solx-mcp-actions\\bin\\solx-mcp-actions.exe invoke"
     }
   }
 }

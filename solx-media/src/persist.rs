@@ -39,7 +39,7 @@ pub async fn save_document(
         token,
         &path,
         document_name,
-        "/builtin/types/MediaDocument",
+        "/packages/solx-media/MediaDocument",
         document.clone(),
     )
     .await

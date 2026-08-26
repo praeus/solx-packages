@@ -340,10 +340,10 @@ function saveEntry(entry, path, security) {
     name: name,
     title: entry.title || "(untitled)",
     summary: (paras[0] || "").slice(0, 300),
-    type_ref: TYPE_REF,
+    typeRef: TYPE_REF,
     contents: entry.contents,
     author: entry.author,
-    pub_date: entry.date,
+    pubDate: entry.date,
     links: links
   });
   return {

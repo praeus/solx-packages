@@ -54,6 +54,16 @@ provider side after a fresh consent with `prompt=consent`).
 
 ## Install
 
+Build the WASM converter binary first — `install.solx` reads
+`bin/solx-google-actions.wasm` as its first statement:
+
+```sh
+# from solx-google/
+./build.sh          # or build.ps1 on Windows
+```
+
+Then install:
+
 ```sh
 # from sol-browser/
 solx install-package ../solx-packages/solx-google
@@ -61,16 +71,21 @@ solx install-package ../solx-packages/solx-google
 
 This:
 
-1. Generates a fresh random 32-byte encryption key (`solx random 32`).
-2. Posts 35 JSON-schema types under `/packages/solx-google/`.
-3. Uploads the login script content via `/builtin/file/file_put` at
+1. Uploads `bin/solx-google-actions.wasm` (built above) to the file store
+   at `shared/solx-google-actions.wasm`.
+2. Generates a fresh random 32-byte encryption key (`solx random 32`).
+3. Posts 35 JSON-schema types under `/packages/solx-google/`.
+4. Uploads the login script content via `/builtin/file/file_put` at
    `shared/solx-google-login.solx` (the script body is inlined into
    `install.solx` — no separate template / build step required).
-4. Posts the `login-to-google` Script action pointing at the uploaded
+5. Posts the `login-to-google` Script action pointing at the uploaded
    file.
-5. Posts 14 webhook actions (Docs, Drive, Gmail, Tasks, Calendar) plus
-   the internal `_internal/oauth-token-exchange` action — each with the same
+6. Posts 14 webhook actions (Docs, Drive, Gmail, Tasks, Calendar) plus
+   the internal `_private/oauth-token-exchange` action — each with the same
    encryption key baked into its `action_config.secrets` map.
+7. Posts 3 WASM actions built on the Docs converter (see below):
+   `convert-sol-doc-to-google-doc`, `convert-google-doc-to-sol-doc`, and
+   `upload-documents-to-google-docs`.
 
 The login script and WASM binary are stored as files in the file store;
 no `artifact` registry is involved.
@@ -78,25 +93,31 @@ no `artifact` registry is involved.
 ## What this package registers
 
 - **35 types** under `/packages/solx-google/`
-- **16 actions**: 14 webhooks (Docs/Drive/Gmail/Tasks/Calendar) +
-  1 internal `_internal/oauth-token-exchange` webhook (not meant to be
-  invoked standalone) + 1 login-to-google script action
-- **1 file**: `shared/solx-google-login.solx`
+- **19 actions**: 14 webhooks (Docs/Drive/Gmail/Tasks/Calendar) +
+  1 internal `_private/oauth-token-exchange` webhook (not meant to be
+  invoked standalone) + 1 login-to-google script action + 3 WASM Docs
+  converter actions
+- **2 files**: `shared/solx-google-login.solx`, `shared/solx-google-actions.wasm`
 
 ## WASM converters
 
-The 8 Sol ↔ Google converter actions are hosted in a single WASM
-component (`solx-google-actions`), dispatched by `fn_name`:
+The 8 Sol ↔ Google converter actions plus the batch uploader are hosted
+in a single WASM component (`solx-google-actions`), dispatched by
+`fn_name`:
 
-- `convert-sol-doc-to-google-doc`
-- `convert-google-doc-to-sol-doc`
+- `convert-sol-doc-to-google-doc` — installed
+- `convert-google-doc-to-sol-doc` — installed
+- `upload-documents-to-google-docs` — installed
 - `convert-sol-doc-to-gmail-message`
 - `convert-gmail-message-to-sol-doc`
 - `convert-sol-doc-to-google-task`
 - `convert-google-task-to-sol-doc`
 - `convert-sol-doc-to-calendar-event`
 - `convert-calendar-event-to-sol-doc`
-- `upload-documents-to-google-docs`
+
+Only the three Docs-related ones (marked "installed" above) are posted
+by `install.solx` — the Gmail/Tasks/Calendar converters below still need
+posting by hand.
 
 The Tiptap-to-Google-Docs converter is the most complex piece — it does
 a two-pass walk emitting `insertText` requests first, then
@@ -109,48 +130,64 @@ under that path via `/builtin/document/entity_list_documents` (sorted by
 `updated_at`, `order: "asc"|"desc"`, default `desc`), converts each
 document in-process (the same code `convert-sol-doc-to-google-doc` uses,
 factored into a shared `build_google_doc_payload` helper — no extra
-`action-exec` hop through the standalone converter action), then calls
-`create-google-file` (optionally under `parent_folder_id`) and
-`post-google-doc` for each one. It's fail-fast: on the first failure it
-stops and returns `success: false` naming the failing document, with
-`uploaded` still listing whatever succeeded before that.
+`action-exec` hop through the standalone converter action), then either
+creates or updates a Google Doc for each one (see below). It's fail-fast:
+on the first failure it stops and returns `success: false` naming the
+failing document, with `uploaded` still listing whatever succeeded before
+that.
 
-### Posting the WASM actions
+**Re-running it doesn't create duplicates.** Every created Google Doc is
+tagged with the source Sol document's path via Drive's `appProperties`
+(`GoogleDriveCreateFileParams.appProperties`, an official, queryable Drive
+file property — not a Sol-side mapping to keep in sync). Before creating,
+it searches Drive for a file already tagged with that path
+(`find-google-drive-folder` with an `appProperties has {...}` query); if
+found, it clears the existing doc's body (a `deleteContentRange` covering
+everything but the final implicit newline, computed from a `get-google-doc`
+read) and reposts fresh content into the *same* doc instead of making a
+new one. Each `uploaded[]` entry's `action` field says which happened
+(`"created"` or `"updated"`). This is self-healing: if you delete the
+Google Doc yourself, the tag search just finds nothing and a fresh one
+gets created and re-tagged, no stale reference left behind.
 
-After running `cargo build --release --target wasm32-wasip2`, upload the
-binary via `file_put` and post each action manually (these are NOT in
-`install.solx` to keep it readable). Example:
+Documents from *before* this tagging existed aren't tagged retroactively —
+the next run over one of those creates one more doc (now tagged); every
+run after that updates it in place.
+
+A post's icon is best-effort: it's hotlinked from Drive (upload +
+public-share), and `insertInlineImage` is a synchronous fetch by Google's
+own servers with no auth context, which is known to be flaky (an
+unindexed-yet Drive thumbnail 404s, an HTML interstitial instead of raw
+bytes, etc.). Since `post-google-doc` sends the whole document as one
+atomic `batchUpdate`, a bad icon would otherwise take the entire
+document's text and formatting down with it. If the first `batchUpdate`
+fails specifically on `insertInlineImage`, the document is rebuilt
+without the icon and resubmitted once before the document counts as
+failed.
+
+### Posting the remaining WASM actions (Gmail/Tasks/Calendar)
+
+The binary is already uploaded by `install.solx` (step 1 above). Post
+each remaining converter manually — these are NOT in `install.solx`, to
+keep it from growing to cover every converter nobody may end up using.
+Example:
 
 ```sh
-# 1. Upload the binary
-solx exec /builtin/file/file_put --json '{
-  "rel_path": "shared/solx-google-actions.wasm",
-  "content_base64": "...",  # base64 of the .wasm bytes
-  "encoding": "base64"
-}'
-
-# 2. Save each action
-solx save action /packages/solx-google/convert-sol-doc-to-google-doc \
+solx save action /packages/solx-google/convert-sol-doc-to-gmail-message \
   --json '{
-    "action_type": "wasm",
-    "bin_name": "solx-google-actions.wasm",
-    "caption": "Convert Sol document to Google Docs payload",
-    "param_type_ref": "/packages/solx-google/SolDocToGoogleDocParams",
-    "result_type_ref": "/packages/solx-google/SolDocToGoogleDocResult"
+    "actionType": "wasm",
+    "binName": "solx-google-actions.wasm",
+    "fnName": "convert-sol-doc-to-gmail-message",
+    "caption": "Convert Sol document to Gmail message",
+    "paramTypeRef": "/packages/solx-google/SolDocToGmailParams",
+    "resultTypeRef": "/packages/solx-google/SolDocToGmailResult"
   }'
-# (repeat for the other 7 converters, then upload-documents-to-google-docs:)
-solx save action /packages/solx-google/upload-documents-to-google-docs \
-  --json '{
-    "action_type": "wasm",
-    "bin_name": "solx-google-actions.wasm",
-    "caption": "Upload documents to Google Docs",
-    "description": "Lists the N most/least-recently-updated Sol documents under a path, converts each to Google Docs format, and creates a populated Google Doc for each one.",
-    "param_type_ref": "/packages/solx-google/UploadDocsToGoogleDocsParams",
-    "result_type_ref": "/packages/solx-google/UploadDocsToGoogleDocsResult"
-  }'
+# (repeat for the other 5 Gmail/Tasks/Calendar converters, using their
+# matching fnName + paramTypeRef/resultTypeRef pairs from install.solx's
+# type definitions)
 ```
 
-Example usage once posted:
+Example usage of the installed batch uploader:
 
 ```sh
 solx exec /packages/solx-google/upload-documents-to-google-docs --json '{

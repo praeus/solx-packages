@@ -51,8 +51,8 @@ this package does no MCP protocol work itself, that's `solx-mcp-actions`'s job):
 Plus two `Script`-type orchestrator actions that chain a `solx-firefox`
 step with a `solx-mcp-actions` step in one call:
 
-- `firefox-mcp-setup` — `firefox-start` then `solx-mcp-actions-import {"server":"firefox"}`.
-- `firefox-mcp-teardown` — `solx-mcp-actions-remove {"server":"firefox"}` then `firefox-stop`.
+- `firefox-mcp-setup` — `firefox-start` then `/packages/solx-mcp-actions/import {"server":"firefox"}`.
+- `firefox-mcp-teardown` — `/packages/solx-mcp-actions/remove {"server":"firefox"}` then `firefox-stop`.
 
 ### Why a Command action can't just run `firefox -marionette` directly
 
@@ -90,7 +90,7 @@ Skip auto-staging with `SOLX_FIREFOX_SKIP_AUTOBUILD=1`.
   separate install needed. The *first* invocation may need network access to
   download it; consider pre-warming with
   `npx -y @mozilla/firefox-devtools-mcp@latest --help` once during setup so
-  the first real `solx-mcp-actions-import` call for `firefox` isn't slowed by (or
+  the first real `/packages/solx-mcp-actions/import` call for `firefox` isn't slowed by (or
   fails on) that download.
 
 ## Security

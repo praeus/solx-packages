@@ -1,5 +1,5 @@
 //! Save a document to solx-server via `PUT /docs/{path}/{name}`. The
-//! reference is the URL; the body is `{type_ref, contents}`, and the
+//! reference is the URL; the body is `{typeRef, contents}`, and the
 //! response is the saved `Document`.
 //!
 //! One primitive shared by every package that persists extraction output
@@ -24,7 +24,7 @@ pub async fn put_document(
     type_ref: &str,
     contents: Value,
 ) -> Result<(String, String), String> {
-    let body = json!({ "type_ref": type_ref, "contents": contents });
+    let body = json!({ "typeRef": type_ref, "contents": contents });
 
     let url = format!(
         "{}/docs{}/{}",
@@ -151,7 +151,7 @@ mod tests {
         assert!(request_line.starts_with("PUT /docs/media/image-text/cat%20photo"), "{request_line}");
         assert!(auth.to_ascii_lowercase().contains("bearer tok-123"), "{auth}");
         let parsed: Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(parsed["type_ref"], "/packages/solx-media/MediaDocument");
+        assert_eq!(parsed["typeRef"], "/packages/solx-media/MediaDocument");
         assert_eq!(parsed["contents"]["kind"], "image-text");
     }
 

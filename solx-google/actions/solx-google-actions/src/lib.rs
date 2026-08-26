@@ -91,7 +91,7 @@ fn convert_sol_to_google_doc(params: &str) -> Result<ActionResult, String> {
     let text_hint = input.get("text_field_hint").and_then(Value::as_str);
     let rich_text_hint = input.get("rich_text_field_hint").and_then(Value::as_str);
 
-    let payload = build_google_doc_payload(&source_doc, default_title, text_hint, rich_text_hint);
+    let payload = build_google_doc_payload(&source_doc, default_title, text_hint, rich_text_hint, true);
 
     let request_count = payload
         .batch_update_body
@@ -137,6 +137,7 @@ fn build_google_doc_payload(
     default_title: Option<&str>,
     text_hint: Option<&str>,
     rich_text_hint: Option<&str>,
+    include_icon: bool,
 ) -> GoogleDocPayload {
     let title = source_doc
         .get("title")
@@ -163,13 +164,15 @@ fn build_google_doc_payload(
     // instead of each assuming it starts at index 1.
     let mut converter = TiptapToGoogleDocsConverter::new();
 
-    if let Some(relpath) = &icon_relpath {
-        match upload_icon_and_get_public_url(relpath) {
-            Ok(url) => converter.insert_inline_image_from_url(&url),
-            Err(e) => {
-                sol::actions::logger::log(&format!(
-                    "convert-sol-doc-to-google-doc: icon upload failed for '{relpath}': {e}; skipping icon"
-                ));
+    if include_icon {
+        if let Some(relpath) = &icon_relpath {
+            match upload_icon_and_get_public_url(relpath) {
+                Ok(url) => converter.insert_inline_image_from_url(&url),
+                Err(e) => {
+                    sol::actions::logger::log(&format!(
+                        "convert-sol-doc-to-google-doc: icon upload failed for '{relpath}': {e}; skipping icon"
+                    ));
+                }
             }
         }
     }
@@ -209,6 +212,98 @@ fn build_google_doc_payload(
 
 // ── upload-documents-to-google-docs ───────────────────────────────────────────
 
+/// Google Drive `appProperties` key tagging a created Google Doc with the
+/// Sol document path it was generated from -- see `find_existing_google_doc`.
+const SOURCE_PATH_PROPERTY: &str = "solx_source_path";
+
+/// Escapes a value for embedding in a Drive `q` query string literal
+/// (`'...'`-quoted). Per Drive's query syntax, both `\` and `'` need a
+/// backslash escape inside the quotes.
+fn escape_drive_query_value(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+/// Looks up a previously-created Google Doc tagged with `doc_path` via
+/// Drive's `appProperties` (set at creation time, see `create_tagged_google_doc`).
+/// Self-healing by construction: if that file was deleted or untrashed
+/// outside solx, the search just finds nothing -- there's no stale
+/// reference to clean up, the caller just creates a fresh one.
+fn find_existing_google_doc(doc_path: &str) -> Result<Option<String>, String> {
+    let escaped = escape_drive_query_value(doc_path);
+    let q = format!(
+        "mimeType='application/vnd.google-apps.document' and trashed=false and \
+         appProperties has {{ key='{SOURCE_PATH_PROPERTY}' and value='{escaped}' }}"
+    );
+    let result = exec_action_json(
+        "/packages/solx-google/find-google-drive-folder",
+        &json!({ "q": q, "fields": "files(id)", "pageSize": 1 }),
+    )?;
+    Ok(result
+        .get("files")
+        .and_then(Value::as_array)
+        .and_then(|files| files.first())
+        .and_then(|f| f.get("id"))
+        .and_then(Value::as_str)
+        .map(String::from))
+}
+
+/// Creates a new Google Doc tagged with `doc_path`, so a later run can find
+/// and update it instead of creating a duplicate.
+fn create_tagged_google_doc(create_body: &Value, doc_path: &str, parent_folder_id: Option<&str>) -> Result<String, String> {
+    let mut body = create_body.clone();
+    if let Value::Object(map) = &mut body {
+        map.insert("appProperties".to_string(), json!({ SOURCE_PATH_PROPERTY: doc_path }));
+        if let Some(parent) = parent_folder_id {
+            map.insert("parents".to_string(), json!([parent]));
+        }
+    }
+    let created = exec_action_json("/packages/solx-google/create-google-file", &body)?;
+    created
+        .get("id")
+        .and_then(Value::as_str)
+        .map(String::from)
+        .ok_or_else(|| "create-google-file response missing 'id'".to_string())
+}
+
+/// Builds the `deleteContentRange` request that clears an existing
+/// document's body before reposting fresh content into it -- reposting
+/// insert-only requests into a non-empty doc would misalign or prepend
+/// instead of replacing, since Docs indices assume a doc starting empty.
+/// `google_doc` is a `get-google-doc` response; `body.content`'s last
+/// element's `endIndex` is the document's total end index. Docs disallows
+/// deleting the final implicit newline, hence `- 1`. Returns `None` for a
+/// doc that's already empty (nothing to clear -- e.g. a tagged doc whose
+/// prior post-google-doc never got past creation).
+fn compute_clear_range(google_doc: &Value) -> Option<Value> {
+    let total_end_index = google_doc
+        .get("body")?
+        .get("content")?
+        .as_array()?
+        .last()?
+        .get("endIndex")?
+        .as_i64()?;
+    if total_end_index <= 2 {
+        return None;
+    }
+    Some(json!({
+        "deleteContentRange": { "range": { "startIndex": 1, "endIndex": total_end_index - 1 } }
+    }))
+}
+
+/// Finishes a `batch_update_body` (`{"requests": [...]}`) for `post-google-doc`:
+/// prepends the clear-range request when reposting into an existing doc, and
+/// merges in `documentId` (see the comment at its call sites for why that's
+/// not nested under a `body` key).
+fn finalize_post_body(mut body: Value, doc_id: &str, clear_request: Option<&Value>) -> Value {
+    if let Value::Object(map) = &mut body {
+        if let (Some(Value::Array(requests)), Some(clear)) = (map.get_mut("requests"), clear_request) {
+            requests.insert(0, clear.clone());
+        }
+        map.insert("documentId".to_string(), json!(doc_id));
+    }
+    body
+}
+
 fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String> {
     let input: Value = serde_json::from_str(params)
         .map_err(|e| format!("invalid JSON params: {e}"))?;
@@ -227,10 +322,10 @@ fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String>
     let list_result = exec_action_json(
         "/builtin/document/entity_list_documents",
         &json!({
-            "path_prefix": path_prefix,
+            "pathPrefix": path_prefix,
             "limit": count,
-            "sort_by": "updated_at",
-            "sort_order": order,
+            "sortBy": "updated_at",
+            "sortOrder": order,
         }),
     )?;
 
@@ -241,36 +336,106 @@ fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String>
         .unwrap_or_default();
     let found = items.len();
 
+    sol::actions::logger::log(&format!(
+        "upload-documents-to-google-docs: found {found} document(s) under '{path_prefix}' (requested {count})"
+    ));
+
     let mut uploaded: Vec<Value> = Vec::new();
 
-    for doc in &items {
+    for (i, doc) in items.iter().enumerate() {
         let doc_path = doc.get("path").and_then(Value::as_str).unwrap_or("");
         let doc_name = doc.get("name").and_then(Value::as_str).unwrap_or("");
+        // `doc_path` alone is just the *folder* -- every sibling document
+        // under the same path_prefix shares it (Sol documents split
+        // path/name the same way actions do). The tag/search key and the
+        // result's sol_document_path both need the full, per-document
+        // identifier, or every doc in one folder collapses onto the same
+        // Google Doc (confirmed live: doc 2 and 3 overwrote doc 1's content
+        // instead of getting their own).
+        let full_doc_path = format!("{doc_path}/{doc_name}");
+        let progress = format!("[{}/{found}] '{full_doc_path}'", i + 1);
+
+        sol::actions::logger::log(&format!("upload-documents-to-google-docs: {progress}: starting"));
 
         let upload_result = (|| -> Result<Value, String> {
-            let payload = build_google_doc_payload(doc, None, None, None);
-            let mut create_body = payload.create_body;
-            if let (Some(parent), Value::Object(map)) = (parent_folder_id, &mut create_body) {
-                map.insert("parents".to_string(), json!([parent]));
+            let payload = build_google_doc_payload(doc, None, None, None, true);
+
+            // Reuse a previously-created doc tagged with this Sol document's
+            // path (see find_existing_google_doc) instead of always
+            // creating a new one. A tag match that turns out unreadable
+            // (deleted/trashed outside solx since the search, etc.) just
+            // falls back to creating fresh rather than failing the document.
+            sol::actions::logger::log(&format!("upload-documents-to-google-docs: {progress}: searching for an existing tagged doc"));
+            let existing_doc_id = find_existing_google_doc(&full_doc_path)?;
+            let (doc_id, action_kind, clear_request) = if let Some(id) = existing_doc_id {
+                sol::actions::logger::log(&format!(
+                    "upload-documents-to-google-docs: {progress}: found existing doc '{id}', fetching its current content"
+                ));
+                match exec_action_json("/packages/solx-google/get-google-doc", &json!({ "documentId": id })) {
+                    Ok(existing_doc) => (id, "updated", compute_clear_range(&existing_doc)),
+                    Err(e) => {
+                        sol::actions::logger::log(&format!(
+                            "upload-documents-to-google-docs: {progress}: tagged doc '{id}' \
+                             could not be read ({e}); creating a new one"
+                        ));
+                        (
+                            create_tagged_google_doc(&payload.create_body, &full_doc_path, parent_folder_id)?,
+                            "created",
+                            None,
+                        )
+                    }
+                }
+            } else {
+                sol::actions::logger::log(&format!(
+                    "upload-documents-to-google-docs: {progress}: no existing tagged doc found, creating a new one"
+                ));
+                (
+                    create_tagged_google_doc(&payload.create_body, &full_doc_path, parent_folder_id)?,
+                    "created",
+                    None,
+                )
+            };
+
+            // batch_update_body is already `{"requests": [...]}` -- Google's
+            // batchUpdate endpoint expects that shape as the raw request
+            // body, so documentId (and, when reposting, the clear-range
+            // request) are merged in directly rather than nested under a
+            // "body" key (which the endpoint would reject as an
+            // unrecognized field).
+            let post_body = finalize_post_body(payload.batch_update_body, &doc_id, clear_request.as_ref());
+            sol::actions::logger::log(&format!(
+                "upload-documents-to-google-docs: {progress}: posting content to doc '{doc_id}'"
+            ));
+            if let Err(e) = exec_action_json("/packages/solx-google/post-google-doc", &post_body) {
+                // The icon is the only thing in this batch backed by a
+                // hotlinked (rather than caller-supplied) URL, and Drive
+                // hotlinks are known to be unreliable for Google's own
+                // server-to-server image fetch (see upload_icon_and_get_public_url).
+                // Since batchUpdate is all-or-nothing, one flaky icon would
+                // otherwise sink the whole document's text/formatting.
+                // Best-effort: on an image-fetch complaint specifically,
+                // rebuild without the icon and retry once before giving up.
+                if e.contains("insertInlineImage") {
+                    sol::actions::logger::log(&format!(
+                        "upload-documents-to-google-docs: {progress}: icon could not be embedded \
+                         ({e}); retrying without the icon"
+                    ));
+                    let retry_payload = build_google_doc_payload(doc, None, None, None, false);
+                    let retry_body = finalize_post_body(retry_payload.batch_update_body, &doc_id, clear_request.as_ref());
+                    exec_action_json("/packages/solx-google/post-google-doc", &retry_body)?;
+                } else {
+                    return Err(e);
+                }
             }
-
-            let created = exec_action_json("/packages/solx-google/create-google-file", &create_body)?;
-            let doc_id = created
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "create-google-file response missing 'id'".to_string())?;
-
-            exec_action_json(
-                "/packages/solx-google/post-google-doc",
-                &json!({ "documentId": doc_id, "body": payload.batch_update_body }),
-            )?;
+            sol::actions::logger::log(&format!("upload-documents-to-google-docs: {progress}: done"));
 
             Ok(json!({
-                "sol_document_path": doc_path,
+                "sol_document_path": full_doc_path,
                 "sol_document_name": doc_name,
                 "title": payload.title,
                 "google_doc_id": doc_id,
                 "google_doc_url": format!("https://docs.google.com/document/d/{doc_id}/edit"),
+                "action": action_kind,
             }))
         })();
 
@@ -279,7 +444,7 @@ fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String>
             Err(e) => {
                 return Ok(ActionResult {
                     success: false,
-                    message: Some(format!("failed at document '{doc_path}/{doc_name}': {e}")),
+                    message: Some(format!("failed at document '{full_doc_path}': {e}")),
                     output: Some(
                         json!({
                             "requested": count,
@@ -500,7 +665,14 @@ fn upload_icon_and_get_public_url(relpath: &str) -> Result<String, String> {
         &json!({ "fileId": file_id, "type": "anyone", "role": "reader" }),
     )?;
 
-    Ok(format!("https://drive.google.com/uc?export=view&id={file_id}"))
+    // NOT `drive.google.com/uc?export=view&id=...` -- that legacy link
+    // increasingly serves an HTML interstitial instead of raw bytes on a
+    // server-to-server fetch, which is what Google's own Docs backend does
+    // when resolving insertInlineImage, causing "There was a problem
+    // retrieving the image". The googleusercontent.com CDN form (what
+    // Docs/Slides themselves generate when you insert a Drive image via
+    // the UI) reliably returns the raw image.
+    Ok(format!("https://lh3.googleusercontent.com/d/{file_id}"))
 }
 
 // ── Text extraction from Sol contents ────────────────────────────────────────

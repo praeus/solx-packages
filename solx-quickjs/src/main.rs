@@ -386,8 +386,8 @@ async fn main() -> Result<()> {
                 .clone()
                 .unwrap_or_else(|| "/packages/solx-quickjs".to_string());
             let body = json!({
-                "action_type": "wasm",
-                "bin_name": output_artifact_name,
+                "actionType": "wasm",
+                "binName": output_artifact_name,
             });
             put_action(http, cfg, &path, &args.action_name, &body).await.map_err(anyhow::Error::msg)?;
         }

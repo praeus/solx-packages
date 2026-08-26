@@ -7,9 +7,13 @@
 # ── Actions (webhooks) ───────────────────────────────────────────────────────
 
 delete action /packages/solx-google/login-to-google;
-delete action /packages/solx-google/_internal/oauth-token-exchange;
+delete action /packages/solx-google/_private/oauth-token-exchange;
 delete action /packages/solx-google/post-google-doc;
 delete action /packages/solx-google/get-google-doc;
+
+delete action /packages/solx-google/upload-documents-to-google-docs;
+delete action /packages/solx-google/convert-google-doc-to-sol-doc;
+delete action /packages/solx-google/convert-sol-doc-to-google-doc;
 
 delete action /packages/solx-google/find-google-drive-folder;
 delete action /packages/solx-google/create-google-file;

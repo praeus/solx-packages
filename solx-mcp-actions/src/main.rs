@@ -358,16 +358,16 @@ async fn import_one_tool(
     };
 
     let mut action_body = json!({
-        "action_type": "command",
-        "fn_name": invoke_cmd,
+        "actionType": "command",
+        "fnName": invoke_cmd,
         "caption": format!("MCP: {tool_name}"),
         "category": "mcp",
         "description": description,
         "capabilities": vec!["mcp".to_string(), server.to_string()],
         "phrases": vec![tool_name.to_string(), format!("mcp {tool_name}"), format!("{server} {tool_name}")],
-        "param_type_ref": param_type_ref,
-        "result_type_ref": result_type_ref,
-        "action_config": { "cwd": dir.to_string_lossy() },
+        "paramTypeRef": param_type_ref,
+        "resultTypeRef": result_type_ref,
+        "actionConfig": { "cwd": dir.to_string_lossy() },
     });
     if let Some(perm) = permission_name {
         action_body["permission_name"] = json!(perm);

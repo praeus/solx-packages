@@ -317,6 +317,7 @@ fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String>
         .and_then(Value::as_u64)
         .ok_or_else(|| "count is required and must be a positive integer".to_string())?;
     let order = input.get("order").and_then(Value::as_str).unwrap_or("desc");
+    let offset = input.get("offset").and_then(Value::as_u64).unwrap_or(0);
     let parent_folder_id = input.get("parent_folder_id").and_then(Value::as_str);
 
     let list_result = exec_action_json(
@@ -324,6 +325,7 @@ fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String>
         &json!({
             "pathPrefix": path_prefix,
             "limit": count,
+            "offset": offset,
             "sortBy": "updated_at",
             "sortOrder": order,
         }),
@@ -337,7 +339,7 @@ fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String>
     let found = items.len();
 
     sol::actions::logger::log(&format!(
-        "upload-documents-to-google-docs: found {found} document(s) under '{path_prefix}' (requested {count})"
+        "upload-documents-to-google-docs: found {found} document(s) under '{path_prefix}' (requested {count}, offset {offset})"
     ));
 
     let mut uploaded: Vec<Value> = Vec::new();

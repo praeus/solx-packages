@@ -127,7 +127,9 @@ mutations in the right order.
 `upload-documents-to-google-docs` is a batch action built on that same
 converter: given a `path_prefix` and a `count`, it lists Sol documents
 under that path via `/builtin/document/entity_list_documents` (sorted by
-`updated_at`, `order: "asc"|"desc"`, default `desc`), converts each
+`updated_at`, `order: "asc"|"desc"`, default `desc`, skipping an optional
+`offset` first, default `0`, so successive runs can page through a
+folder), converts each
 document in-process (the same code `convert-sol-doc-to-google-doc` uses,
 factored into a shared `build_google_doc_payload` helper — no extra
 `action-exec` hop through the standalone converter action), then either
@@ -193,6 +195,7 @@ Example usage of the installed batch uploader:
 solx exec /packages/solx-google/upload-documents-to-google-docs --json '{
   "path_prefix": "/notes",
   "count": 5,
+  "offset": 0,
   "order": "desc"
 }'
 ```

@@ -1,0 +1,8 @@
+{
+  "name": "solx-conductor",
+  "version": "0.2.0",
+  "description": "Agent harness for solx-core - one quickjs wasm component backing five actions that turn the action registry into an LLM tool catalogue and run the loop one iteration at a time, with memories, context and skills kept as documents, through a default-deny gate with human approval for destructive calls",
+  "scripts": {
+    "test": "node --test tests/conductor.test.mjs"
+  }
+}

@@ -61,9 +61,10 @@ than honoured, the same as before, just with the opposite forced value.
 
 The action's return value is unchanged: one final JSON result, shaped exactly
 like the old blocking response (`chat`'s `message.content` is the
-concatenation of every token delta; `pull_model` returns the last status
-object). What's new is that you can now *watch* the call while it runs, and
-cancel it:
+concatenation of every token delta and `message.tool_calls` every tool call
+made anywhere in the stream; `pull_model` returns the last status object).
+What's new is that you can now *watch* the call while it runs, and cancel
+it:
 
 - **Live output** — every NDJSON chunk Ollama sends is written to the
   action's own console (`level: "chunk"`, with the raw chunk as `data`) as it
@@ -86,6 +87,48 @@ has no sockets and no state across invocations, so the stream has to live in
 the host process. Full background:
 [docs/streaming-design.md](docs/streaming-design.md) (the design doc that
 scoped this out originally; the built-ins described there now exist).
+
+## Tool calling
+
+`chat` supports the full tool loop for any model that supports tools — pass
+`tools`, get `message.tool_calls` back, run them, and send the results in as
+the next turn:
+
+```bash
+solx exec /packages/solx-ollama/ollama-chat --json '{
+  "model": "qwen3:4b",
+  "messages": [{"role":"user","content":"weather in Paris?"}],
+  "tools": [{"type":"function","function":{
+    "name":"get_weather",
+    "description":"Current weather for a city",
+    "parameters":{"type":"object","required":["city"],
+                  "properties":{"city":{"type":"string"}}}}}]
+}'
+```
+
+The reply carries `message.tool_calls`, each entry `{"function": {"name",
+"arguments"}}`. Run each one yourself, then call again with the assistant turn
+and one `role: "tool"` turn per result appended to `messages`:
+
+```json
+{"role": "tool", "tool_name": "get_weather", "content": "18C, clear"}
+```
+
+Two details worth knowing:
+
+- **Tool calls arrive mid-stream.** Ollama emits each one complete, in a chunk
+  of its own that carries no text, and never in the final `done` chunk — so
+  they are collected as they arrive and folded back onto the final
+  `message.tool_calls`, in call order. The key is **absent**, not an empty
+  array, when the model called nothing.
+- **A tool-call chunk shows up in the console** as
+  `[tool_call get_weather({"city":"Paris"})]`, so `console/tail` doesn't look
+  like the model stalled while it was deciding.
+
+Nothing here checks whether the model supports tools first — `/api/tags`
+doesn't report capabilities. A model without tool support rejects the request,
+which surfaces as `kind: "http_status"` or `kind: "ollama_error"` naming the
+model.
 
 ## Configuration
 
@@ -140,11 +183,18 @@ encrypts using a key taken from the *calling* action's `action_config.secrets`,
 so only an action that already holds the key can write the secret. The secret
 name is hardcoded, so this action cannot overwrite an unrelated one.
 
-**Re-installing rotates the key.** `install.solx` generates a fresh AES key with
-`random 32` and writes it onto all four rows. Running `solx install-package`
-again mints a new one, after which the previously stored token fails to decrypt
-(`secret decryption failed`). Recovery is one command: run `ollama-set-api-key`
-again.
+**Re-installing keeps the key.** `install.solx` generates a fresh AES key with
+`random 32` only on a genuine first install; if any action already exists under
+`/packages/solx-ollama` it writes the sentinel `"***"` onto the rows instead,
+which `save action` resolves back to each row's stored key rather than
+overwriting it (`solx-actions::mask::unmask_merge`). So upgrading the package
+leaves an already-stored token decryptable — the same approach solx-google uses
+for its OAuth key.
+
+The one case that still needs `ollama-set-api-key` re-run is a *partial* prior
+install: if some rows exist and others don't, the missing ones have no stored
+key to restore and `save action` fails with "there is no stored value to
+restore". Delete the surviving rows and install clean.
 
 ## Timeouts
 

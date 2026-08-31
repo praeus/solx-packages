@@ -127,6 +127,48 @@ compiles fine but fails at runtime with `interface
 componentize-qjs to bind the interface to, even though a `run` function
 exists at the top level.
 
+### Multiple files, and libraries
+
+`source_artifact_names` is a list, and every entry is staged into one temp
+directory that becomes the module root. componentize-qjs resolves imports from
+there with a real node resolver (`oxc_resolver`, conditions `import`/`default`,
+extensions `.mjs`/`.js`, main fields `module`/`main`), so ordinary relative
+imports between your own files just work:
+
+```
+save file names.js --file src/names.js;
+save file main.js  --file src/main.js;
+exec /packages/solx-quickjs/build-javascript-file --json '{"entry_artifact_name":"main.js","source_artifact_names":["main.js","names.js"],"output_artifact_name":"thing.wasm"}';
+```
+
+```js
+import { pick } from "./names.js";
+```
+
+**Artifact names are staged as relative paths**, so directory structure is
+preserved and `vendor/lib/index.js` is importable as `./vendor/lib/index.js`.
+Names are validated first: no absolute paths, no root or drive prefix, and no
+`..` — a source artifact cannot be staged outside the module root.
+
+That is what makes a third-party library usable, with one caveat about how
+you get it here. There is no npm step in this pipeline and no directory
+upload: the file store is addressed one file at a time, so every file a
+dependency needs must be listed in `source_artifact_names` individually. In
+practice that means **pre-bundling**. Run esbuild or rollup over the package,
+commit the single ESM output, stage that one file, and import it by path:
+
+```bash
+npx esbuild --bundle --format=esm --outfile=vendor/some-lib.js entry-for-lib.js
+```
+
+Bare specifiers (`import x from "some-lib"`) would resolve if a `node_modules`
+tree existed under the module root, but nothing stages one for you — you would
+have to list every file of it. Prefer the bundle.
+
+Everything staged is compiled into the wasm, so a dependency's weight is
+permanent per-action size. Weigh that against writing the twenty lines
+yourself.
+
 To call other solx actions from within the guest (recursively, permission-gated), import
 `sol:actions/action-exec@0.1.0` and call `exec(actionRef, paramsJson)` with a
 full `/path/name` action reference — see

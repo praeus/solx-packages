@@ -340,6 +340,137 @@ fn streaming_chunks_are_logged_to_the_console_and_folded_into_one_result() {
 }
 
 #[test]
+fn tool_calls_survive_the_stream_fold() {
+    // Ollama emits each tool call complete, in a chunk of its own that carries
+    // no text, and never in the final `done` chunk — so folding only
+    // `message.content` (as this used to) dropped them entirely and the caller
+    // saw an empty answer instead of a call to make.
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_stream(
+        200,
+        "{\"message\":{\"role\":\"assistant\",\"content\":\"Checking\"},\"done\":false}\n\
+         {\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[\
+           {\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":false}\n\
+         {\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[\
+           {\"function\":{\"name\":\"get_time\",\"arguments\":{\"tz\":\"UTC\"}}}]},\"done\":false}\n\
+         {\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\"}",
+    );
+
+    let out = run(
+        &host,
+        "chat",
+        json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": "weather?" }],
+            "tools": [{ "type": "function", "function": { "name": "get_weather" } }],
+        }),
+    );
+
+    assert!(out.success, "{:?}", out.message);
+    let calls = out.output["message"]["tool_calls"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no tool_calls in {}", out.output));
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    // Arrival order is the call order the model asked for; it is what the
+    // caller has to replay when it sends the results back.
+    assert_eq!(calls[0]["function"]["name"], json!("get_weather"));
+    assert_eq!(calls[0]["function"]["arguments"]["city"], json!("Paris"));
+    assert_eq!(calls[1]["function"]["name"], json!("get_time"));
+    // The text deltas still fold exactly as before.
+    assert_eq!(out.output["message"]["content"], json!("Checking"));
+    assert_eq!(out.output["message"]["role"], json!("assistant"));
+    assert_eq!(out.output["done_reason"], json!("stop"));
+
+    // `tools` is a passthrough param, so the definitions reach Ollama.
+    assert_eq!(
+        host.http_body()["tools"][0]["function"]["name"],
+        json!("get_weather")
+    );
+}
+
+#[test]
+fn a_tool_call_chunk_is_named_in_the_console() {
+    // Its `message.content` is empty, so without naming the call the console
+    // line would be blank and a tailing operator would see the model stall.
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_stream(
+        200,
+        "{\"message\":{\"content\":\"\",\"tool_calls\":[\
+           {\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":false}\n\
+         {\"message\":{\"content\":\"\"},\"done\":true}",
+    );
+
+    run(&host, "chat", json!({ "model": "m", "messages": [] }));
+
+    let prints = host.calls_named("/builtin/console/print");
+    assert_eq!(
+        prints[0]["message"],
+        json!("[tool_call get_weather({\"city\":\"Paris\"})]")
+    );
+    // The raw chunk is still attached verbatim.
+    assert_eq!(
+        prints[0]["data"]["message"]["tool_calls"][0]["function"]["name"],
+        json!("get_weather")
+    );
+}
+
+#[test]
+fn a_chat_without_tool_calls_carries_no_tool_calls_key() {
+    // An empty array is not the shape a non-streaming reply has, and a caller
+    // testing truthiness on it would loop forever.
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_stream(
+        200,
+        "{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"done\":true}",
+    );
+
+    let out = run(&host, "chat", json!({ "model": "m", "messages": [] }));
+
+    assert!(out.success, "{:?}", out.message);
+    assert!(
+        out.output["message"].get("tool_calls").is_none(),
+        "{}",
+        out.output
+    );
+}
+
+#[test]
+fn a_final_chunk_without_a_message_does_not_swallow_the_answer() {
+    // Defensive: real Ollama always sends `message` on the last chat chunk,
+    // but folding into a missing key used to discard the entire response.
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_stream(
+        200,
+        "{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"done\":false}\n\
+         {\"done\":true,\"done_reason\":\"stop\"}",
+    );
+
+    let out = run(&host, "chat", json!({ "model": "m", "messages": [] }));
+
+    assert!(out.success, "{:?}", out.message);
+    assert_eq!(out.output["message"]["content"], json!("hi"));
+    assert_eq!(out.output["message"]["role"], json!("assistant"));
+}
+
+#[test]
+fn a_response_with_nothing_to_fold_is_left_verbatim() {
+    // The synthesized `message` above must not appear where there was never
+    // any text or tool call to hold.
+    let host = FakeHost::new();
+    queue_no_config(&host);
+    host.push_stream(200, r#"{"done":true,"done_reason":"load"}"#);
+
+    let out = run(&host, "chat", json!({ "model": "m", "messages": [] }));
+
+    assert!(out.success, "{:?}", out.message);
+    assert_eq!(out.output, json!({ "done": true, "done_reason": "load" }));
+}
+
+#[test]
 fn mid_stream_cancellation_closes_the_stream_and_fails_the_outcome() {
     let host = FakeHost::new();
     queue_no_config(&host);

@@ -30,6 +30,8 @@ use crate::host::{truncate, Host, Outcome};
 const MAX_BODY_ECHO: usize = 2048;
 /// Longest body used as an error *message* when Ollama sent no `error` field.
 const MAX_DETAIL_ECHO: usize = 512;
+/// Longest `function.arguments` rendering echoed into a console chunk line.
+const MAX_TOOL_ARGS_ECHO: usize = 256;
 /// `wait_secs` passed to each `http_stream/poll` — how long to long-poll for
 /// the next chunk (or `done`) before looping back around to re-check
 /// cancellation.
@@ -285,6 +287,13 @@ struct Aggregate {
     kind: StreamKind,
     content: String,
     thinking: String,
+    /// Every `message.tool_calls` entry seen across the whole stream, in
+    /// arrival order. Ollama emits a tool call as a *complete* object in
+    /// whichever chunk it finishes parsing it in — usually one that carries
+    /// no `content` at all, and never the final `done` chunk — so the only
+    /// way to keep them is to collect them as they go and put them back in
+    /// [`Aggregate::finish`].
+    tool_calls: Vec<Value>,
     last: Value,
 }
 
@@ -294,17 +303,35 @@ impl Aggregate {
             kind,
             content: String::new(),
             thinking: String::new(),
+            tool_calls: Vec::new(),
             last: Value::Null,
         }
     }
 
     fn summarize(&self, chunk: &Value) -> String {
         match self.kind {
-            StreamKind::Chat => chunk
-                .pointer("/message/content")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+            // A tool-call chunk carries no text, so without this the console
+            // line for it would be empty and a tailing operator would see the
+            // model apparently stall mid-answer.
+            StreamKind::Chat => {
+                let mut line = chunk
+                    .pointer("/message/content")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                for call in tool_calls_of(chunk) {
+                    let name = call
+                        .pointer("/function/name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?");
+                    let args = call
+                        .pointer("/function/arguments")
+                        .map(|a| truncate(&a.to_string(), MAX_TOOL_ARGS_ECHO))
+                        .unwrap_or_default();
+                    line.push_str(&format!("[tool_call {name}({args})]"));
+                }
+                line
+            }
             StreamKind::Progress => {
                 let status = chunk.get("status").and_then(Value::as_str).unwrap_or("");
                 match (
@@ -327,6 +354,7 @@ impl Aggregate {
                 if let Some(s) = chunk.pointer("/message/thinking").and_then(Value::as_str) {
                     self.thinking.push_str(s);
                 }
+                self.tool_calls.extend(tool_calls_of(chunk).cloned());
             }
             StreamKind::Progress => {}
         }
@@ -334,17 +362,43 @@ impl Aggregate {
     }
 
     /// The final chunk's own object (carrying `done`/stats/`error`/etc.),
-    /// with the concatenated text folded back in — matching exactly what a
-    /// non-streaming call to the same endpoint used to return.
+    /// with the concatenated text and every tool call collected along the way
+    /// folded back in — matching exactly what a non-streaming call to the same
+    /// endpoint would have returned.
     fn finish(self) -> Value {
-        let mut out = if self.last.is_object() { self.last } else { json!({}) };
+        let Aggregate { kind, content, thinking, tool_calls, last } = self;
+        let mut out = if last.is_object() { last } else { json!({}) };
         if let Some(obj) = out.as_object_mut() {
-            match self.kind {
+            match kind {
                 StreamKind::Chat => {
-                    if let Some(msg) = obj.get_mut("message").and_then(Value::as_object_mut) {
-                        msg.insert("content".to_string(), json!(self.content));
-                        if !self.thinking.is_empty() {
-                            msg.insert("thinking".to_string(), json!(self.thinking));
+                    // The final chunk always carries a `message` object. If a
+                    // server ever omits it, synthesize one rather than dropping
+                    // the whole answer on the floor — but only when there is
+                    // something to put in it, so a response with no message at
+                    // all still comes back verbatim.
+                    let has_message = obj.get("message").is_some_and(Value::is_object);
+                    let has_payload =
+                        !content.is_empty() || !thinking.is_empty() || !tool_calls.is_empty();
+                    let msg = if has_message || has_payload {
+                        let msg = obj.entry("message").or_insert_with(|| json!({}));
+                        if !msg.is_object() {
+                            *msg = json!({});
+                        }
+                        msg.as_object_mut()
+                    } else {
+                        None
+                    };
+                    if let Some(msg) = msg {
+                        msg.entry("role").or_insert_with(|| json!("assistant"));
+                        msg.insert("content".to_string(), json!(content));
+                        if !thinking.is_empty() {
+                            msg.insert("thinking".to_string(), json!(thinking));
+                        }
+                        // Absent rather than empty when the model called
+                        // nothing — that is the shape a non-streaming reply
+                        // has.
+                        if !tool_calls.is_empty() {
+                            msg.insert("tool_calls".to_string(), Value::Array(tool_calls));
                         }
                     }
                 }
@@ -353,6 +407,17 @@ impl Aggregate {
         }
         out
     }
+}
+
+/// The `message.tool_calls` entries of one chunk, empty for a chunk that has
+/// none (or whose `tool_calls` is not an array).
+fn tool_calls_of(chunk: &Value) -> std::slice::Iter<'_, Value> {
+    const NONE: &[Value] = &[];
+    chunk
+        .pointer("/message/tool_calls")
+        .and_then(Value::as_array)
+        .map_or(NONE, Vec::as_slice)
+        .iter()
 }
 
 fn interpret(ep: &Endpoint, path: &str, url: &str, resp: &Value) -> Outcome {

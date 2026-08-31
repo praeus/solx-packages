@@ -4,7 +4,7 @@ use componentize_qjs::{componentize, ComponentizeOpts, Runtime};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use solx_package_log::server::ServerConfig;
-use std::{fs, path::{Path, PathBuf}, time::Duration};
+use std::{fs, path::{Component as PathComponent, Path, PathBuf}, time::Duration};
 use tempfile::TempDir;
 
 #[derive(Debug, Parser)]
@@ -65,6 +65,44 @@ fn encode_rel_path(rel: &str) -> String {
         .map(encode_segment)
         .collect::<Vec<_>>()
         .join("/")
+}
+
+/// Where a staged source lands inside the temp module root.
+///
+/// The artifact name is treated as a *relative path*, not just a filename, so
+/// a package can stage `vendor/lib.js` and import it as `./vendor/lib.js`.
+/// Flattening to the basename -- which is what this used to do -- collides the
+/// moment two directories hold the same filename, and it is what stopped a
+/// multi-file library from ever resolving: componentize-qjs runs a real node
+/// resolver over the module root, so the only thing missing was the tree.
+///
+/// The name arrives in a params payload, so it is checked rather than trusted.
+/// Only ordinary path components are allowed: no root, no prefix, no `..`, so
+/// a staged file cannot land outside the module root. The resolver enforces
+/// the same boundary when it loads, but a build should fail at staging with a
+/// clear message rather than later with a resolver error.
+fn staged_destination(root: &Path, source_name: &str) -> Result<PathBuf> {
+    let relative = Path::new(source_name);
+    if relative.as_os_str().is_empty() {
+        return Err(anyhow!("empty source artifact name"));
+    }
+    for component in relative.components() {
+        if !matches!(component, PathComponent::Normal(_)) {
+            return Err(anyhow!(
+                "source artifact name must be a relative path with no '..' or root: {source_name}"
+            ));
+        }
+    }
+    Ok(root.join(relative))
+}
+
+/// Create the parent directory of a staged file, if it has one.
+fn ensure_parent(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create staging directory {}", parent.display()))?;
+    }
+    Ok(())
 }
 
 async fn get_file(
@@ -203,6 +241,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_nested_source_name_keeps_its_directory() {
+        // The whole point: componentize-qjs resolves imports with a real node
+        // resolver over the module root, so a library staged as several files
+        // only works if the tree survives staging.
+        let root = Path::new("/tmp/build");
+        assert_eq!(
+            staged_destination(root, "vendor/lib/index.js").unwrap(),
+            root.join("vendor").join("lib").join("index.js")
+        );
+        assert_eq!(staged_destination(root, "main.js").unwrap(), root.join("main.js"));
+    }
+
+    #[test]
+    fn a_source_name_cannot_escape_the_module_root() {
+        let root = Path::new("/tmp/build");
+        for bad in ["../secrets.js", "vendor/../../secrets.js", "/etc/passwd", ""] {
+            assert!(
+                staged_destination(root, bad).is_err(),
+                "{bad:?} must be refused before anything is written"
+            );
+        }
+    }
+
+    #[test]
     fn parse_args_from_params_json() {
         let args = build_args_from_params_json(r#"{"action_name":"demo-js-action","entry_artifact_name":"main.js","source_artifact_names":["main.js"]}"#).unwrap();
         assert_eq!(args.action_name, "demo-js-action");
@@ -286,7 +348,8 @@ async fn main() -> Result<()> {
     let temp_path = temp_dir.path();
 
     // Stage the entry source into the temp dir.
-    let entry_path = temp_path.join(&entry_name);
+    let entry_path = if inline { temp_path.join(&entry_name) } else { staged_destination(temp_path, &entry_name)? };
+    ensure_parent(&entry_path)?;
     if let Some(js) = &args.js_source {
         fs::write(&entry_path, js).context("write inline js source")?;
     } else {
@@ -311,12 +374,8 @@ async fn main() -> Result<()> {
         if source_name == &entry_name {
             continue;
         }
-        let relative_name = Path::new(source_name)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| anyhow!("invalid source artifact name: {}", source_name))?
-            .to_string();
-        let destination = temp_path.join(&relative_name);
+        let destination = staged_destination(temp_path, source_name)?;
+        ensure_parent(&destination)?;
 
         match (&server, &client) {
             (Some(cfg), Some(http)) => {

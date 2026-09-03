@@ -1,7 +1,7 @@
-delete action /packages/solx-media/install-whisper-model;
-delete action /packages/solx-media/materialize-html;
-delete action /packages/solx-media/solx-media-video;
-delete action /packages/solx-media/solx-media-audio;
-delete action /packages/solx-media/solx-media-image;
-delete type /packages/solx-media/MediaInstallParams;
-delete type /packages/solx-media/MediaDocument
+delete action /packages/solx-media/install-whisper-model --if-exists;
+delete action /packages/solx-media/materialize-html --if-exists;
+delete action /packages/solx-media/solx-media-video --if-exists;
+delete action /packages/solx-media/solx-media-audio --if-exists;
+delete action /packages/solx-media/solx-media-image --if-exists;
+delete type /packages/solx-media/MediaInstallParams --if-exists;
+delete type /packages/solx-media/MediaDocument --if-exists;

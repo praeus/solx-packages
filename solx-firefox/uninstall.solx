@@ -1,5 +1,5 @@
 
-delete action /packages/solx-firefox/firefox-mcp-teardown;
-delete action /packages/solx-firefox/firefox-mcp-setup;
-delete action /packages/solx-firefox/firefox-stop;
-delete action /packages/solx-firefox/firefox-start
+delete action /packages/solx-firefox/firefox-mcp-teardown --if-exists;
+delete action /packages/solx-firefox/firefox-mcp-setup --if-exists;
+delete action /packages/solx-firefox/firefox-stop --if-exists;
+delete action /packages/solx-firefox/firefox-start --if-exists;

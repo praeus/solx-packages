@@ -28,3 +28,6 @@ __pycache__
 bin
 /solx-firefox/profile
 /solx-mcp-actions/tools/
+bin
+dist
+node_modules

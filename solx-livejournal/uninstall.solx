@@ -1,11 +1,11 @@
-delete action /packages/solx-livejournal/lj-harvest;
-delete action /packages/solx-livejournal/lj-harvest-page;
-delete action /packages/solx-livejournal/lj-extract-entry;
-delete type /packages/solx-livejournal/LjHarvestResult;
-delete type /packages/solx-livejournal/LjHarvestPageResult;
-delete type /packages/solx-livejournal/LjEntryResult;
-delete type /packages/solx-livejournal/LjHarvestParams;
-delete type /packages/solx-livejournal/LjHarvestPageParams;
-delete type /packages/solx-livejournal/LjExtractEntryParams;
-delete file files/actions/shared/solx-livejournal.wasm;
-delete file solx-livejournal.js
+delete action /packages/solx-livejournal/lj-harvest --if-exists;
+delete action /packages/solx-livejournal/lj-harvest-page --if-exists;
+delete action /packages/solx-livejournal/lj-extract-entry --if-exists;
+delete type /packages/solx-livejournal/LjHarvestResult --if-exists;
+delete type /packages/solx-livejournal/LjHarvestPageResult --if-exists;
+delete type /packages/solx-livejournal/LjEntryResult --if-exists;
+delete type /packages/solx-livejournal/LjHarvestParams --if-exists;
+delete type /packages/solx-livejournal/LjHarvestPageParams --if-exists;
+delete type /packages/solx-livejournal/LjExtractEntryParams --if-exists;
+delete file files/actions/shared/solx-livejournal.wasm --if-exists;
+delete file solx-livejournal.js --if-exists;

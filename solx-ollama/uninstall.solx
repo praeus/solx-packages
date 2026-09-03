@@ -1,12 +1,12 @@
-delete action /packages/solx-ollama/ollama-set-api-key;
-delete action /packages/solx-ollama/ollama-pull-model;
-delete action /packages/solx-ollama/ollama-list-models;
-delete action /packages/solx-ollama/ollama-chat;
-delete type /packages/solx-ollama/StatusResult;
-delete type /packages/solx-ollama/ModelsResult;
-delete type /packages/solx-ollama/ChatResult;
-delete type /packages/solx-ollama/SetApiKeyParams;
-delete type /packages/solx-ollama/TransferModelParams;
-delete type /packages/solx-ollama/NoArgParams;
-delete type /packages/solx-ollama/ChatParams;
-delete file files/actions/shared/solx-ollama.wasm
+delete action /packages/solx-ollama/ollama-set-api-key --if-exists;
+delete action /packages/solx-ollama/ollama-pull-model --if-exists;
+delete action /packages/solx-ollama/ollama-list-models --if-exists;
+delete action /packages/solx-ollama/ollama-chat --if-exists;
+delete type /packages/solx-ollama/StatusResult --if-exists;
+delete type /packages/solx-ollama/ModelsResult --if-exists;
+delete type /packages/solx-ollama/ChatResult --if-exists;
+delete type /packages/solx-ollama/SetApiKeyParams --if-exists;
+delete type /packages/solx-ollama/TransferModelParams --if-exists;
+delete type /packages/solx-ollama/NoArgParams --if-exists;
+delete type /packages/solx-ollama/ChatParams --if-exists;
+delete file files/actions/shared/solx-ollama.wasm --if-exists;

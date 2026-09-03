@@ -1,0 +1,23 @@
+{
+  "name": "@solx/widgets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared toolkit for building solx widgets. defineReactWidget wraps a React component as a self-mounting custom element; createWidgetConfig is a Vite library-mode config producing a single-file ESM bundle; mountWidget is the loader a host page (solx-web) uses to fetch, import, and mount one. Not an installable solx package itself -- no install.solx, nothing registered in the actions database. Consumed straight from TS source: sibling widget packages (e.g. solx-agent) import it by relative path, solx-web aliases it the same way it already aliases @solx/http from the sibling solx-js repo.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vite-plugin-css-injected-by-js": "^3.5.2"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "solx-agent",
+  "version": "0.1.0",
+  "description": "A supervised agent thread: an agent harness over the solx action catalogue, running entirely in a widget. Registers one WidgetDescriptor-typed action and three document types; sessions, memories and skills live under /agent."
+}

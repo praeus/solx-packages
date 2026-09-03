@@ -53,7 +53,7 @@ builder, run later by hand (see "Example workflow" below).
 
 1. **Build the CLI first** (see above). `install.solx` registers
    `build-javascript-action`/`build-javascript-file` as `Command` actions
-   whose `fn_name` resolves (via `package.json`'s `command_actions`) to
+   whose `fn_name` resolves (via `solx-package.json`'s `command_actions`) to
    `.\solx-quickjs.exe` and `.\solx-quickjs.exe --file-only` respectively,
    both resolved against the same `cwd` — the binary has to already exist at
    that path when either action is later invoked.

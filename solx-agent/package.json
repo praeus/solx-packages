@@ -1,0 +1,26 @@
+{
+  "name": "solx-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A supervised agent thread over the solx action catalogue: a React UI wrapped as a self-mounting custom element, with the agent harness itself in the bundle.",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vite-plugin-css-injected-by-js": "^3.5.2",
+    "vitest": "^2.1.0"
+  }
+}

@@ -10,8 +10,11 @@ use tempfile::TempDir;
 #[derive(Debug, Parser)]
 #[command(name = "solx-quickjs")]
 struct Args {
+    /// Only meaningful when an action row is being upserted. In `--file-only`
+    /// mode nothing consumes it, so it is optional there; `main` enforces it
+    /// for the upserting path.
     #[arg(long = "action_name", alias = "action-name")]
-    action_name: String,
+    action_name: Option<String>,
 
     /// Path of the target action to create/update (e.g. `/packages/solx-quickjs`).
     #[arg(long = "path", alias = "action-path")]
@@ -38,7 +41,7 @@ struct Args {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BuildResult {
-    action_name: String,
+    action_name: Option<String>,
     entry_artifact_name: String,
     output_artifact_name: String,
     wasm_bytes: usize,
@@ -192,11 +195,13 @@ fn build_args_from_params_json(params_json: &str) -> Result<Args> {
     }
 
     let params: Value = serde_json::from_str(params_json).context("parse stdin params as JSON")?;
+    // Not required here: `--file-only` builds never touch an action row and so
+    // have no use for a name. `main` rejects a missing one on the path that
+    // actually needs it.
     let action_name = params
         .get("action_name")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("missing action_name in stdin params"))?
-        .to_string();
+        .map(str::to_string);
     let entry_artifact_name = params
         .get("entry_artifact_name")
         .and_then(Value::as_str)
@@ -267,15 +272,29 @@ mod tests {
     #[test]
     fn parse_args_from_params_json() {
         let args = build_args_from_params_json(r#"{"action_name":"demo-js-action","entry_artifact_name":"main.js","source_artifact_names":["main.js"]}"#).unwrap();
-        assert_eq!(args.action_name, "demo-js-action");
+        assert_eq!(args.action_name.as_deref(), Some("demo-js-action"));
         assert_eq!(args.entry_artifact_name.as_deref(), Some("main.js"));
         assert_eq!(args.source_artifact_names, vec!["main.js"]);
     }
 
     #[test]
+    fn parse_args_without_an_action_name() {
+        // What `build-javascript-file` sends: no action row is being touched,
+        // so there is no name to send. Parsing must not reject it -- `main`
+        // enforces the name only on the upserting path.
+        let args = build_args_from_params_json(
+            r#"{"entry_artifact_name":"solx-conductor.js","source_artifact_names":["solx-conductor.js","names.js"],"output_artifact_name":"solx-conductor.wasm"}"#,
+        )
+        .unwrap();
+        assert_eq!(args.action_name, None);
+        assert_eq!(args.entry_artifact_name.as_deref(), Some("solx-conductor.js"));
+        assert_eq!(args.output_artifact_name.as_deref(), Some("solx-conductor.wasm"));
+    }
+
+    #[test]
     fn parse_args_from_params_json_inline_source() {
         let args = build_args_from_params_json(r#"{"action_name":"demo-js-action","js_source":"export const runner = {}"}"#).unwrap();
-        assert_eq!(args.action_name, "demo-js-action");
+        assert_eq!(args.action_name.as_deref(), Some("demo-js-action"));
         assert_eq!(args.entry_artifact_name, None);
         assert_eq!(args.js_source.as_deref(), Some("export const runner = {}"));
     }
@@ -304,6 +323,11 @@ async fn main() -> Result<()> {
     };
     let args = build_args_from_params_json(&stdin_params)?;
 
+    // Only the upserting path needs a name to put the action under.
+    if !file_only && args.action_name.is_none() {
+        return Err(anyhow!("missing action_name in stdin params"));
+    }
+
     // Resolve the entry source: inline `js_source` wins; otherwise a named
     // entry artifact is read from the file store (server mode) or local disk.
     let inline = args.js_source.is_some();
@@ -314,16 +338,22 @@ async fn main() -> Result<()> {
     if !inline && entry_name.is_empty() {
         return Err(anyhow!("missing entry_artifact_name (or js_source) in params"));
     }
-    let output_artifact_name = args
-        .output_artifact_name
-        .clone()
-        .unwrap_or_else(|| {
-            if inline {
-                format!("{}.wasm", args.action_name)
-            } else {
-                format!("{}.wasm", entry_name)
+    // An inline build has no entry filename to derive an output name from, so
+    // it falls back to the action name -- which `--file-only` need not supply.
+    // When neither is present there is nothing to name the artifact after, and
+    // guessing would silently overwrite whatever shares the guess.
+    let output_artifact_name = match args.output_artifact_name.clone() {
+        Some(name) => name,
+        None if inline => match &args.action_name {
+            Some(name) => format!("{name}.wasm"),
+            None => {
+                return Err(anyhow!(
+                    "missing output_artifact_name: an inline js_source build with no action_name has nothing to name the artifact after"
+                ))
             }
-        });
+        },
+        None => format!("{}.wasm", entry_name),
+    };
 
     // Two source-loading modes:
     //  - Server mode (default): read JS sources from the FileStore over HTTP
@@ -400,7 +430,9 @@ async fn main() -> Result<()> {
 
     solx_package_log::info(&format!(
         "compiling action '{}': entry={}, sources={:?}",
-        args.action_name, entry_name, args.source_artifact_names
+        args.action_name.as_deref().unwrap_or(&output_artifact_name),
+        entry_name,
+        args.source_artifact_names
     ))
     .await;
 
@@ -448,7 +480,12 @@ async fn main() -> Result<()> {
                 "actionType": "wasm",
                 "binName": output_artifact_name,
             });
-            put_action(http, cfg, &path, &args.action_name, &body).await.map_err(anyhow::Error::msg)?;
+            // Checked above: `!file_only` guarantees a name.
+            let action_name = args
+                .action_name
+                .as_deref()
+                .expect("action_name is required when not in --file-only mode");
+            put_action(http, cfg, &path, action_name, &body).await.map_err(anyhow::Error::msg)?;
         }
     }
 

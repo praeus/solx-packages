@@ -1,5 +1,0 @@
-{
-  "name": "solx-livejournal",
-  "version": "0.1.0",
-  "description": "LiveJournal extraction for solx-core - one quickjs wasm component backing three actions that drive the logged-in Firefox session and write BlogPostWithComments documents"
-}

@@ -43,7 +43,6 @@ endif;
 # empty client_id. The condition below evaluates the real typed values (not
 # their string form), so it works whether either field is absent or null.
 if $params.client_id == null && $existing_client_id.result.value == null;
-    exec /builtin/web/open_url --json '{"url":"about:blank"}';
     $result = json '{"succeeded":false,"error":"missing_client_id","error_description":"supply client_id, client_secret, and scope in params on first run"}';
 else;
     if $params.client_id == null;

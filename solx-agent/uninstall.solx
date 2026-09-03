@@ -1,0 +1,11 @@
+# Removes the rows, types and artifacts. Deliberately does NOT remove
+# documents under /agent: a transcript is a record, and so is a memory.
+#
+# Every delete carries --if-exists, because a script aborts on the first
+# failing statement and a partial install should still be removable.
+
+delete action /packages/solx-agent/agent-widget --if-exists;
+
+delete type /packages/solx-agent/AgentSession --if-exists;
+delete type /packages/solx-agent/AgentMemory --if-exists;
+delete type /packages/solx-agent/AgentSkill --if-exists;

@@ -1,0 +1,9 @@
+{
+  "name": "solx-ollama",
+  "version": "0.1.0",
+  "description": "Ollama HTTP API action package for solx-core - one wasm32-wasip2 component backing chat, list-models, pull-model, and set-api-key, dispatched by fn_name",
+  "allowed_base_urls": [
+    "http://localhost:11434/",
+    "http://127.0.0.1:11434/"
+  ]
+}

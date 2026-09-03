@@ -3,80 +3,109 @@
 # Deletes every action, type, and file registered by install.solx. Order
 # doesn't matter (no cross-DB foreign keys), but we keep the same order
 # the old sol-google uninstall used for diff-ability.
+#
+# Every delete carries `--if-exists`. A script aborts on the first failing
+# statement, so without it a single entity an *older* installed version
+# never registered (or that a previous partial teardown already removed)
+# stops the script dead and leaves the package half-uninstalled -- some
+# actions gone, the rest still live. That half-state is what broke
+# reinstalls: install.solx decides whether to reuse the OAuth encryption
+# key by asking whether *any* action still exists under
+# /packages/solx-google, so leftovers made it pass "***" for rows that had
+# just been deleted ("no stored value to restore").
+#
+# Keep this file in sync with install.solx: every `save action`/`save type`
+# there needs a matching delete here.
 
 # ── Actions (webhooks) ───────────────────────────────────────────────────────
 
-delete action /packages/solx-google/login-to-google;
-delete action /packages/solx-google/_private/oauth-token-exchange;
-delete action /packages/solx-google/post-google-doc;
-delete action /packages/solx-google/get-google-doc;
+delete action /packages/solx-google/login-to-google --if-exists;
+delete action /packages/solx-google/_private/oauth-token-exchange --if-exists;
+delete action /packages/solx-google/post-google-doc --if-exists;
+delete action /packages/solx-google/get-google-doc --if-exists;
 
-delete action /packages/solx-google/upload-documents-to-google-docs;
-delete action /packages/solx-google/convert-google-doc-to-sol-doc;
-delete action /packages/solx-google/convert-sol-doc-to-google-doc;
+delete action /packages/solx-google/upload-documents-to-google-docs --if-exists;
+delete action /packages/solx-google/convert-google-doc-to-sol-doc --if-exists;
+delete action /packages/solx-google/convert-sol-doc-to-google-doc --if-exists;
 
-delete action /packages/solx-google/find-google-drive-folder;
-delete action /packages/solx-google/create-google-file;
+delete action /packages/solx-google/find-google-drive-folder --if-exists;
+delete action /packages/solx-google/create-google-file --if-exists;
+delete action /packages/solx-google/upload-google-drive-image --if-exists;
+delete action /packages/solx-google/share-google-drive-file-public --if-exists;
 
-delete action /packages/solx-google/list-calendar-events;
-delete action /packages/solx-google/get-calendar-event;
-delete action /packages/solx-google/create-calendar-event;
+delete action /packages/solx-google/list-calendar-events --if-exists;
+delete action /packages/solx-google/get-calendar-event --if-exists;
+delete action /packages/solx-google/create-calendar-event --if-exists;
 
-delete action /packages/solx-google/list-google-tasklists;
-delete action /packages/solx-google/list-google-tasks;
-delete action /packages/solx-google/get-google-task;
-delete action /packages/solx-google/create-google-task;
+delete action /packages/solx-google/list-google-tasklists --if-exists;
+delete action /packages/solx-google/list-google-tasks --if-exists;
+delete action /packages/solx-google/get-google-task --if-exists;
+delete action /packages/solx-google/create-google-task --if-exists;
 
-delete action /packages/solx-google/list-gmail-messages;
-delete action /packages/solx-google/get-gmail-message;
-delete action /packages/solx-google/send-gmail-message;
+delete action /packages/solx-google/list-gmail-messages --if-exists;
+delete action /packages/solx-google/get-gmail-message --if-exists;
+delete action /packages/solx-google/send-gmail-message --if-exists;
+
+# Legacy path: the private-action prefix was renamed _internal -> _private,
+# and nothing migrated rows an older install had already written. Leaving
+# this orphan behind is what aborted the old (unguarded) teardown partway.
+delete action /packages/solx-google/_internal/oauth-token-exchange --if-exists;
 
 # ── Files (the login script source and the WASM binary) ─────────────────────
+#
+# These are the paths install.solx writes, which are also where a Script/Wasm
+# action's `binName` resolves from (solx_files::shared_action_file_path =
+# "files/actions/shared/<binName>"). A bare "shared/..." here silently
+# deleted nothing.
 
-exec /builtin/file/file_delete --json '{"rel_path":"shared/solx-google-login.solx"}';
-exec /builtin/file/file_delete --json '{"rel_path":"shared/solx-google-actions.wasm"}';
+exec /builtin/file/file_delete --json '{"rel_path":"files/actions/shared/solx-google-login.solx"}';
+exec /builtin/file/file_delete --json '{"rel_path":"files/actions/shared/solx-google-actions.wasm"}';
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
-delete type /packages/solx-google/GoogleOAuthLoginParams;
-delete type /packages/solx-google/GoogleDocToSolDocResult;
-delete type /packages/solx-google/GoogleDocToSolDocParams;
-delete type /packages/solx-google/SolDocToGoogleDocResult;
-delete type /packages/solx-google/SolDocToGoogleDocParams;
-delete type /packages/solx-google/GoogleDocsDoc;
-delete type /packages/solx-google/GoogleDocsPostParams;
-delete type /packages/solx-google/GoogleDocsGetParams;
+delete type /packages/solx-google/GoogleOAuthLoginParams --if-exists;
+delete type /packages/solx-google/GoogleDocToSolDocResult --if-exists;
+delete type /packages/solx-google/GoogleDocToSolDocParams --if-exists;
+delete type /packages/solx-google/SolDocToGoogleDocResult --if-exists;
+delete type /packages/solx-google/SolDocToGoogleDocParams --if-exists;
+delete type /packages/solx-google/UploadDocsToGoogleDocsResult --if-exists;
+delete type /packages/solx-google/UploadDocsToGoogleDocsParams --if-exists;
+delete type /packages/solx-google/GoogleDocsDoc --if-exists;
+delete type /packages/solx-google/GoogleDocsPostParams --if-exists;
+delete type /packages/solx-google/GoogleDocsGetParams --if-exists;
 
-delete type /packages/solx-google/GoogleDriveFindFolderParams;
-delete type /packages/solx-google/GoogleDriveCreateFileParams;
+delete type /packages/solx-google/GoogleDriveFindFolderParams --if-exists;
+delete type /packages/solx-google/GoogleDriveCreateFileParams --if-exists;
+delete type /packages/solx-google/GoogleDriveUploadImageParams --if-exists;
+delete type /packages/solx-google/GoogleDriveShareFileParams --if-exists;
 
-delete type /packages/solx-google/CalendarEventsListParams;
-delete type /packages/solx-google/CalendarEventGetParams;
-delete type /packages/solx-google/CalendarEventCreateParams;
-delete type /packages/solx-google/CalendarEvent;
-delete type /packages/solx-google/SolDocToCalendarEventParams;
-delete type /packages/solx-google/SolDocToCalendarEventResult;
-delete type /packages/solx-google/CalendarEventToSolDocParams;
-delete type /packages/solx-google/CalendarEventToSolDocResult;
+delete type /packages/solx-google/CalendarEventsListParams --if-exists;
+delete type /packages/solx-google/CalendarEventGetParams --if-exists;
+delete type /packages/solx-google/CalendarEventCreateParams --if-exists;
+delete type /packages/solx-google/CalendarEvent --if-exists;
+delete type /packages/solx-google/SolDocToCalendarEventParams --if-exists;
+delete type /packages/solx-google/SolDocToCalendarEventResult --if-exists;
+delete type /packages/solx-google/CalendarEventToSolDocParams --if-exists;
+delete type /packages/solx-google/CalendarEventToSolDocResult --if-exists;
 
-delete type /packages/solx-google/GoogleTasklistsListParams;
-delete type /packages/solx-google/GoogleTaskListParams;
-delete type /packages/solx-google/GoogleTaskGetParams;
-delete type /packages/solx-google/GoogleTaskCreateParams;
-delete type /packages/solx-google/GoogleTask;
-delete type /packages/solx-google/SolDocToGoogleTaskParams;
-delete type /packages/solx-google/SolDocToGoogleTaskResult;
-delete type /packages/solx-google/GoogleTaskToSolDocParams;
-delete type /packages/solx-google/GoogleTaskToSolDocResult;
+delete type /packages/solx-google/GoogleTasklistsListParams --if-exists;
+delete type /packages/solx-google/GoogleTaskListParams --if-exists;
+delete type /packages/solx-google/GoogleTaskGetParams --if-exists;
+delete type /packages/solx-google/GoogleTaskCreateParams --if-exists;
+delete type /packages/solx-google/GoogleTask --if-exists;
+delete type /packages/solx-google/SolDocToGoogleTaskParams --if-exists;
+delete type /packages/solx-google/SolDocToGoogleTaskResult --if-exists;
+delete type /packages/solx-google/GoogleTaskToSolDocParams --if-exists;
+delete type /packages/solx-google/GoogleTaskToSolDocResult --if-exists;
 
-delete type /packages/solx-google/GmailListParams;
-delete type /packages/solx-google/GmailGetParams;
-delete type /packages/solx-google/GmailMessage;
-delete type /packages/solx-google/GmailSendParams;
-delete type /packages/solx-google/SolDocToGmailParams;
-delete type /packages/solx-google/SolDocToGmailResult;
-delete type /packages/solx-google/GmailMessageToSolDocParams;
-delete type /packages/solx-google/GmailMessageToSolDocResult
+delete type /packages/solx-google/GmailListParams --if-exists;
+delete type /packages/solx-google/GmailGetParams --if-exists;
+delete type /packages/solx-google/GmailMessage --if-exists;
+delete type /packages/solx-google/GmailSendParams --if-exists;
+delete type /packages/solx-google/SolDocToGmailParams --if-exists;
+delete type /packages/solx-google/SolDocToGmailResult --if-exists;
+delete type /packages/solx-google/GmailMessageToSolDocParams --if-exists;
+delete type /packages/solx-google/GmailMessageToSolDocResult --if-exists;
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 #

@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
-# Uninstalls and reinstalls every package in this repo against a running
-# solx-server, so a fix to shared install.solx conventions (e.g. the
-# actionType/paramTypeRef/etc. camelCase rename) lands in every package's
-# already-persisted action/type rows rather than just new installs.
+# Reinstalls every package in this repo against a running solx-server, so a
+# fix to shared install.solx conventions (e.g. the actionType/paramTypeRef/etc.
+# camelCase rename) lands in every package's already-persisted action/type rows
+# rather than just new installs.
+#
+# This deliberately does NOT uninstall first. `save action` is an upsert, so
+# install.solx alone brings every row up to date -- and running uninstall
+# first actively breaks packages that carry secrets. solx-google's
+# install.solx reuses its OAuth encryption key by passing the "***" sentinel,
+# which `save action` resolves against the *existing action row*; deleting
+# those rows first either rotates the key (silently orphaning every persisted
+# credential and forcing a fresh login) or, if the teardown aborted partway,
+# fails outright with "no stored value to restore".
+#
+# The trade-off: an action or type that a *previous* version of a package
+# registered and the current install.solx no longer does is left behind. Run
+# `solx uninstall-package <pkg>` by hand when a genuine clean teardown is
+# what you want.
 #
 # Usage: scripts/reinstall-all.sh
 # Env:   SOLX_BIN — path to the solx binary (default: first `solx` on PATH)
@@ -17,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGES_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # The native solx.exe doesn't resolve MSYS-style "/d/..." paths (it joins
-# them with a backslash and looks for a literal "/d/...\package.json"), so
+# them with a backslash and looks for a literal "/d/...\solx-package.json"), so
 # package directories must be handed to it as real "D:\..." paths.
 to_native_path() {
   if command -v cygpath >/dev/null 2>&1; then
@@ -50,6 +64,7 @@ PACKAGES=(
   solx-media
   solx-ollama
   solx-omniparse
+  solx-agent
 )
 
 fail_count=0
@@ -61,11 +76,6 @@ for pkg in "${PACKAGES[@]}"; do
   if [ ! -d "$pkg_dir" ]; then
     echo "   skipped: no directory at $pkg_dir"
     continue
-  fi
-
-  echo "   uninstalling..."
-  if ! "$SOLX_BIN" uninstall-package "$pkg" >/dev/null 2>&1; then
-    echo "   (not previously installed, or uninstall failed -- continuing)"
   fi
 
   echo "   installing..."

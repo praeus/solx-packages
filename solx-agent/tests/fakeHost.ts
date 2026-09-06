@@ -11,11 +11,11 @@
  * so every fake below mirrors a behaviour that was read out of solx-core
  * rather than assumed:
  *
- *   - `entity_save_document` requires `type_ref` on create, **snake_case** --
- *     `DocumentInput` (solx-surface/src/entities.rs) has no camelCase rename,
- *     unlike the search queries. The conductor's version of this fake
- *     asserted `typeRef`, so it agreed with a real bug and hid it; the live
- *     test is what caught it.
+ *   - `entity_save_document` requires `typeRef` on create -- camelCase,
+ *     because `DocumentInput` carries `#[serde(rename_all = "camelCase")]`
+ *     (solx-surface/src/entities.rs). It was snake_case before commit
+ *     `3974d0b`, so a stale binary will disagree; check the source, not a
+ *     running server.
  *   - `search_documents` hits carry no contents, only {path,name,title,summary}
  *   - `search_actions` takes camelCase `pathPrefix`/`excludeHidden`
  *   - `entity_get_action` reports a hidden action as not-found
@@ -163,7 +163,7 @@ export class FakeHost implements ExecClient {
     // solx validates params against the action's JSON Schema before running
     // it, and an optional string field is `{"type":"string"}` -- so an
     // explicit null is rejected outright rather than read as absent.
-    for (const key of ["q", "pathPrefix", "typeRef", "type_ref", "path", "name"]) {
+    for (const key of ["q", "pathPrefix", "typeRef", "path", "name"]) {
       if (key in p && p[key] === null) {
         return fail("null is not of type " + JSON.stringify("string") + " at /" + key);
       }
@@ -207,10 +207,10 @@ export class FakeHost implements ExecClient {
       case "/builtin/document/entity_save_document": {
         const key = (p.path === "/" ? "" : p.path) + "/" + p.name;
         const existing = this.docs.get(key);
-        // solx-docs::save -- type_ref is required on create, inherited on
-        // update. Deliberately does NOT accept `typeRef`: a fake that is more
+        // solx-docs::save -- typeRef is required on create, inherited on
+        // update. Deliberately does NOT also accept `type_ref`: a fake more
         // forgiving than the real thing is worse than no fake.
-        const typeRef = (p.type_ref as string) ?? existing?.typeRef;
+        const typeRef = (p.typeRef as string) ?? existing?.typeRef;
         if (!typeRef) return fail("a type_ref is required to create a document");
         this.docs.set(key, {
           path: p.path as string,

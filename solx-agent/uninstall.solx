@@ -1,5 +1,6 @@
-# Removes the rows, types and artifacts. Deliberately does NOT remove
-# documents under /agent: a transcript is a record, and so is a memory.
+# Removes the rows, types, artifacts and seeded skills. Deliberately does NOT
+# remove sessions or memories under /agent: a transcript is a record, and so is
+# a memory. A skill is not - it is package content, so it goes.
 #
 # Every delete carries --if-exists, because a script aborts on the first
 # failing statement and a partial install should still be removable.
@@ -9,3 +10,18 @@ delete action /packages/solx-agent/agent-widget --if-exists;
 delete type /packages/solx-agent/AgentSession --if-exists;
 delete type /packages/solx-agent/AgentMemory --if-exists;
 delete type /packages/solx-agent/AgentSkill --if-exists;
+
+# The seeded skills are package content rather than a record of anything, so
+# unlike sessions and memories they are removed.
+
+delete doc /agent/skills/wire-keys --if-exists;
+delete doc /agent/skills/documents --if-exists;
+delete doc /agent/skills/document-fields --if-exists;
+delete doc /agent/skills/types --if-exists;
+delete doc /agent/skills/files --if-exists;
+delete doc /agent/skills/action-catalogue --if-exists;
+delete doc /agent/skills/authoring-actions --if-exists;
+delete doc /agent/skills/javascript-actions --if-exists;
+delete doc /agent/skills/packages --if-exists;
+delete doc /agent/skills/solx-scripts --if-exists;
+delete doc /agent/skills/web --if-exists;

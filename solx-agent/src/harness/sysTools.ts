@@ -175,7 +175,7 @@ export async function toolSearch(
   // Skills covering the new tools ride back in the tool result, so nothing
   // has to splice a system turn into the middle of a transcript.
   session.skills_seen = session.skills_seen || {};
-  const skills = await resolveSkills(host, session.skills, q, addedRefs, session.skills_seen);
+  const skills = await resolveSkills(host, session.skills, addedRefs, session.skills_seen);
   if (skills.length > 0) {
     for (const s of skills) session.skills_seen[s.ref] = true;
     text += "\n\n" + skillBlock(skills, invertMap(cat.map));

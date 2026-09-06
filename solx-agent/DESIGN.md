@@ -119,6 +119,29 @@ definitions. That makes `session/store.ts`'s `DEFAULT_PREAMBLE` a real
 artifact, and it is exposed and editable in the setup panel rather than hidden
 in the bundle.
 
+### What goes in it, and what goes in a skill
+
+The preamble was for a long time nine lines of generic tool-calling advice,
+which was honest when there was nothing solx-specific to say and wrong once
+there was. A model driving this harness has to know what solx *is* before its
+first call: that every tool is a row, that a reference is a path and a name
+joined, that a result arrives wrapped with the payload under `result`, that
+parameter spelling is not uniform and a wrong key is dropped rather than
+refused.
+
+None of that belongs in a skill, because a skill loads only when one of its
+globs matches a tool already in the catalogue. That conditionality is exactly
+right for "here is how `set_field_at_path` differs from `set_field`" and
+exactly wrong for "here is what a reference looks like" — the second is needed
+to make the *first* call, before anything has matched.
+
+So the split is: orientation true of every session goes in the preamble and is
+paid on every iteration; anything tied to a family of tools goes in an
+`AgentSkill` document and is paid only when that family is in play. The
+preamble is kept to about thirty lines because this harness targets small local
+models, and the seeded skills are kept under a thousand characters each because
+`SKILL_TOTAL_CAP` is 8000 across a turn.
+
 ## Durability: what one wasm invocation used to give for free
 
 This is the one genuine regression from folding, and the fix makes the result
@@ -176,19 +199,36 @@ preferences, never history.
 
 `tests/fakeHost.ts` mirrors solx-core's behaviour *as it was read out of the
 source*. If solx-core changes, the tests keep passing and the package breaks.
-`tests/live.test.ts` exists for exactly that gap, and has already justified
-itself twice:
+`tests/live.test.ts` exists for exactly that gap, and has already earned it:
 
-- **`typeRef` vs `type_ref`.** `DocumentInput` has no camelCase rename, unlike
-  the search queries — so a document write must use snake_case. The
-  conductor's fake asserted `typeRef`, agreed with the bug, and hid it.
-- **`q: null`.** Action params are schema-validated, and an optional string is
-  `{"type":"string"}` — an explicit null is an error, not "absent". So
-  `{q: query || null}` broke every no-query search silently. Both fakes now
-  reproduce the strictness rather than forgiving it, because a fake more
-  lenient than the real thing is worse than no fake.
+- **`q: null`.** Action params are schema-validated, and an optional string
+  field is `{"type":"string"}` — so an explicit null is an *error*, not
+  "absent". `{q: query || null}` therefore broke every no-query search
+  silently, which is the path a catalogue fallback and a path-only context
+  spec both take. `harness/host.ts`'s `compact()` omits null keys instead, and
+  the fake now rejects an explicit null so this cannot hide again.
 
-Wire spelling is genuinely not uniform across solx — search queries are
-camelCase, document input is snake_case — so every key here was checked
-against the handler that reads it, and the live test is what keeps that
-honest.
+A fake more lenient than the real thing is worse than no fake, which is why
+the fake reproduces that strictness rather than forgiving it.
+
+**Verify a wire key against the source, not against a running server.** While
+porting, a probe against a `solx-server` binary four days older than commit
+`3974d0b` reported that document writes wanted snake_case `type_ref`. They
+want camelCase `typeRef` — `DocumentInput` carries `#[serde(rename_all =
+"camelCase")]` — and the conductor had it right all along. A stale binary is a
+confident liar, and `grep -A` starting at the `struct` line hides the
+attribute above it.
+
+- **The skills search.** `resolveSkills` passed the turn's user message to
+  `search_documents` as `q`. solx-docs turns each whitespace-separated term
+  into `"term"*` and **ANDs** them, so a skill loaded only if its text
+  contained every word of the message — which for any real sentence means
+  never. Every skill test here happened to send the single word `"document"`,
+  so all four passed against a feature that did not work.
+
+  This one is worth separating from the `q: null` bug above, because the fake
+  was **not** at fault: `matches()` ANDs its terms exactly as FTS5 does. A
+  faithful fake is not enough on its own when the fixtures are unrepresentative
+  of the input. The fix was to stop querying at all — the globs were always the
+  real selector — and the regression test now sends a full sentence, which is
+  the shape of input that broke it.

@@ -32,6 +32,9 @@ export type { ExecClient, Host } from "./host";
 export { addTurn, createSession, previewTools, widenGrant } from "./agent";
 export type { SendOptions } from "./agent";
 
+export { searchActionPaths } from "./catalogue";
+export type { PathSuggestion } from "./catalogue";
+
 export { approveAndContinue, driveSession, readSession } from "./loop";
 export type { DriveHandlers, DriveOptions } from "./loop";
 

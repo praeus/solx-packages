@@ -50,19 +50,66 @@ describe("the grant", () => {
 
   test("hard denies hold whatever the grant says", () => {
     const wideOpen = [
-      { path: "*", actions: ["get_secret", "entity_save_action", "start", "set_env"] },
+      {
+        path: "*",
+        actions: [
+          "get_secret",
+          "entity_save_action",
+          "entity_delete_action",
+          "start",
+          "stop",
+          "poll",
+          "cancelled",
+          "set_env",
+          "agent-widget",
+        ],
+      },
     ];
     for (const [path, name] of [
       ["/builtin/secrets", "get_secret"],
+      // A script or wasm row registered under an already-granted path would
+      // run outside this session's grant entirely.
       ["/builtin/action", "entity_save_action"],
+      ["/builtin/action", "entity_delete_action"],
       // The widget itself drives these, so the model must never reach them.
       ["/builtin/action", "start"],
+      ["/builtin/action", "stop"],
+      ["/builtin/action", "poll"],
+      ["/builtin/action", "cancelled"],
       ["/builtin/env", "set_env"],
       ["/packages/solx-agent", "agent-widget"],
     ]) {
       expect(permitted({ path, name, actionType: "internal" }, wideOpen), path + "/" + name).toBe(
         false,
       );
+    }
+  });
+
+  /**
+   * The read half of /builtin/action is the point of narrowing the deny from
+   * a blanket glob to exact names: the registry *is* the tool catalogue, so
+   * this is how a model looks up a tool it was not handed and reads that
+   * tool's parameter schema.
+   */
+  test("the catalogue readers survive the narrowed deny", () => {
+    const grant = [
+      {
+        path: "/builtin/action",
+        actions: ["search_actions", "entity_get_action", "entity_list_actions"],
+      },
+    ];
+    for (const name of ["search_actions", "entity_get_action", "entity_list_actions"]) {
+      expect(
+        permitted({ path: "/builtin/action", name, actionType: "internal" }, grant),
+        name,
+      ).toBe(true);
+    }
+    // Same grant, and still refused: these are denied by name, not by absence.
+    for (const name of ["entity_save_action", "start"]) {
+      expect(
+        permitted({ path: "/builtin/action", name, actionType: "internal" }, grant),
+        name,
+      ).toBe(false);
     }
   });
 });

@@ -9,14 +9,17 @@ import {
   isQuiescent,
   previewTools,
   readSession,
+  searchActionPaths,
   summarize,
   widenGrant,
   LIST_MODELS,
   SEARCH_DOCS,
   SESSION_PATH,
   type AllowEntry,
+  type DriveHandlers,
   type Host,
   type OllamaModel,
+  type PathSuggestion,
   type Session,
   type SessionStatus,
   type StepResult,
@@ -83,10 +86,17 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
   // The live session object the loop mutates, kept out of React state so a
   // render never races the loop. `session` above is the snapshot to draw.
   const liveRef = useRef<Session | null>(null);
-  // Set when the user opens a different session, so a loop still unwinding
-  // stops publishing into a thread that is no longer on screen.
-  const abandonRef = useRef(false);
+  // Bumped by every send/decide/stop/openSession/newSession. Each drive loop
+  // captures the value current at its own start and compares against this on
+  // every check, so superseding it is permanent -- unlike a shared boolean,
+  // there is no way for a later action to accidentally un-abandon an earlier,
+  // now-irrelevant loop and have it resume publishing into the wrong thread.
+  const genRef = useRef(0);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  // Whether the thread was scrolled to (or near) the bottom the last time the
+  // user touched it, so streamed updates don't yank someone back down while
+  // they're reading up-thread.
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => saveSetup(setup), [setup]);
   useEffect(() => saveModel(model), [model]);
@@ -117,7 +127,12 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
           (m.capabilities ?? []).includes("tools"),
         );
         setModels(list);
-        setModel((current) => current || list[0]?.name || "");
+        // Keep the saved pick only if it's still one of the tool-capable
+        // models this host actually has -- a name persisted from a previous
+        // visit can outlive a model that was since removed or renamed.
+        setModel((current) =>
+          current && list.some((m) => m.name === current) ? current : list[0]?.name || "",
+        );
       });
     void refreshSessions(host);
     return () => {
@@ -155,42 +170,53 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
   const status: SessionStatus | null = result?.status ?? session?.status ?? null;
   const running = busy || status === "running";
 
-  // Follow the tail while work is coming in.
+  // Follow the tail while work is coming in, but only if the reader was
+  // already at (or near) the bottom -- otherwise a stream of tool-call
+  // updates keeps yanking someone back down while they're reading upward.
   useEffect(() => {
-    if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
+    const el = threadRef.current;
+    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [turns, status]);
 
-  const handlers = useMemo(
-    () => ({
-      onProgress: (stepResult: StepResult, read: Session) => {
-        if (abandonRef.current) return;
-        setResult(stepResult);
-        // A shallow copy per publish: the loop mutates the session in place,
-        // and React needs a new reference to re-render.
-        setSession({ ...read, messages: [...read.messages], calls: [...read.calls] });
-      },
-    }),
-    [],
-  );
+  const onThreadScroll = useCallback(() => {
+    const el = threadRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 48;
+  }, []);
 
-  const run = useCallback(async (work: () => Promise<unknown>) => {
+  // Handlers are built per drive-loop invocation rather than shared, so each
+  // loop's progress publishes only while its own generation is still the
+  // current one -- see `genRef` above.
+  const makeHandlers = useCallback((myGen: number): DriveHandlers => ({
+    onProgress: (stepResult: StepResult, read: Session) => {
+      if (genRef.current !== myGen) return;
+      setResult(stepResult);
+      // A shallow copy per publish: the loop mutates the session in place,
+      // and React needs a new reference to re-render.
+      setSession({ ...read, messages: [...read.messages], calls: [...read.calls] });
+    },
+  }), []);
+
+  const run = useCallback(async (myGen: number, work: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
     try {
       await work();
     } catch (err) {
-      if (!abandonRef.current) setError(err instanceof Error ? err.message : String(err));
+      if (genRef.current === myGen) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      if (genRef.current === myGen) setBusy(false);
     }
   }, []);
 
   const send = useCallback(
     (message: string) => {
       if (!host) return;
-      abandonRef.current = false;
-      void run(async () => {
-        const opts = { isAbandoned: () => abandonRef.current };
+      const myGen = ++genRef.current;
+      const handlers = makeHandlers(myGen);
+      void run(myGen, async () => {
+        const opts = { isAbandoned: () => genRef.current !== myGen };
         let current = liveRef.current;
         let seed: StepResult;
 
@@ -208,6 +234,7 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
             max_iterations: setup.maxIterations,
             memory: setup.memoryScope ? { scope: setup.memoryScope } : null,
           });
+          if (genRef.current !== myGen) return;
           liveRef.current = current;
           setSessionId(current.id);
           seed = summarize(current, "running");
@@ -218,6 +245,7 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
           if (grantChanged(current.grant, setup.grant) && setup.grant.length > 0) {
             await widenGrant(host, current, setup.grant);
           }
+          if (genRef.current !== myGen) return;
           current.catalogue_cap = setup.catalogueCap;
           current.tool_search = setup.toolSearch;
           seed = await addTurn(host, current, message, {
@@ -225,37 +253,42 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
           });
         }
 
+        if (genRef.current !== myGen) return;
         await driveSession(host, current, seed, handlers, opts);
-        void refreshSessions(host);
+        if (genRef.current === myGen) void refreshSessions(host);
       });
     },
-    [host, handlers, model, refreshSessions, run, sessionId, setup],
+    [host, makeHandlers, model, refreshSessions, run, sessionId, setup],
   );
 
   const decide = useCallback(
     (approve: string[]) => {
       const current = liveRef.current;
       if (!host || !current) return;
-      void run(async () => {
-        await approveAndContinue(host, current, approve, handlers, {
-          isAbandoned: () => abandonRef.current,
+      const myGen = ++genRef.current;
+      void run(myGen, async () => {
+        await approveAndContinue(host, current, approve, makeHandlers(myGen), {
+          isAbandoned: () => genRef.current !== myGen,
         });
-        void refreshSessions(host);
+        if (genRef.current === myGen) void refreshSessions(host);
       });
     },
-    [host, handlers, refreshSessions, run],
+    [host, makeHandlers, refreshSessions, run],
   );
 
   // Stop lands between iterations rather than mid-call: a tool that is
   // already running has already had its effect, and the loop persists after
-  // each one, so the transcript stays true either way.
+  // each one, so the transcript stays true either way. Bumping the
+  // generation (rather than flipping a shared flag) means nothing later can
+  // accidentally resurrect this loop -- see `genRef` above.
   const stop = useCallback(() => {
-    abandonRef.current = true;
+    genRef.current++;
   }, []);
 
   const openSession = useCallback((id: string) => {
-    abandonRef.current = true;
+    genRef.current++;
     liveRef.current = null;
+    stickToBottomRef.current = true;
     setError(null);
     setSession(null);
     setResult(null);
@@ -263,8 +296,9 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
   }, []);
 
   const newSession = useCallback(() => {
-    abandonRef.current = true;
+    genRef.current++;
     liveRef.current = null;
+    stickToBottomRef.current = true;
     setError(null);
     setSession(null);
     setResult(null);
@@ -275,6 +309,14 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
     (grant: AllowEntry[], query: string | null, cap: number) => {
       if (!host) return Promise.reject(new Error("no client"));
       return previewTools(host, grant, query, cap);
+    },
+    [host],
+  );
+
+  const onSearchPaths = useCallback(
+    (q: string): Promise<PathSuggestion[]> => {
+      if (!host) return Promise.reject(new Error("no client"));
+      return searchActionPaths(host, q);
     },
     [host],
   );
@@ -312,12 +354,14 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
         setup={setup}
         onChange={setSetup}
         onPreview={onPreview}
+        onSearchPaths={onSearchPaths}
         live={!!sessionId}
         queryHint={turns[turns.length - 1]?.user ?? ""}
       />
 
       <div
         ref={threadRef}
+        onScroll={onThreadScroll}
         className="col"
         style={{
           gap: 10,

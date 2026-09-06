@@ -51,7 +51,7 @@ export async function saveSession(host: Host, id: string, session: Session): Pro
     name: id,
     title: sessionTitle(id, session),
     summary: sessionSummary(session),
-    type_ref: SESSION_TYPE,
+    typeRef: SESSION_TYPE,
     contents: session,
   });
   return session;

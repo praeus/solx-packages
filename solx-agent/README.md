@@ -91,15 +91,55 @@ A skill explains how to use particular tools, bound to action refs by glob:
 ```sh
 solx save doc /agent/skills/documents \
   --type /packages/solx-agent/AgentSkill --json '{
-  "tools": ["/builtin/document/*"],
-  "instructions": "Names are unique per path and entity_save_document is an upsert, so a save with an existing name replaces that document. Search first."
+  "title": "Working with documents",
+  "contents": {
+    "tools": ["/builtin/document/*"],
+    "instructions": "Names are unique per path and entity_save_document is an upsert, so a save with an existing name replaces that document. Search first."
+  }
 }'
 ```
 
+**`--json` is a `DocumentInput`, so the skill body goes under `contents`.**
+Worth stating because getting it wrong fails quietly: serde ignores unknown
+fields, so putting `tools` and `instructions` at the top level saves a
+document with empty contents, and the skill then never loads and never says
+why. An earlier version of this README had exactly that bug.
+
 It loads only when one of its globs matches a tool actually in the catalogue.
-A skill therefore never grants reach — it only explains reach already
-granted, which is why skills are on by default. There simply are none until
-you write one.
+A skill therefore never grants reach, it only explains reach already granted,
+which is why skills are on by default.
+
+**Selection is the glob, not the text.** The candidate search deliberately
+passes no query. solx-docs ANDs every whitespace-separated term of a full-text
+query, so searching skills by the user message meant a skill loaded only when
+its prose contained *every word* of that message, which is to say almost
+never. The globs decide; the search only lists what is there.
+
+`install.solx` seeds eleven, which is what a fresh install gives the model to
+work from:
+
+| skill | applies to |
+|---|---|
+| `wire-keys` | `/builtin/*`, and why a misspelled key is dropped in silence |
+| `documents` | `/builtin/document/*` |
+| `document-fields` | the `path` vs `doc_path` trap in the field ops |
+| `types` | `/builtin/type/*` |
+| `files` | `/builtin/file/*` |
+| `action-catalogue` | reading action rows to resolve a tool's schema |
+| `authoring-actions` | writing a definition for a human to install |
+| `javascript-actions` | `/packages/solx-quickjs/*` |
+| `packages` | `solx-package.json` and `install.solx` |
+| `solx-scripts` | writing a `.solx` |
+| `web` | `/builtin/web/*` |
+
+Two budgets bound what loads: each skill is capped at 4000 characters and all
+of them together at 8000 per turn, so the seeded set is written short, under a
+thousand each. A skill that does not fit the remaining budget is skipped
+rather than truncated, and the ones after it still load.
+
+Orientation that is true of *every* session, such as what solx is, how a
+reference is spelled, and what an action row means, lives in the preamble
+instead: a skill that has not loaded yet cannot teach it.
 
 ## The gate
 
@@ -117,9 +157,18 @@ What is left is what is specific to *this* caller:
 1. **Default deny.** An absent or empty grant is an error, not an empty
    catalogue. There is no `"*"` shorthand.
 2. **Structural denies, not overridable.** `/builtin/secrets/*`,
-   `/builtin/action/*`, `/builtin/env/set_env`, and this package itself.
-   `/builtin/action/*` matters more than it looks: the widget drives
-   `action/start`/`poll`/`stop` itself.
+   `/builtin/env/set_env`, this package itself, and, by exact name rather than
+   by glob, `/builtin/action/{start,stop,poll,cancelled}` plus
+   `/builtin/action/{entity_save_action,entity_delete_action}`. The async four
+   are denied because the widget drives them itself. The two writers are
+   denied because a `script` or `wasm` row registered under an already-granted
+   path escapes the grant entirely: a guest's `action-exec` import reaches
+   anything, and a `.solx` composes anything. Command and webhook rows are a
+   separate matter, already refused host-side by solx-core's
+   `guard_executable_action`. What this leaves reachable is the read half,
+   `search_actions` / `entity_get_action` / `entity_list_actions`, which is the
+   point: the registry *is* the tool catalogue, so that is how a model looks up
+   a tool it was not handed and reads its parameter schema.
 3. **Command, Webhook and `/builtin/web/*` need an exact name.** A glob never
    reaches a shell or an arbitrary outbound host. (solx-core separately gates
    *where* an outbound request may go, via `allowed_base_urls`. That is a
@@ -167,10 +216,11 @@ solx-server --port 8791 &
 SOLX_TOKEN=<token> SOLX_MODEL=qwen3:4b npx vitest run tests/live.test.ts
 ```
 
-It has already earned its place twice — it caught `typeRef` (the document
-write wants `type_ref`; the fake had inherited the wrong spelling and agreed
-with the bug) and `q: null` (an explicit null fails schema validation, so
-every no-query search silently returned nothing).
+It has already earned its place: it caught `q: null` — an explicit null fails
+schema validation, so every no-query search silently returned nothing.
+
+Run it against a **current** `solx-server` build. A stale one will disagree
+with the source about wire keys and send you chasing bugs that are not there.
 
 ## What is not done
 

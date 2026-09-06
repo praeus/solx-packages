@@ -154,5 +154,43 @@ export function invertMap(map: Record<string, string>): Record<string, string> {
   return out;
 }
 
+export interface PathSuggestion {
+  path: string;
+  count: number;
+  sample?: string;
+}
+
+/**
+ * Distinct action paths matching a partial query, for the setup panel's path
+ * picker. `path` is itself indexed in `actions_fts`, so "firefox" already
+ * matches "/packages/solx-firefox" without any special-casing here.
+ *
+ * Not run through the gate -- this only lists what a package *registered*,
+ * the same introspection `previewTools` already gives the operator (never
+ * the model) for the same reason: deciding what to grant requires seeing
+ * what exists, before anything is granted.
+ */
+export async function searchActionPaths(
+  host: Host,
+  q: string,
+  limit = 20,
+): Promise<PathSuggestion[]> {
+  const page = await host.try<{ items?: ActionRow[] }>(
+    SEARCH_ACTIONS,
+    compact({ q: q || null, limit: SEARCH_FETCH, excludeHidden: true }),
+  );
+  if (!page.ok || !page.value || !Array.isArray(page.value.items)) return [];
+
+  const byPath = new Map<string, PathSuggestion>();
+  for (const a of page.value.items) {
+    const existing = byPath.get(a.path);
+    if (existing) existing.count++;
+    else byPath.set(a.path, { path: a.path, count: 1, sample: a.caption || a.description });
+  }
+  return Array.from(byPath.values())
+    .sort((x, y) => x.path.localeCompare(y.path))
+    .slice(0, limit);
+}
+
 /** Re-exported so skills can bind by glob without importing the gate directly. */
 export { globMatches };

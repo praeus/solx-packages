@@ -20,6 +20,21 @@ async function session(host: Host, opts: Record<string, unknown> = {}) {
   return createSession(host, "document", { model: "m", grant: DOCS_GRANT, ...opts });
 }
 
+/**
+ * A realistic message, as opposed to the one-word "document" above.
+ *
+ * This distinction used to be the whole ballgame: skills were searched with
+ * the user message as a full-text query, and solx-docs ANDs every
+ * whitespace-separated term, so anything longer than a word or two matched
+ * nothing and no skill ever loaded. The fake host reproduces that AND
+ * faithfully -- the bug survived because every fixture here was one word.
+ */
+const SENTENCE = "find the documents about widgets and summarize them for me";
+
+async function sessionSaying(host: Host, message: string, opts: Record<string, unknown> = {}) {
+  return createSession(host, message, { model: "m", grant: DOCS_GRANT, ...opts });
+}
+
 describe("memory", () => {
   test("is off unless a scope is given, and a bad scope is an error", async () => {
     const { host } = seeded();
@@ -169,6 +184,25 @@ describe("skills", () => {
     f.doc("/agent/skills/documents", skill(["/builtin/document/*"], "Search before saving."));
     const s = await session(host, { skills: { enabled: false } });
     expect(s.messages.some((m) => m.content.includes("Search before saving."))).toBe(false);
+  });
+
+  test("load for a message no skill text could ever match word for word", async () => {
+    const { f, host } = seeded();
+    f.doc("/agent/skills/documents", skill(["/builtin/document/*"], "Search before saving."));
+    const s = await sessionSaying(host, SENTENCE);
+    const injected = s.messages.find(
+      (m) => m.role === "system" && m.content.includes("Search before saving."),
+    );
+    expect(injected).toBeTruthy();
+  });
+
+  test("an oversized skill does not starve the ones after it", async () => {
+    const { f, host } = seeded();
+    // Over SKILL_TOTAL_CAP on its own, so it can never fit the budget.
+    f.doc("/agent/skills/a-huge", skill(["/builtin/document/*"], "H".repeat(9000)));
+    f.doc("/agent/skills/z-small", skill(["/builtin/document/*"], "Search before saving."));
+    const s = await sessionSaying(host, SENTENCE);
+    expect(s.messages.some((m) => m.content.includes("Search before saving."))).toBe(true);
   });
 
   test("a skill without tools or instructions is ignored", async () => {

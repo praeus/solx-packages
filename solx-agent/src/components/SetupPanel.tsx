@@ -1,8 +1,17 @@
-import { useState } from "react";
-import type { AllowEntry, ToolsPreview } from "../harness";
+import { useEffect, useState } from "react";
+import type { AllowEntry, PathSuggestion, ToolsPreview } from "../harness";
 import type { SetupPrefs } from "../session/store";
 
-/** Starting points for the grant. Not exhaustive -- a path can be typed. */
+/**
+ * Starting points for the grant. Not exhaustive -- a path can be typed.
+ *
+ * The last two name their actions explicitly rather than passing null, and
+ * for different reasons. "Read the catalogue" does it because the write and
+ * async halves of /builtin/action are hard-denied anyway, so a null here
+ * would advertise reach the gate will refuse. "Build JS actions" has no
+ * choice: `needsExactName` refuses a glob for a Command row, so a null would
+ * resolve to nothing at all.
+ */
 const PRESETS: { label: string; entry: AllowEntry }[] = [
   {
     label: "Read documents",
@@ -10,6 +19,21 @@ const PRESETS: { label: string; entry: AllowEntry }[] = [
   },
   { label: "Write documents", entry: { path: "/builtin/document", actions: null } },
   { label: "Files", entry: { path: "/builtin/file", actions: null } },
+  { label: "Types", entry: { path: "/builtin/type", actions: null } },
+  {
+    label: "Read the catalogue",
+    entry: {
+      path: "/builtin/action",
+      actions: ["search_actions", "entity_get_action", "entity_list_actions"],
+    },
+  },
+  {
+    label: "Build JS actions",
+    entry: {
+      path: "/packages/solx-quickjs",
+      actions: ["build-javascript-action", "build-javascript-file"],
+    },
+  },
 ];
 
 /**
@@ -35,19 +59,25 @@ export function SetupPanel({
   setup,
   onChange,
   onPreview,
+  onSearchPaths,
   live,
   queryHint,
 }: {
   setup: SetupPrefs;
   onChange: (next: SetupPrefs) => void;
   onPreview: (grant: AllowEntry[], query: string | null, cap: number) => Promise<ToolsPreview>;
+  /** Distinct action paths matching a partial query, for the path picker below. */
+  onSearchPaths: (q: string) => Promise<PathSuggestion[]>;
   /** True once a session exists: seeded-at-creation fields lock, the grant does not. */
   live: boolean;
   queryHint: string;
 }) {
   const [open, setOpen] = useState(!live);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [customPath, setCustomPath] = useState("");
+  const [pathQuery, setPathQuery] = useState("");
+  const [pathOpen, setPathOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<PathSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{ tools: string[]; dropped: number } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -56,6 +86,43 @@ export function SetupPanel({
     if (setup.grant.some((a) => a.path === entry.path && sameActions(a, entry))) return;
     onChange({ ...setup, grant: [...setup.grant, entry] });
   };
+
+  const pickPath = (path: string) => {
+    addEntry({ path, actions: null });
+    setPathQuery("");
+    setSuggestions([]);
+    setPathOpen(false);
+  };
+
+  // Debounced live search over the action catalogue's paths, so typing
+  // "firefox" finds "/packages/solx-firefox" without the operator needing to
+  // already know it exists.
+  useEffect(() => {
+    const q = pathQuery.trim();
+    if (!q) {
+      setSuggestions([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const timer = setTimeout(() => {
+      onSearchPaths(q)
+        .then((results) => {
+          if (!cancelled) setSuggestions(results);
+        })
+        .catch(() => {
+          if (!cancelled) setSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [pathQuery, onSearchPaths]);
 
   const runPreview = async () => {
     setPreviewing(true);
@@ -131,34 +198,102 @@ export function SetupPanel({
             )}
           </div>
 
-          <div className="row" style={{ gap: 5, flexWrap: "wrap" }}>
-            {PRESETS.map((preset) => (
-              <button key={preset.label} onClick={() => addEntry(preset.entry)}>
-                + {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="row" style={{ gap: 5 }}>
+          <div className="col" style={{ gap: 0, position: "relative" }}>
             <input
-              placeholder="/packages/solx-google"
-              value={customPath}
-              onChange={(e) => setCustomPath(e.target.value)}
+              placeholder="Add a path… try “firefox”"
+              value={pathQuery}
+              onChange={(e) => setPathQuery(e.target.value)}
+              onFocus={() => setPathOpen(true)}
+              onBlur={() => setTimeout(() => setPathOpen(false), 150)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && customPath.trim()) {
-                  addEntry({ path: customPath.trim(), actions: null });
-                  setCustomPath("");
+                if (e.key === "Enter") {
+                  const first = suggestions[0];
+                  if (first) pickPath(first.path);
+                  else if (pathQuery.trim()) pickPath(pathQuery.trim());
+                } else if (e.key === "Escape") {
+                  setPathOpen(false);
                 }
               }}
             />
-            <button
-              disabled={!customPath.trim()}
-              onClick={() => {
-                addEntry({ path: customPath.trim(), actions: null });
-                setCustomPath("");
-              }}
-            >
-              Add
-            </button>
+            {pathOpen && (
+              <div
+                className="col"
+                style={{
+                  gap: 2,
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
+                  zIndex: 1,
+                  marginTop: 3,
+                  padding: 4,
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  background: "var(--bg-raised)",
+                  maxHeight: 180,
+                  overflowY: "auto",
+                }}
+              >
+                {!pathQuery.trim() &&
+                  PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        addEntry(preset.entry);
+                        setPathOpen(false);
+                      }}
+                      style={{ textAlign: "left", padding: "2px 5px" }}
+                    >
+                      + {preset.label}{" "}
+                      <span className="faint" style={{ fontFamily: "var(--font-mono)" }}>
+                        {preset.entry.path}
+                      </span>
+                    </button>
+                  ))}
+                {pathQuery.trim() && searching && (
+                  <span className="faint" style={{ fontSize: 11, padding: "2px 5px" }}>
+                    Searching…
+                  </span>
+                )}
+                {pathQuery.trim() &&
+                  !searching &&
+                  suggestions.map((s) => (
+                    <button
+                      key={s.path}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickPath(s.path)}
+                      style={{
+                        textAlign: "left",
+                        padding: "2px 5px",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 12,
+                      }}
+                    >
+                      {s.path}{" "}
+                      <span className="faint" style={{ fontFamily: "var(--font-sans, inherit)" }}>
+                        · {s.count} action{s.count === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                  ))}
+                {pathQuery.trim() && !searching && (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickPath(pathQuery.trim())}
+                    style={{ textAlign: "left", padding: "2px 5px" }}
+                  >
+                    <span className="faint" style={{ fontSize: 11 }}>
+                      {suggestions.length === 0
+                        ? "No matching path — use literal:"
+                        : "Or use literal path:"}
+                    </span>{" "}
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+                      {pathQuery.trim()}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="row" style={{ gap: 6 }}>
@@ -215,8 +350,8 @@ export function SetupPanel({
             <div className="col" style={{ gap: 6 }}>
               <label className="col" style={{ gap: 3 }}>
                 <span className="muted" style={{ fontSize: 11 }}>
-                  Instructions — the model gets no other framing, so this is the whole
-                  behavioural contract.
+                  Instructions — the harness adds no base prompt, so this plus any
+                  skills that load is the whole framing the model gets.
                   {live && " Already sent for this session; applies to the next one."}
                 </span>
                 <textarea

@@ -21,16 +21,56 @@ const PREFIX = "solx-agent:";
  * definitions. That makes the preamble the entire behavioural contract, which
  * is why it is a real artifact here and editable in the setup panel rather
  * than hidden in the bundle.
+ *
+ * What belongs here is *orientation* -- what solx is, how a reference is
+ * spelled, what an action row means -- because it is true of every session
+ * and useless to discover one failed call at a time. What does not belong
+ * here is anything tied to a particular family of tools: that goes in an
+ * AgentSkill document, which loads only when a matching tool is actually in
+ * the catalogue. The split matters because this string is prompt tokens on
+ * every iteration of every session, and this harness targets small local
+ * models.
  */
-export const DEFAULT_PREAMBLE = `You are working inside solx, with a small set of tools.
+export const DEFAULT_PREAMBLE = `You are working inside solx.
+
+solx is a database of actions. Every tool you can call is a row in it, and
+every call has the same shape: exec(path, name, params). Documents, actions
+and types share one directory-style namespace, so a thing is identified by
+its path and its name together and its full reference is the two joined --
+for example /builtin/document/search_documents.
+
+Four kinds of thing are stored, each with its own family of builtin actions:
+documents (/builtin/document), actions (/builtin/action), types
+(/builtin/type) and files (/builtin/file). A type is a JSON Schema; a
+document is validated against the type its typeRef names.
+
+An action row says how it runs, in actionType: wasm is a sandboxed
+component, webhook a REST call, command a local binary, script a .solx
+pipeline, internal a native handler. fnName and binName mean something
+different in each. A result comes back wrapped as {action, result, success},
+so what you actually asked for is under result.
+
+Two things will mislead you if you assume otherwise:
+
+Parameter names are not spelled uniformly. Entity and search parameters are
+camelCase (typeRef, pathPrefix, paramTypeRef); some handlers take snake_case
+instead (rel_path, doc_path, stream_id). Schemas are open, so a misspelled
+key is silently dropped rather than rejected -- you get a wrong answer, not
+an error. Leave an optional parameter out entirely rather than sending null;
+an explicit null fails validation and errors the whole call.
+
+Search terms are ANDed and prefix-matched, so searching a whole sentence
+matches nothing. Search with two or three distinctive words.
 
 Call a tool when you need one. When you want to hand the turn back to the
 person you are talking to -- to answer, or to ask them something -- reply
 with text and no tool calls. You can also explain what you are doing in the
 same reply as a tool call.
 
-Prefer searching before assuming. If a tool fails, read the error and try a
-different approach rather than repeating the same call.`;
+Prefer searching before assuming: if a capability seems to be missing, search
+the catalogue or look for more tools before concluding it does not exist. If
+a tool fails, read the error and try a different approach rather than
+repeating the same call.`;
 
 /** Read-only documents: enough to be useful, nothing that needs approval. */
 export const DEFAULT_GRANT: AllowEntry[] = [

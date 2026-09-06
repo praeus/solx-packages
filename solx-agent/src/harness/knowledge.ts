@@ -129,10 +129,7 @@ export async function saveMemory(
     // The text goes in `summary` as well as `contents` so recall is a single
     // search with no follow-up gets.
     summary: body,
-    // snake_case: DocumentInput has no camelCase rename, unlike the search
-    // queries above. Sending `typeRef` here is silently dropped and the save
-    // fails with "a type_ref is required to create a document".
-    type_ref: MEMORY_TYPE,
+    typeRef: MEMORY_TYPE,
     contents: {
       text: body,
       tags: Array.isArray(tags) ? tags.filter((t) => typeof t === "string") : [],
@@ -276,22 +273,35 @@ export interface ResolvedSkill {
 }
 
 /**
- * A skill document binds prose to action refs by glob. One search finds
+ * A skill document binds prose to action refs by glob. One search lists the
  * candidates; the globs are what decide, so a skill can never load for a tool
  * that is not in the catalogue -- which is why skills are on by default. A
  * skill never grants reach, it only explains reach already granted.
+ *
+ * **Deliberately no `q`.** This used to pass the turn's user message as a
+ * full-text query, which made skills load almost never: `fts_match_query` in
+ * solx-docs turns each whitespace-separated term into `"term"*` and **ANDs**
+ * them, so a skill only matched if its text contained *every word* of the
+ * message. The tests missed it because their fixture message was the single
+ * word "document". FTS was never able to be the selector here -- the globs
+ * are -- so the search is now a plain listing of the skills path and the
+ * glob check below decides everything.
+ *
+ * The cost is one `entity_get_document` per candidate, because a search hit
+ * carries no `contents` and the globs live in `contents.tools`. `alreadySeen`
+ * is checked *before* the get, so only the first turn of a session pays it.
+ * That is the reason to keep the skills path small.
  */
 export async function resolveSkills(
   host: Host,
   skills: SkillSpec | null,
-  query: string | null,
   refs: string[],
   alreadySeen: Record<string, boolean> | null,
 ): Promise<ResolvedSkill[]> {
   if (!skills || !skills.enabled || refs.length === 0) return [];
   const hits = await host.try<{ hits?: { path: string; name: string }[] }>(
     SEARCH_DOCS,
-    compact({ q: query, pathPrefix: skills.path, typeRef: SKILL_TYPE, limit: skills.limit }),
+    compact({ pathPrefix: skills.path, typeRef: SKILL_TYPE, limit: skills.limit }),
   );
   if (!hits.ok || !hits.value || !Array.isArray(hits.value.hits)) return [];
 
@@ -316,7 +326,9 @@ export async function resolveSkills(
     if (matched.length === 0) continue;
 
     const body = instructions.slice(0, SKILL_INSTRUCTIONS_CAP);
-    if (body.length > budget) break;
+    // `continue`, not `break`: one oversized skill must not starve every
+    // skill after it in the listing.
+    if (body.length > budget) continue;
     budget -= body.length;
     out.push({ ref, title: got.value.title || hit.name, matched, instructions: body });
   }

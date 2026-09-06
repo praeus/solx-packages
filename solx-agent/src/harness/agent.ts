@@ -113,7 +113,7 @@ async function resolveTurnCatalogue(
 
   const refs = Object.keys(cat.map).map((n) => cat.map[n]);
   session.skills_seen = session.skills_seen || {};
-  const found = await resolveSkills(host, session.skills, query, refs, session.skills_seen);
+  const found = await resolveSkills(host, session.skills, refs, session.skills_seen);
   if (found.length > 0) {
     for (const s of found) session.skills_seen[s.ref] = true;
     session.messages.push({ role: "system", content: skillBlock(found, invertMap(cat.map)) });

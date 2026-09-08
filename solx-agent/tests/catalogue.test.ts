@@ -48,6 +48,43 @@ describe("resolveCatalogue", () => {
     expect(cat.dropped).toBe(2);
   });
 
+  test("a command action surfaces under a plain path grant, with no exact name needed", async () => {
+    // resolveCatalogue used to filter through a stricter predicate here,
+    // requiring grant[].actions to name a Command/Webhook row exactly -- a
+    // wide grant hid it from discovery entirely, not just from dispatch.
+    // gate.test.ts covers the predicate directly; this is the effect that
+    // actually matters, one layer up.
+    const { f, host } = seeded();
+    f.action("/tools/build", { actionType: "command", description: "build a thing" });
+    const cat = await resolveCatalogue(host, "build", [{ path: "/tools" }], 10, null);
+    expect(Object.values(cat.map)).toContain("/tools/build");
+  });
+
+  test("a `*` grant resolves the whole catalogue", async () => {
+    // Regression: `pathPrefix` is a SQL prefix match, so passing a pattern
+    // through it looked for a path literally named `/*` and matched nothing.
+    // The gate would have allowed every row; none ever reached it, so the
+    // widest possible grant resolved to an empty catalogue and the panel
+    // advised widening it further.
+    const { f, host } = seeded();
+    f.action("/tools/build", { description: "build a thing" });
+    const cat = await resolveCatalogue(host, null, [{ path: "*" }], 10, null);
+    expect(Object.values(cat.map)).toContain("/tools/build");
+    expect(Object.values(cat.map)).toContain("/builtin/document/search_documents");
+    const [search] = f.refsCalled("/builtin/action/search_actions");
+    expect("pathPrefix" in search.params).toBe(false);
+  });
+
+  test("a narrower pattern still narrows", async () => {
+    // The unscoped search is only how rows are *fetched* -- `permitted` still
+    // applies the pattern, so `/builtin/*` must not drag in /tools.
+    const { f, host } = seeded();
+    f.action("/tools/build", { description: "build a thing" });
+    const cat = await resolveCatalogue(host, null, [{ path: "/builtin/*" }], 10, null);
+    expect(Object.values(cat.map)).toContain("/builtin/document/search_documents");
+    expect(Object.values(cat.map)).not.toContain("/tools/build");
+  });
+
   test("known refs are not re-offered", async () => {
     const { host } = seeded();
     const known = { "/builtin/document/search_documents": true };

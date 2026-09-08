@@ -72,10 +72,22 @@ the catalogue or look for more tools before concluding it does not exist. If
 a tool fails, read the error and try a different approach rather than
 repeating the same call.`;
 
-/** Read-only documents: enough to be useful, nothing that needs approval. */
-export const DEFAULT_GRANT: AllowEntry[] = [
-  { path: "/builtin/document", actions: ["search_documents", "entity_get_document"] },
-];
+/**
+ * The whole catalogue, so a session is useful without the operator first
+ * enumerating paths -- ask for something and the turn's search finds the tool.
+ *
+ * This is a default, not a hole in the gate. `HARD_DENY` stays unreachable
+ * whatever the grant says -- secrets, self-modification, detached spawning,
+ * and this package's own actions. What `*` widens is *discovery*: the model
+ * can now find a tool it was not handed, which is the whole point of a
+ * searchable catalogue. Execution is still gated where it always was --
+ * every Command and Webhook row is unconditionally destructive (see
+ * `isExecutableType`), so it suspends for a human decision showing the
+ * resolved ref and arguments before anything runs.
+ *
+ * The operator can narrow this at any time, mid-session included.
+ */
+export const DEFAULT_GRANT: AllowEntry[] = [{ path: "*", actions: null }];
 
 export interface SetupPrefs {
   grant: AllowEntry[];

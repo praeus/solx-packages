@@ -226,7 +226,7 @@ describe("tool_search", () => {
     expect(Object.values(s.tools)).toContain("/builtin/document/entity_delete_document");
   });
 
-  test("cannot reach past the grant", async () => {
+  test("cannot reach past the grant, but says where the match was", async () => {
     const { f, host } = seeded();
     f.action("/packages/solx-google/send-gmail-message", { description: "send an email" });
     const s = await session(host);
@@ -234,6 +234,25 @@ describe("tool_search", () => {
     f.replyCalls(["sys__tool_search", { q: "email" }]);
     await step(host, s);
     expect(Object.values(s.tools)).not.toContain("/packages/solx-google/send-gmail-message");
+
+    // Naming the path is what turns a dead end into something the model can
+    // hand back to the operator. Without it, "nothing matched" reads as
+    // "search again" and the model starts guessing at tool names.
+    const said = s.messages.at(-1)!.content;
+    expect(said).toContain("/packages/solx-google");
+    // Paths only: a name it cannot call is what starts the guessing.
+    expect(said).not.toContain("send-gmail-message");
+  });
+
+  test("a search that matches nothing anywhere does not blame the grant", async () => {
+    const { f, host } = seeded();
+    const s = await session(host);
+
+    f.replyCalls(["sys__tool_search", { q: "zzzznothingmatchesthis" }]);
+    await step(host, s);
+    const said = s.messages.at(-1)!.content;
+    expect(said).toMatch(/no further tools matched/);
+    expect(said).not.toMatch(/do exist at/);
   });
 
   test("stops at the catalogue cap", async () => {

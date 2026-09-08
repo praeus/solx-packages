@@ -249,7 +249,7 @@ async fn run_import(
                 }
             }
             let _ = std::fs::remove_dir_all(&stale.dir);
-            tools_pruned.push(stale.action_name.clone());
+            tools_pruned.push(action_ref(&stale.action_path, &stale.action_name));
         }
     }
 
@@ -260,12 +260,29 @@ async fn run_import(
     };
     config::write_manifest(home, &manifest)?;
 
+    // Full refs, not bare action names. A bare name is not addressable: an
+    // imported tool lands under `naming::action_path(server)`, so a caller
+    // handed `mcp-firefox-new-page` has no way to reach it and no way to
+    // derive where it lives. An agent given this list will guess at paths and
+    // burn its whole turn being refused -- which is exactly what happened
+    // before this returned refs.
     Ok(json!({
         "server": server,
-        "tools_imported": manifest_entries.iter().map(|e| e.action_name.clone()).collect::<Vec<_>>(),
+        "tools_imported": manifest_entries
+            .iter()
+            .map(|e| action_ref(&e.action_path, &e.action_name))
+            .collect::<Vec<_>>(),
         "tools_pruned": tools_pruned,
         "errors": errors,
     }))
+}
+
+/// Join an action's path and name into the `/path/name` reference every solx
+/// caller addresses it by. The root path contributes no segment of its own,
+/// so a root-level action is `/name` rather than `//name`.
+fn action_ref(path: &str, name: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    format!("{trimmed}/{name}")
 }
 
 async fn import_one_tool(
@@ -484,7 +501,7 @@ async fn run_remove(home: &Path, server_arg: Option<String>) -> anyhow::Result<V
             }
         }
         if ok {
-            removed.push(entry.action_name.clone());
+            removed.push(action_ref(&entry.action_path, &entry.action_name));
         }
     }
 

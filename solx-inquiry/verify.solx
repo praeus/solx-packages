@@ -1,0 +1,1 @@
+exec /packages/solx-inquiry/inquire --json '{"inquiry":"what solx-inquiry actions exist?","model":"qwen3:4b","scope":"actions","max_terms":2,"max_results":3}'

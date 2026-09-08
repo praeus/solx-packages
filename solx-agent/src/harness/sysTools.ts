@@ -7,7 +7,7 @@
  * index, and `sys__tool_search` searches only the session's own grant.
  */
 
-import { invertMap, resolveCatalogue } from "./catalogue";
+import { globMatches, invertMap, resolveCatalogue, searchActionPaths } from "./catalogue";
 import {
   clamp,
   readContext,
@@ -134,6 +134,40 @@ export function sysToolDefs(session: Session): ToolDef[] {
  * against the session's grant, so the gate is untouched. Bounded by whatever
  * is left of the catalogue cap.
  */
+/** How many out-of-grant paths a failed search will name. Enough to point at
+ *  the right package, short enough not to become a directory listing. */
+const OUT_OF_GRANT_PATHS = 5;
+
+/**
+ * Paths where a search *would* have matched, had the grant covered them.
+ *
+ * This is the one place the model is told about actions it cannot call, and
+ * it is a deliberate trade. The alternative -- a flat "nothing matched" --
+ * reads to a model as "search again", so a model that has heard a tool named
+ * anywhere else keeps guessing at how to spell it and spends the turn being
+ * refused. Naming the path converts a dead end into something it can hand
+ * back to the operator, who could already see these paths anyway.
+ *
+ * Only *paths* are returned, never the resolved tool names: a name it cannot
+ * call is exactly the thing that starts the guessing, and a path is what the
+ * operator needs to widen the grant. Grant rules glob-match an action's own
+ * path, so a path listed here is one that can be pasted into the grant
+ * verbatim -- unlike its parent, which would not match it.
+ */
+async function outOfGrantPaths(
+  host: Host,
+  q: string | null,
+  grant: Session["grant"],
+): Promise<string[]> {
+  const facets = await searchActionPaths(host, q || "", 50);
+  const covered = (path: string) =>
+    (grant || []).some((rule) => globMatches(rule.path || "", path));
+  return facets
+    .map((f) => f.path)
+    .filter((p) => !covered(p))
+    .slice(0, OUT_OF_GRANT_PATHS);
+}
+
 export async function toolSearch(
   host: Host,
   session: Session,
@@ -154,6 +188,24 @@ export async function toolSearch(
   const q = (args.q as string) || null;
   const cat = await resolveCatalogue(host, q, session.grant, want, known);
   if (cat.tools.length === 0) {
+    // "Nothing matched" and "it exists but you may not reach it" are the same
+    // sentence to a model, and they call for opposite responses: search again
+    // with better terms, versus stop and tell the person. Saying only the
+    // former is what makes a model start guessing at tool names.
+    const elsewhere = await outOfGrantPaths(host, q, session.grant);
+    if (elsewhere.length > 0) {
+      return {
+        outcome: "ok",
+        content:
+          "Nothing matched inside what this session is allowed to reach, but " +
+          "matching tools do exist at: " +
+          elsewhere.join(", ") +
+          ". This session's grant does not cover them, and you cannot widen it " +
+          "yourself -- only the person you are talking to can. Tell them which " +
+          "path you need rather than guessing at tool names; a name you were " +
+          "not given will always be refused.",
+      };
+    }
     return {
       outcome: "ok",
       content: "no further tools matched, within what you are permitted to call",

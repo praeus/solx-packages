@@ -13,7 +13,7 @@
  * behaving oddly.
  */
 
-import { globMatches, permitted, refOf, splitRef } from "./gate";
+import { globMatches, isGlob, permitted, refOf, splitRef } from "./gate";
 import { GET_TYPE, SEARCH_ACTIONS, SEARCH_FETCH } from "./refs";
 import { compact } from "./host";
 import type { Host } from "./host";
@@ -114,12 +114,28 @@ export async function resolveCatalogue(
   let matched = 0;
 
   for (const rule of allow) {
+    // A pattern grant (`*`, `/packages/*`) cannot be pushed down to
+    // `pathPrefix`: that filter is a SQL prefix match, so it would look for a
+    // path literally named `/*` and return nothing -- the grant would resolve
+    // to an empty catalogue even though the gate would have allowed every row.
+    // Search unscoped instead and let `permitted` below apply the pattern.
+    //
+    // The cost is that a pattern rule sees only the first `SEARCH_FETCH` rows
+    // of the whole catalogue rather than of its own subtree, so a narrow
+    // pattern over a large registry can come back short. That is the same
+    // truncation `tools_dropped` already reports for the cap, and the query
+    // does the real selecting in practice.
     const page = await host.try<{ items?: ActionRow[] }>(
       SEARCH_ACTIONS,
       // `q` is omitted rather than nulled when there is no query -- see
       // `compact`. A null there fails schema validation and the whole search
       // errors, which is how a no-query fallback silently resolves to nothing.
-      compact({ q: query, pathPrefix: rule.path, limit: SEARCH_FETCH, excludeHidden: true }),
+      compact({
+        q: query,
+        pathPrefix: isGlob(rule.path) ? null : rule.path,
+        limit: SEARCH_FETCH,
+        excludeHidden: true,
+      }),
     );
     if (!page.ok || !page.value || !Array.isArray(page.value.items)) continue;
 
@@ -165,10 +181,15 @@ export interface PathSuggestion {
  * picker. `path` is itself indexed in `actions_fts`, so "firefox" already
  * matches "/packages/solx-firefox" without any special-casing here.
  *
- * Not run through the gate -- this only lists what a package *registered*,
- * the same introspection `previewTools` already gives the operator (never
- * the model) for the same reason: deciding what to grant requires seeing
+ * Not run through the gate -- this only lists what a package *registered*.
+ * That is what the setup panel needs: deciding what to grant requires seeing
  * what exists, before anything is granted.
+ *
+ * Two callers, and the second one matters. This was operator-only by design;
+ * `sys__tool_search` now also uses it, on a failed search, to tell the model
+ * which *paths* hold matches its grant does not cover. That is a deliberate
+ * relaxation -- see `outOfGrantPaths`. It stays paths-only for the model:
+ * this returns no tool names, and nothing here can be called.
  */
 export async function searchActionPaths(
   host: Host,

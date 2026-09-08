@@ -169,10 +169,23 @@ What is left is what is specific to *this* caller:
    `search_actions` / `entity_get_action` / `entity_list_actions`, which is the
    point: the registry *is* the tool catalogue, so that is how a model looks up
    a tool it was not handed and reads its parameter schema.
-3. **Command, Webhook and `/builtin/web/*` need an exact name.** A glob never
-   reaches a shell or an arbitrary outbound host. (solx-core separately gates
-   *where* an outbound request may go, via `allowed_base_urls`. That is a
-   different question from whether the model may make one at all.)
+3. **A glob reaches Command, Webhook and `/builtin/web/*` rows too, the same
+   as any other action type.** There used to be a carve-out here requiring an
+   exact `grant[].actions` name for those three, on the reasoning that a glob
+   should never reach a shell or an arbitrary outbound host by accident.
+   Removed, because it coupled two different questions: it made a Command
+   action invisible to *discovery* (`resolveCatalogue`, `sys__tool_search`) as
+   a side effect of restricting *dispatch*, so an operator granting a whole
+   package path for its read-only tools would silently never see that
+   package's build action exists at all. The safety net that is left is
+   real: every Command and Webhook row is unconditionally destructive (see
+   `isExecutableType`), so a call still suspends for a human decision with
+   the full resolved ref and arguments shown before anything runs — and
+   solx-core's own gates (`command_actions`, `allowed_base_urls`) apply
+   underneath regardless of what this package permits. What changed is that
+   granting a broad path is now the operator's actual control for these
+   three action types too, the same as it always was for `script`/`wasm`/
+   `internal` rows — read what is under a path before granting it widely.
 4. **The whole `/agent` root is unwritable by the model**, however wide the
    grant. The session document holds the grant and the dispatch table; a skill
    document is instruction injection into every *future* session.

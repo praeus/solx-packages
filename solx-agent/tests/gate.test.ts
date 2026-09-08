@@ -20,32 +20,38 @@ describe("the grant", () => {
     expect(() => normalizeAllow([{ path: "" }])).toThrow(/non-empty path/);
   });
 
-  test("a glob reaches a script action but never a command", () => {
+  test("a glob reaches a script, command, or webhook action alike", () => {
+    // There used to be a carve-out here requiring an exact `actions` name
+    // for command/webhook rows, so a wide grant could not accidentally reach
+    // a shell or an arbitrary host. Removed: it made a Command action
+    // invisible to *discovery* (resolveCatalogue, sys__tool_search) as a
+    // side effect of restricting *dispatch*, and every command/webhook row
+    // is unconditionally destructive regardless (see isExecutableType and
+    // turn.ts's gateCall), so a call still suspends for a human decision
+    // with the full resolved ref and arguments shown before it runs.
     const allow = [{ path: "/tools" }];
     const script = { path: "/tools", name: "a", actionType: "script" };
     const command = { path: "/tools", name: "sh", actionType: "command" };
+    const webhook = { path: "/tools", name: "hook", actionType: "webhook" };
 
     expect(permitted(script, allow)).toBe(true);
-    expect(permitted(command, allow)).toBe(false);
+    expect(permitted(command, allow)).toBe(true);
+    expect(permitted(webhook, allow)).toBe(true);
     expect(permitted(command, [{ path: "/tools", actions: ["sh"] }])).toBe(true);
     expect(permitted(command, [{ path: "/tools", actions: ["other"] }])).toBe(false);
   });
 
-  /**
-   * The newer half of the exact-name rule. solx-core now gates *where* an
-   * outbound request may go (`allowed_base_urls`); this gates whether the
-   * model may make one at all, which is a different question -- an operator
-   * allowlist may hold hosts the agent should not reach on its own.
-   */
-  test("a glob never reaches /builtin/web either", () => {
+  test("a glob reaches /builtin/web too, gated only by hard denies and solx-core's own allowed_base_urls", () => {
     const web = { path: "/builtin/web", name: "http_request", actionType: "internal" };
-    expect(permitted(web, [{ path: "/builtin/web" }])).toBe(false);
-    expect(permitted(web, [{ path: "/builtin/*" }])).toBe(false);
-    expect(permitted(web, [{ path: "/builtin/web", actions: ["http_request"] }])).toBe(true);
+    expect(permitted(web, [{ path: "/builtin/web" }])).toBe(true);
+    expect(permitted(web, [{ path: "/builtin/*" }])).toBe(true);
 
+    // A non-wildcard grant path is still only ever an exact match to a row's
+    // own path -- that is ordinary globMatches behavior, unrelated to this
+    // change. A `*` is what reaches a nested child like the stream actions.
     const stream = { path: "/builtin/web/stream", name: "start", actionType: "internal" };
-    expect(permitted(stream, [{ path: "/builtin/web" }])).toBe(false);
-    expect(permitted(stream, [{ path: "/builtin/web/stream", actions: ["start"] }])).toBe(true);
+    expect(permitted(stream, [{ path: "/builtin/web/stream" }])).toBe(true);
+    expect(permitted(stream, [{ path: "/builtin/web/*" }])).toBe(true);
   });
 
   test("hard denies hold whatever the grant says", () => {

@@ -1,0 +1,5 @@
+{
+  "name": "solx-inquiry",
+  "version": "0.1.0",
+  "description": "Ask a question, generate search terms via a chat model, search documents/actions, and summarize the results - one wasm32-wasip2 component backing the inquire action"
+}

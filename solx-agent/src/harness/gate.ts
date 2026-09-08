@@ -96,6 +96,19 @@ export function globMatches(pattern: string, text: string): boolean {
   return pi === pattern.length;
 }
 
+/**
+ * Whether a grant path is a pattern rather than a literal path.
+ *
+ * Matters because the two are resolved in different places: a literal path
+ * is pushed down to `search_actions`' `pathPrefix` (a SQL prefix match), but
+ * a pattern means nothing to that filter -- `*` would be read as a path
+ * literally named `/*` and match nothing at all. `resolveCatalogue` searches
+ * unscoped for these and lets `permitted` do the narrowing here instead.
+ */
+export function isGlob(path: string): boolean {
+  return path.indexOf("*") !== -1 || path.indexOf("?") !== -1;
+}
+
 export function ruleMatches(rule: AllowEntry, path: string, name: string): boolean {
   if (!globMatches(rule.path || "", path)) return false;
   if (Array.isArray(rule.actions) && rule.actions.length > 0) {
@@ -112,47 +125,35 @@ export function hardDenied(path: string, name: string): boolean {
   return false;
 }
 
-/**
- * Rows a glob must never reach -- an exact name in `grant[].actions` is
- * required instead.
- *
- * Command and Webhook are here because a glob should never reach a shell or
- * an arbitrary outbound host. `/builtin/web/*` is here for the same reason
- * and is the newer entry: solx-core now gates *where* an outbound request may
- * go (`allowed_base_urls`), but that is a different question from whether the
- * model may make one at all. An operator's allowlist may legitimately contain
- * hosts the agent should not be free to reach on its own.
- */
-export function needsExactName(action: { actionType?: string; action_type?: string; path?: string; name?: string }): boolean {
-  const ty = action.actionType || action.action_type;
-  if (ty === "command" || ty === "webhook") return true;
-  const path = normalizePath(action.path);
-  return isAtOrUnder(path, "/builtin/web");
-}
-
 /** Kept as its own predicate: destructive-ness unions this with the row's
- *  `solx:destructive` capability, independent of the exact-name rule. */
+ *  `solx:destructive` capability. */
 export function isExecutableType(actionType: string | undefined): boolean {
   return actionType === "command" || actionType === "webhook";
 }
 
-export function allowedByExactName(allow: AllowEntry[], path: string, name: string): boolean {
-  for (const rule of allow) {
-    if (rule.path !== path) continue;
-    if (Array.isArray(rule.actions) && rule.actions.indexOf(name) !== -1) return true;
-  }
-  return false;
-}
-
-/** The gate. No `exclude` parameter: anything reaching here already survived
- *  the host-side filter. */
+/**
+ * The gate. No `exclude` parameter: anything reaching here already survived
+ * the host-side filter.
+ *
+ * A glob grant reaches Command, Webhook and `/builtin/web/*` rows exactly
+ * like anything else -- there used to be a carve-out here requiring an exact
+ * `grant[].actions` name for those three, on the reasoning that a glob should
+ * never reach a shell or an arbitrary outbound host by accident. Removed
+ * deliberately: it made discovery (`resolveCatalogue`, `sys__tool_search`)
+ * and dispatch share one predicate, so a wide grant hid a Command action from
+ * *search* as a side effect of restricting what could *run* -- and every
+ * Command/Webhook row is unconditionally destructive regardless (see
+ * `isExecutableType` and its callers in `turn.ts`), so a call still suspends
+ * for a human decision with the full resolved ref and arguments shown before
+ * anything executes. The operator granting a broad path is now the actual
+ * control, the same as it always was for `script`/`wasm`/`internal` rows.
+ */
 export function permitted(
   action: { path: string; name: string; actionType?: string; action_type?: string },
   allow: AllowEntry[],
 ): boolean {
   const { path, name } = action;
   if (hardDenied(path, name)) return false;
-  if (needsExactName(action)) return allowedByExactName(allow, path, name);
   for (const rule of allow) {
     if (ruleMatches(rule, path, name)) return true;
   }
@@ -162,12 +163,16 @@ export function permitted(
 /**
  * Default-deny, enforced where the grant enters rather than where it is used,
  * so an empty list can never be mistaken for an unset one.
+ *
+ * `*` is a legitimate grant and the widget's default -- what an empty list
+ * still cannot mean is "everything", because then a caller that simply forgot
+ * to pass a grant would silently get one.
  */
 export function normalizeAllow(allow: AllowEntry[] | null | undefined): AllowEntry[] {
   if (!Array.isArray(allow) || allow.length === 0) {
     throw new Error(
-      "allow is required and must be non-empty: this is default-deny, and " +
-        "there is no wildcard. List the path prefixes the model may reach.",
+      "allow is required and must be non-empty: this is default-deny. List " +
+        "the paths the model may reach, or pass '*' for the whole catalogue.",
     );
   }
   return allow.map((r) => {

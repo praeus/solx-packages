@@ -21,7 +21,8 @@ async function session(host: Host, opts: Record<string, unknown> = {}): Promise<
   return createSession(host, "document", { model: "m", grant: DOCS_GRANT, ...opts });
 }
 
-/** A host that also has one command action, reachable only by exact name. */
+/** A host that also has one command action -- destructive by construction,
+ *  so every call to it exercises the approval flow regardless of grant shape. */
 function withShell(): { f: FakeHost; host: Host; grant: { path: string; actions?: string[] }[] } {
   const { f, host } = seeded();
   f.action("/builtin/shell/run", { actionType: "command", description: "document shell" });
@@ -93,7 +94,12 @@ describe("the loop", () => {
 
     await step(host, s);
     expect(s.calls[0].outcome).toBe("refused");
-    expect(s.messages.at(-1)!.content).toMatch(/unknown tool/);
+    const refusal = s.messages.at(-1)!.content;
+    expect(refusal).toContain("act__builtin__secrets__get_secret");
+    // The refusal has to point somewhere. A bare "unknown tool" reads as
+    // "try a different spelling", and a model that heard the name elsewhere
+    // will burn the turn permuting it.
+    expect(refusal).toContain("sys__tool_search");
   });
 
   test("no tool calls hands the turn back as idle, not as an ending", async () => {

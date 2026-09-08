@@ -1,0 +1,13 @@
+{
+  "name": "solx-reddit",
+  "version": "0.1.0",
+  "description": "Reddit extraction for solx-core - one quickjs wasm component backing two actions that drive the logged-in Firefox session and write BlogPostWithComments documents",
+  "allowed_base_urls": [
+    "https://i.redd.it/",
+    "https://preview.redd.it/",
+    "https://external-preview.redd.it/",
+    "https://a.thumbs.redditmedia.com/",
+    "https://b.thumbs.redditmedia.com/",
+    "https://styles.redditmedia.com/"
+  ]
+}

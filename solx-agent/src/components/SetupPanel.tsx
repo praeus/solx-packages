@@ -5,14 +5,21 @@ import type { SetupPrefs } from "../session/store";
 /**
  * Starting points for the grant. Not exhaustive -- a path can be typed.
  *
- * The last two name their actions explicitly rather than passing null, and
- * for different reasons. "Read the catalogue" does it because the write and
- * async halves of /builtin/action are hard-denied anyway, so a null here
- * would advertise reach the gate will refuse. "Build JS actions" has no
- * choice: `needsExactName` refuses a glob for a Command row, so a null would
- * resolve to nothing at all.
+ * "All tools" is first because it is the default (see `DEFAULT_GRANT`) and
+ * the way back to it after narrowing: `*` is a real pattern the gate
+ * understands, not a placeholder. The narrower presets are for sessions an
+ * operator wants deliberately fenced.
+ *
+ * "Read the catalogue" names its actions explicitly rather than passing
+ * null: the write and async halves of /builtin/action are hard-denied
+ * regardless of grant shape, so a null here would advertise reach the gate
+ * will refuse. A Command row like solx-quickjs's builders needs no such
+ * carve-out -- a plain path grant reaches it the same as any other action
+ * type, and it still suspends for approval before it runs, since every
+ * Command/Webhook row is unconditionally destructive.
  */
 const PRESETS: { label: string; entry: AllowEntry }[] = [
+  { label: "All tools", entry: { path: "*", actions: null } },
   {
     label: "Read documents",
     entry: { path: "/builtin/document", actions: ["search_documents", "entity_get_document"] },
@@ -27,21 +34,17 @@ const PRESETS: { label: string; entry: AllowEntry }[] = [
       actions: ["search_actions", "entity_get_action", "entity_list_actions"],
     },
   },
-  {
-    label: "Build JS actions",
-    entry: {
-      path: "/packages/solx-quickjs",
-      actions: ["build-javascript-action", "build-javascript-file"],
-    },
-  },
+  { label: "Build JS actions", entry: { path: "/packages/solx-quickjs", actions: null } },
 ];
 
 /**
  * What the agent is allowed to reach.
  *
- * The grant is required, default-deny, and has no wildcard shorthand, so this
- * is a first-class surface rather than an advanced setting -- a session
- * cannot start without it.
+ * The grant is required and defaults to `*` -- the whole catalogue -- so a
+ * session is useful without the operator enumerating paths first. This stays
+ * a first-class surface rather than an advanced setting because narrowing it
+ * is the point: it is where an operator fences a session that should not see
+ * everything, and it is visible enough that a wide grant is never a surprise.
  *
  * **It stays editable once a session is running.** The rule the gate enforces
  * is that *the model* cannot widen its own reach, not that reach is
@@ -308,7 +311,14 @@ export function SetupPanel({
           {preview && (
             <div className="col" style={{ gap: 3 }}>
               {preview.tools.length === 0 ? (
-                <span className="chip danger">No tools resolved — widen what is allowed</span>
+                // Which of the two it is matters: telling someone to widen a
+                // grant that is already `*` is what sent them looking for a
+                // wildcard that was there all along.
+                <span className="chip danger">
+                  {queryHint.trim()
+                    ? `Nothing matched “${queryHint.trim()}” in what is allowed`
+                    : "No tools resolved — widen what is allowed"}
+                </span>
               ) : (
                 preview.tools.map((name) => (
                   <span key={name} style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>

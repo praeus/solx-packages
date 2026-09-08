@@ -1,0 +1,4 @@
+delete action /packages/solx-inquiry/inquire --if-exists;
+delete type /packages/solx-inquiry/InquireResult --if-exists;
+delete type /packages/solx-inquiry/InquireParams --if-exists;
+delete file files/actions/shared/solx-inquiry.wasm --if-exists;

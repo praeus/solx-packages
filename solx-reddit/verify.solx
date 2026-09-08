@@ -1,0 +1,2 @@
+exec /packages/solx-reddit/reddit-extract-post --json '{"subreddit":"announcements","id":"5vtcyt","maxComments":10}';
+exec /packages/solx-reddit/reddit-search --json '{"query":"dungeons and dragons","subreddit":"dndnext","limit":3,"maxComments":10}'

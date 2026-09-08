@@ -27,7 +27,7 @@
 import { permitted, reservedDocWrite, splitRef, isExecutableType } from "./gate";
 import { callId, saveSession } from "./session";
 import { isSysTool, runSysTool } from "./sysTools";
-import { CHAT, GET_ACTION, MAX_CONSECUTIVE_FAILURES } from "./refs";
+import { CHAT, GET_ACTION, MAX_CONSECUTIVE_FAILURES, SYS_TOOL_SEARCH } from "./refs";
 import type { Host } from "./host";
 import type { Message, PendingCall, PendingView, Session, StepResult, ToolCall } from "./types";
 
@@ -311,7 +311,23 @@ export async function step(
       sys: false,
       // An unlisted name is refused here rather than at dispatch: the map is
       // the only dispatch table, so a name absent from it names nothing.
-      refusal: ref === null ? "unknown tool '" + toolName + "'" : null,
+      //
+      // The message says what to do next, because the bare "unknown tool"
+      // this used to return is a dead end: a model that has heard a tool's
+      // name from somewhere else (an MCP import result, a document) responds
+      // to it by guessing at the encoding and trying again, and will spend
+      // the whole turn doing that. Naming the escape hatch ends the loop.
+      // It reveals nothing -- the model supplied the name itself.
+      refusal:
+        ref === null
+          ? "no tool named '" +
+            toolName +
+            "' in this session. Tool names cannot be guessed or constructed -- " +
+            "call " +
+            SYS_TOOL_SEARCH +
+            " to find one, and use the name exactly as it comes back. If the " +
+            "search finds nothing, say so rather than trying more names."
+          : null,
       // Provisional only. gateCall re-decides this at dispatch, so nothing
       // downstream trusts what was written into the document here.
       destructive: false,

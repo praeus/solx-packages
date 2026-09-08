@@ -17,7 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use serde_json::{json, Value};
 
 use solx_inquiry::host::{Host, HostCall, Outcome};
-use solx_inquiry::search::{ACTION_SEARCH_REF, DOCUMENT_GET_REF, DOCUMENT_SEARCH_REF, TYPE_GET_REF};
+use solx_inquiry::search::{ACTION_SEARCH_REF, DOCUMENT_SEARCH_REF, TYPE_GET_REF};
 
 const LLM_REF: &str = "/packages/solx-ollama/ollama-chat";
 const ACTION_START: &str = "/builtin/action/start";
@@ -150,13 +150,6 @@ impl FakeHost {
         self
     }
 
-    /// Queue one `entity_get_document` response carrying `contents` — one
-    /// call per document-source hit that survives capping, in score-descending
-    /// order (the order `enrich_documents` walks the final hit list).
-    fn push_doc_contents(&self, contents: Value) -> &Self {
-        self.push_ok(DOCUMENT_GET_REF, json!({ "contents": contents }))
-    }
-
     fn call_names(&self) -> Vec<String> {
         self.calls.borrow().iter().map(|(n, _)| n.clone()).collect()
     }
@@ -209,12 +202,11 @@ fn full_pipeline_documents_scope_via_detached_llm_calls() {
     host.push_ok(
         DOCUMENT_SEARCH_REF,
         json!({
-            "hits": [{ "id": "1", "path": "/notes", "name": "auth", "title": "Auth notes", "summary": "how login works", "typeRef": "/types/core/Object", "score": 4.2 }],
+            "items": [{ "id": "1", "path": "/notes", "name": "auth", "title": "Auth notes", "summary": "how login works", "typeRef": "/types/core/Object", "contents": { "body": "session tokens are issued at login" } }],
             "total": 1, "limit": 10, "offset": 0,
         }),
     );
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
-    host.push_doc_contents(json!({ "body": "session tokens are issued at login" }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "Authentication uses session tokens, per /notes/auth.");
 
     let out = run(&host, base_params());
@@ -222,8 +214,11 @@ fn full_pipeline_documents_scope_via_detached_llm_calls() {
     assert!(out.success, "{:?}", out.message);
     assert_eq!(out.output["terms"], json!(["authentication", "session token"]));
     assert_eq!(out.output["hits"][0]["path"], json!("/notes"));
+    // `contents` comes back inline from search_documents - no separate
+    // entity_get_document round trip needed.
     assert_eq!(out.output["hits"][0]["details"], json!({ "body": "session tokens are issued at login" }));
     assert_eq!(out.output["summary"], json!("Authentication uses session tokens, per /notes/auth."));
+    assert!(!host.call_names().contains(&"/builtin/document/entity_get_document".to_string()));
 
     assert_eq!(host.calls_named(ACTION_START).len(), 2, "one detached start per llm phase");
     assert_eq!(host.calls_named(DOCUMENT_SEARCH_REF).len(), 2);
@@ -238,7 +233,7 @@ fn console_output_from_the_detached_call_is_echoed_into_inquires_own_console() {
         r#"{"terms": ["auth"]}"#,
         vec![console_entry("inv-terms", "thinking about it")],
     );
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "no results");
 
     let out = run(&host, base_params());
@@ -264,7 +259,7 @@ fn console_entries_from_a_different_invocation_are_not_echoed() {
             console_entry("inv-terms", "mine"),
         ],
     );
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "no results");
 
     run(&host, base_params());
@@ -282,7 +277,7 @@ fn a_still_running_poll_loops_and_keeps_draining_console_until_terminal() {
         vec![console_entry("inv-terms", "still working")],
         r#"{"terms": ["auth"]}"#,
     );
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "no results");
 
     let out = run(&host, base_params());
@@ -301,7 +296,7 @@ fn a_still_running_poll_loops_and_keeps_draining_console_until_terminal() {
 fn falls_back_to_a_blocking_call_when_the_host_cannot_detach() {
     let host = FakeHost::new();
     host.push_llm_call_fallback(r#"{"terms": ["auth"]}"#);
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_fallback("no results");
 
     let out = run(&host, base_params());
@@ -358,8 +353,8 @@ fn a_model_that_ignores_format_and_answers_with_a_plain_list_still_works() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", "- authentication\n- session token");
     // One search_documents call per parsed term.
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "no results");
 
     let out = run(&host, base_params());
@@ -412,7 +407,7 @@ fn invalid_scope_is_bad_params() {
 fn max_terms_is_forwarded_to_the_format_schema() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["a"]}"#);
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "s");
 
     let mut params = base_params();
@@ -437,7 +432,7 @@ fn llm_action_ref_is_overridable() {
         }),
     );
     host.push_ok(CONSOLE_TAIL, json!({ "entries": [], "next_cursor": 0, "first_seq": 0, "dropped": 0 }));
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-2", "s");
 
     let mut params = base_params();
@@ -453,7 +448,7 @@ fn llm_action_ref_is_overridable() {
 fn prompt_overrides_replace_the_defaults() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["a"]}"#);
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "s");
 
     let mut params = base_params();
@@ -470,7 +465,7 @@ fn prompt_overrides_replace_the_defaults() {
 fn connection_overrides_are_forwarded_to_every_llm_call() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["a"]}"#);
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "s");
 
     let mut params = base_params();
@@ -525,7 +520,7 @@ fn search_failure_is_reported_with_the_offending_term() {
 fn llm_call_failure_on_summary_phase_is_llm_error() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["auth"]}"#);
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_ok(ACTION_START, json!({ "invocation_id": "inv-2", "action_ref": LLM_REF, "console_seq_start": 0 }));
     host.push_ok(ACTION_CANCELLED, json!({ "cancelled": false }));
     host.push_ok(
@@ -577,7 +572,7 @@ fn per_term_search_limit_stays_wide_even_when_max_results_is_small() {
     // every term could be excluded before merging ever saw it.
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["deploy"]}"#);
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "s");
 
     let mut params = base_params();
@@ -687,17 +682,16 @@ fn scope_both_searches_documents_and_actions_and_tags_source() {
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["deploy"]}"#);
     host.push_ok(
         DOCUMENT_SEARCH_REF,
-        json!({ "hits": [{ "id": "1", "path": "/notes", "name": "deploy-notes", "typeRef": "x", "score": 2.0 }], "total": 1, "limit": 10, "offset": 0 }),
+        json!({ "items": [{ "id": "1", "path": "/notes", "name": "deploy-notes", "typeRef": "x", "contents": { "body": "run the deploy script" } }], "total": 1, "limit": 10, "offset": 0 }),
     );
     host.push_ok(
         ACTION_SEARCH_REF,
         json!({ "items": [{ "id": "2", "path": "/packages/x", "name": "deploy", "caption": "Deploy", "description": "Deploys the thing", "category": "ops", "paramTypeRef": "/packages/x/DeployParams" }], "total": 1, "limit": 10, "offset": 0 }),
     );
-    // The document hit triggers entity_get_document (contents); the action
-    // hit triggers entity_get_type for its paramTypeRef's schema, not
-    // entity_get_document - its caption/description/category were already
-    // in hand from search_actions.
-    host.push_doc_contents(json!({ "body": "run the deploy script" }));
+    // The document hit's contents come back inline from search_documents;
+    // the action hit triggers entity_get_type for its paramTypeRef's schema
+    // - its caption/description/category were already in hand from
+    // search_actions.
     host.push_ok(TYPE_GET_REF, json!({ "schema": { "type": "object", "required": ["target"] } }));
     host.push_llm_call_detached_quiet("inv-summary", "Use /packages/x/deploy.");
 
@@ -718,30 +712,10 @@ fn scope_both_searches_documents_and_actions_and_tags_source() {
         action_hit["details"],
         json!({ "category": "ops", "paramTypeRef": "/packages/x/DeployParams", "paramSchema": { "type": "object", "required": ["target"] } })
     );
-    assert_eq!(host.calls_named(DOCUMENT_GET_REF).len(), 1, "no entity_get_document call for the action hit");
+    assert!(!host.call_names().contains(&"/builtin/document/entity_get_document".to_string()));
     let type_calls = host.calls_named(TYPE_GET_REF);
     assert_eq!(type_calls.len(), 1);
     assert_eq!(type_calls[0], json!({ "path": "/packages/x", "name": "DeployParams" }));
-}
-
-#[test]
-fn document_content_enrichment_failure_is_best_effort() {
-    // A dead/failing entity_get_document must not sink the whole inquiry
-    // over what is strictly additional context — the hit just keeps
-    // details: null, same as if it were never fetched.
-    let host = FakeHost::new();
-    host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["auth"]}"#);
-    host.push_ok(
-        DOCUMENT_SEARCH_REF,
-        json!({ "hits": [{ "id": "1", "path": "/notes", "name": "auth", "typeRef": "x", "score": 1.0 }], "total": 1, "limit": 10, "offset": 0 }),
-    );
-    host.push_fail(DOCUMENT_GET_REF, "document was deleted");
-    host.push_llm_call_detached_quiet("inv-summary", "summary");
-
-    let out = run(&host, base_params());
-
-    assert!(out.success, "{:?}", out.message);
-    assert_eq!(out.output["hits"][0]["details"], Value::Null);
 }
 
 #[test]
@@ -842,24 +816,37 @@ fn result_schema_fetch_failure_does_not_affect_param_schema() {
 fn duplicate_hits_across_terms_are_merged_keeping_the_best_score() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["auth", "login"]}"#);
+    // Under "auth" it ranks second (score 0.5, behind "other"); under
+    // "login" it ranks first (score 1.0). The merge must keep the better of
+    // the two, not the one found last.
     host.push_ok(
         DOCUMENT_SEARCH_REF,
-        json!({ "hits": [{ "id": "1", "path": "/notes", "name": "auth", "typeRef": "x", "score": 1.0 }], "total": 1, "limit": 10, "offset": 0 }),
+        json!({
+            "items": [
+                { "id": "0", "path": "/notes", "name": "other", "typeRef": "x" },
+                { "id": "1", "path": "/notes", "name": "auth", "typeRef": "x" },
+            ],
+            "total": 2, "limit": 10, "offset": 0,
+        }),
     );
     host.push_ok(
         DOCUMENT_SEARCH_REF,
-        json!({ "hits": [{ "id": "1", "path": "/notes", "name": "auth", "typeRef": "x", "score": 3.5 }], "total": 1, "limit": 10, "offset": 0 }),
+        json!({ "items": [{ "id": "1", "path": "/notes", "name": "auth", "typeRef": "x" }], "total": 1, "limit": 10, "offset": 0 }),
     );
-    host.push_doc_contents(json!({ "body": "auth details" }));
     host.push_llm_call_detached_quiet("inv-summary", "summary");
 
     let out = run(&host, base_params());
 
     assert!(out.success, "{:?}", out.message);
     let hits = out.output["hits"].as_array().unwrap();
-    assert_eq!(hits.len(), 1, "the same doc hit by two terms must merge into one");
-    assert_eq!(hits[0]["score"], json!(3.5));
-    let matched: Vec<&str> = hits[0]["matched_terms"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(
+        hits.iter().filter(|h| h["name"] == "auth").count(),
+        1,
+        "the same doc hit by two terms must merge into one, not appear twice: {hits:?}"
+    );
+    let auth_hit = hits.iter().find(|h| h["name"] == "auth").unwrap();
+    assert_eq!(auth_hit["score"], json!(1.0));
+    let matched: Vec<&str> = auth_hit["matched_terms"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(matched, vec!["auth", "login"]);
 }
 
@@ -867,7 +854,7 @@ fn duplicate_hits_across_terms_are_merged_keeping_the_best_score() {
 fn no_hits_still_produces_a_summary_without_inventing_one() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["nonexistent-topic"]}"#);
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": [], "total": 0, "limit": 10, "offset": 0 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "Nothing was found for this inquiry.");
 
     let out = run(&host, base_params());
@@ -885,13 +872,11 @@ fn no_hits_still_produces_a_summary_without_inventing_one() {
 fn hits_are_capped_at_max_results_after_merging() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["a"]}"#);
-    let hits: Vec<Value> = (0..5)
-        .map(|i| json!({ "id": i.to_string(), "path": "/p", "name": format!("n{i}"), "typeRef": "x", "score": i as f64 }))
+    // Best FTS5 rank first (position 0), same convention as search_actions.
+    let items: Vec<Value> = (0..5)
+        .map(|i| json!({ "id": i.to_string(), "path": "/p", "name": format!("n{i}"), "typeRef": "x" }))
         .collect();
-    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "hits": hits, "total": 5, "limit": 10, "offset": 0 }));
-    // Only the 2 hits that survive capping get enriched, not all 5 raw ones.
-    host.push_doc_contents(json!({ "n": 4 }));
-    host.push_doc_contents(json!({ "n": 3 }));
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": items, "total": 5, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "s");
 
     let mut params = base_params();
@@ -901,9 +886,39 @@ fn hits_are_capped_at_max_results_after_merging() {
     assert!(out.success, "{:?}", out.message);
     let out_hits = out.output["hits"].as_array().unwrap();
     assert_eq!(out_hits.len(), 2);
-    assert_eq!(out_hits[0]["score"], json!(4.0));
-    assert_eq!(out_hits[1]["score"], json!(3.0));
-    assert_eq!(host.calls_named(DOCUMENT_GET_REF).len(), 2, "must not enrich hits dropped by the cap");
+    // The two best-ranked (lowest-index) items survive the cap.
+    assert_eq!(out_hits[0]["name"], json!("n0"));
+    assert_eq!(out_hits[1]["name"], json!("n1"));
+    assert!(out_hits[0]["score"].as_f64().unwrap() > out_hits[1]["score"].as_f64().unwrap());
+}
+
+#[test]
+fn document_hits_keep_search_documents_relevance_order() {
+    // search_documents now returns `items` already ordered by FTS5 rank
+    // (best match first), mirroring search_actions - same treatment, same
+    // guarantee, same test.
+    let host = FakeHost::new();
+    host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["deploy"]}"#);
+    host.push_ok(
+        DOCUMENT_SEARCH_REF,
+        json!({
+            "items": [
+                { "id": "1", "path": "/notes", "name": "best-match", "typeRef": "x" },
+                { "id": "2", "path": "/notes", "name": "second-match", "typeRef": "x" },
+                { "id": "3", "path": "/notes", "name": "third-match", "typeRef": "x" },
+            ],
+            "total": 3, "limit": 10, "offset": 0,
+        }),
+    );
+    host.push_llm_call_detached_quiet("inv-summary", "summary");
+
+    let out = run(&host, base_params());
+
+    assert!(out.success, "{:?}", out.message);
+    let names: Vec<&str> = out.output["hits"].as_array().unwrap().iter().map(|h| h["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["best-match", "second-match", "third-match"]);
+    let scores: Vec<f64> = out.output["hits"].as_array().unwrap().iter().map(|h| h["score"].as_f64().unwrap()).collect();
+    assert!(scores[0] > scores[1] && scores[1] > scores[2], "{scores:?}");
 }
 
 // ── vendored wit ─────────────────────────────────────────────────────────────

@@ -69,7 +69,7 @@ solx exec /packages/solx-inquiry/inquire --json '{
   "terms": ["authentication", "session", "login"],
   "hits": [
     { "source": "document", "path": "/notes", "name": "auth", "title": "Auth notes",
-      "summary": "how login works", "score": 4.2, "matched_terms": ["authentication"],
+      "summary": "how login works", "score": 1.0, "matched_terms": ["authentication"],
       "details": { "body": "Sessions are issued a signed token at login..." } }
   ],
   "summary": "Authentication uses session tokens issued at login, per /notes/auth."
@@ -145,19 +145,23 @@ Merging happens through a `BTreeMap`, not a `HashMap`, so any hit that still
 ties on score sorts deterministically rather than by hash-randomized
 iteration order.
 
-`search_actions` orders its `items` by FTS5 rank server-side, but never
-exposes that rank as a number on the row — only the array position carries
-it. So an action hit's score is its position's reciprocal rank
-(`1/(position+1)`: first place scores `1.0`, second `0.5`, third `0.33`, ...)
-rather than a flat value. That's what lets a genuinely first-ranked action
-outrank a fifth-ranked one after merging across terms and scopes, instead of
-every action hit tying and the "tiebreak" being whatever order they
-happened to end up in.
+Both `search_documents` and `search_actions` order their `items` by FTS5
+rank server-side, but neither exposes that rank as a number on the row —
+only the array position carries it. So every hit's score, document or
+action alike, is its position's reciprocal rank (`1/(position+1)`: first
+place scores `1.0`, second `0.5`, third `0.33`, ...) rather than a flat
+value or a raw bm25 score. That's what lets a genuinely first-ranked hit
+outrank a fifth-ranked one after merging across terms *and* sources,
+instead of every hit tying and the "tiebreak" being whatever order they
+happened to end up in — and it's also why a `scope: "both"` result doesn't
+have documents automatically dominate actions (or vice versa): both sides
+are scored the same way now, rather than a real bm25-derived document score
+being compared directly against an unrelated action ranking scheme.
 
-Because every action score is a reciprocal rank, a genuine tie at the top
-(1.0) is common, not rare — several unrelated actions can each legitimately
-rank #1 under their own single, generic search term (e.g. "list", "install").
-The final sort breaks such ties by `matched_terms.len()` (descending): a hit
+Because every score is a reciprocal rank, a genuine tie at the top (1.0) is
+common, not rare — several unrelated hits can each legitimately rank #1
+under their own single, generic search term (e.g. "list", "install"). The
+final sort breaks such ties by `matched_terms.len()` (descending): a hit
 corroborated by more of the model's terms outranks one that only ever
 matched a single word, instead of falling back to `BTreeMap` key order
 (alphabetical by path), which carries no relevance signal at all.
@@ -172,33 +176,37 @@ its words.
 ## Content enrichment
 
 `summary`/`caption` alone is often not enough to answer from, especially for
-documents whose real content lives in `contents` rather than in a populated
-`summary` field, and for actions where constructing a genuinely correct call
-needs the parameter schema, not just a reference to where it lives. So after
-merging and capping, [`search::enrich_hits`](src/search.rs) does one more
-fetch per surviving hit:
+actions, where constructing a genuinely correct call needs the parameter
+schema, not just a reference to where it lives.
 
-- **Document hit** — full `contents` via `entity_get_document`, set as
-  `details`.
-- **Action hit** — the JSON Schema for its `paramTypeRef` and/or
-  `resultTypeRef` (whichever are present), each via its own
-  `entity_get_type` call, folded into `details.paramSchema` /
-  `details.resultSchema` alongside the category/phrases/paramTypeRef/
-  resultTypeRef already on hand from `search_actions` (no extra call for
-  those). This is what makes `scope: "actions"` genuinely useful for a
-  caller building a script or exec payload from the result, rather than
-  just describing what an action does. `resultTypeRef` is documentation
-  only — the host never validates an action's actual output against it —
-  so a present `resultSchema` describes the *intended* shape, not a
-  verified guarantee.
+A document hit needs no enrichment step at all: `search_documents` returns
+full `Document` rows, so `contents` is already sitting on the hit as
+`details` the moment it comes back from the search call — no second round
+trip. (This used to require a separate `entity_get_document` fetch, back
+when `search_documents` only returned a slim `title`/`summary` projection;
+solx-core's `DocManager::search` was changed to return full rows, mirroring
+what `search_actions` already did, specifically to remove that round trip.)
 
-Every fetch is independent and best-effort: a failure (the document was
-deleted, the type was deleted, a transient error) just leaves that piece of
-`details` missing — a failed `resultSchema` fetch, say, never takes
-`paramSchema` down with it — rather than failing the inquiry. `details` is
-truncated to 1500 chars in the summarizer prompt so one large blob cannot
-crowd out every other hit; the full, untruncated value is still in the
-returned `hits[].details`.
+An action hit is different: `search_actions` returns the full `Action` row
+too, but a `paramTypeRef`/`resultTypeRef` on it is only a *reference* to
+where a schema lives, not the schema itself. So after merging and capping,
+[`search::enrich_hits`](src/search.rs) fetches the JSON Schema for whichever
+of `paramTypeRef`/`resultTypeRef` are present (each its own `entity_get_type`
+call), folding them into `details.paramSchema`/`details.resultSchema`
+alongside the category/phrases/paramTypeRef/resultTypeRef already on hand
+from `search_actions` (no extra call for those). This is what makes
+`scope: "actions"` genuinely useful for a caller building a script or exec
+payload from the result, rather than just describing what an action does.
+`resultTypeRef` is documentation only — the host never validates an
+action's actual output against it — so a present `resultSchema` describes
+the *intended* shape, not a verified guarantee.
+
+Every fetch is independent and best-effort: a failure (the type was
+deleted, a transient error) just leaves that piece of `details` missing — a
+failed `resultSchema` fetch, say, never takes `paramSchema` down with it —
+rather than failing the inquiry. `details` is truncated to 1500 chars in the
+summarizer prompt so one large blob cannot crowd out every other hit; the
+full, untruncated value is still in the returned `hits[].details`.
 
 Note that `.solx` script syntax itself (`save`/`exec`/`;`/`|`/`$var`) is not
 taught to the model anywhere in this pipeline — a caller wanting `inquire` to

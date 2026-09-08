@@ -12,7 +12,6 @@ use crate::params::Params;
 
 pub const DOCUMENT_SEARCH_REF: &str = "/builtin/document/search_documents";
 pub const ACTION_SEARCH_REF: &str = "/builtin/action/search_actions";
-pub const DOCUMENT_GET_REF: &str = "/builtin/document/entity_get_document";
 pub const TYPE_GET_REF: &str = "/builtin/type/entity_get_type";
 
 /// Longest serialized `details` blob folded into one hit's context line.
@@ -43,11 +42,12 @@ pub struct Hit {
     pub summary: Option<String>,
     pub score: f32,
     pub matched_terms: Vec<String>,
-    /// A document's full `contents`, or an action's category/phrases/
-    /// paramTypeRef/resultTypeRef plus (once enriched) the JSON Schema for
-    /// each type reference under `paramSchema`/`resultSchema` — see
-    /// [`enrich_hits`] for what runs when. `None` until enrichment runs, or
-    /// when there was nothing beyond title/summary to add.
+    /// A document's full `contents` (returned inline by `search_documents`,
+    /// no separate fetch needed), or an action's category/phrases/
+    /// paramTypeRef/resultTypeRef plus (once enriched — see [`enrich_hits`])
+    /// the JSON Schema for each type reference under
+    /// `paramSchema`/`resultSchema`. `None` when there was nothing beyond
+    /// title/summary to add.
     pub details: Option<Value>,
 }
 
@@ -131,46 +131,21 @@ pub fn run_search(host: &dyn Host, p: &Params, terms: &[String]) -> Result<Vec<H
     Ok(all)
 }
 
-/// For each hit in the final, already-capped list: a document hit gets its
-/// full `contents` fetched (via `entity_get_document`) and set as `details`;
-/// an action hit gets the JSON Schema for its `paramTypeRef`/`resultTypeRef`
-/// fetched (via `entity_get_type`) and folded into
-/// `details.paramSchema`/`details.resultSchema` — a bare reference string
-/// isn't enough to construct a genuinely correct call or parse its result,
-/// only to name where each shape lives. Every fetch is independent and
-/// best-effort: a failure (deleted meanwhile, transient error) just leaves
-/// that piece of `details` missing rather than failing the whole inquiry
-/// over what is strictly additional context.
+/// For each action hit in the final, already-capped list, fetch the JSON
+/// Schema for its `paramTypeRef`/`resultTypeRef`, when present, folding
+/// them into `details` as `paramSchema`/`resultSchema` — a bare reference
+/// string isn't enough to construct a genuinely correct call or parse its
+/// result, only to name where each shape lives. Document hits need no such
+/// step: `search_documents` already returns full `contents` inline (see
+/// `search_documents` below). Every fetch is independent and best-effort: a
+/// failure (deleted meanwhile, transient error) just leaves that piece of
+/// `details` missing rather than failing the whole inquiry over what is
+/// strictly additional context.
 fn enrich_hits(host: &dyn Host, hits: &mut [Hit]) {
     for hit in hits.iter_mut() {
-        match hit.source {
-            "document" => enrich_document_contents(host, hit),
-            "action" => enrich_action_schemas(host, hit),
-            _ => {}
+        if hit.source == "action" {
+            enrich_action_schemas(host, hit);
         }
-    }
-}
-
-fn enrich_document_contents(host: &dyn Host, hit: &mut Hit) {
-    let payload = json!({ "path": hit.path, "name": hit.name });
-    let call = match host.exec(DOCUMENT_GET_REF, &payload) {
-        Ok(c) if c.success => c,
-        Ok(c) => {
-            host.log(&format!(
-                "solx-inquiry: entity_get_document {}/{} failed: {}",
-                hit.path,
-                hit.name,
-                c.message.unwrap_or_default()
-            ));
-            return;
-        }
-        Err(e) => {
-            host.log(&format!("solx-inquiry: entity_get_document {}/{} failed: {e}", hit.path, hit.name));
-            return;
-        }
-    };
-    if let Some(v) = call.result.get("contents").filter(|v| !v.is_null()) {
-        hit.details = Some(v.clone());
     }
 }
 
@@ -258,24 +233,30 @@ fn search_documents(host: &dyn Host, p: &Params, term: &str) -> Result<Vec<Hit>,
         return Err(search_failure(DOCUMENT_SEARCH_REF, term, call.message, call.result));
     }
 
-    let hits = call
+    // `search_documents` returns full `Document` rows (`items`), already
+    // ordered by FTS5 rank server-side, same as `search_actions` — no
+    // separate `entity_get_document` round trip needed to read a hit's
+    // `contents`, and (like actions) no numeric score on the row either, so
+    // score is this hit's reciprocal rank by position.
+    let items = call
         .result
-        .get("hits")
+        .get("items")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    Ok(hits
+    Ok(items
         .iter()
-        .filter_map(|h| {
+        .enumerate()
+        .filter_map(|(i, d)| {
             Some(Hit {
                 source: "document",
-                path: h.get("path")?.as_str()?.to_string(),
-                name: h.get("name")?.as_str()?.to_string(),
-                title: h.get("title").and_then(Value::as_str).map(str::to_string),
-                summary: h.get("summary").and_then(Value::as_str).map(str::to_string),
-                score: h.get("score").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                path: d.get("path")?.as_str()?.to_string(),
+                name: d.get("name")?.as_str()?.to_string(),
+                title: d.get("title").and_then(Value::as_str).map(str::to_string),
+                summary: d.get("summary").and_then(Value::as_str).map(str::to_string),
+                score: reciprocal_rank(i),
                 matched_terms: Vec::new(),
-                details: None,
+                details: d.get("contents").filter(|v| !v.is_null()).cloned(),
             })
         })
         .collect())
@@ -301,15 +282,8 @@ fn search_actions(host: &dyn Host, p: &Params, term: &str) -> Result<Vec<Hit>, O
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    // solx-actions' search_actions orders `items` by FTS5 rank server-side
-    // (`ORDER BY f.rank` — best match first, solx-actions/src/lib.rs's
-    // `search`), but never selects that rank into the row, so there is no
-    // numeric score to read back — only the array position carries it.
-    // Reciprocal rank (1/(position+1)) turns that ordinal into a comparable
-    // score: first place for this term scores 1.0 and outranks anything
-    // from further down any term's results, instead of every hit tying at a
-    // flat value and the "tiebreak" actually being whatever order they
-    // happened to end up in.
+    // Ordered by FTS5 rank server-side, same as `search_documents` (see
+    // `reciprocal_rank`'s doc comment for why score comes from position).
     Ok(items
         .iter()
         .enumerate()
@@ -320,12 +294,24 @@ fn search_actions(host: &dyn Host, p: &Params, term: &str) -> Result<Vec<Hit>, O
                 name: a.get("name")?.as_str()?.to_string(),
                 title: a.get("caption").and_then(Value::as_str).map(str::to_string),
                 summary: a.get("description").and_then(Value::as_str).map(str::to_string),
-                score: 1.0 / (i as f32 + 1.0),
+                score: reciprocal_rank(i),
                 matched_terms: Vec::new(),
                 details: action_details(a),
             })
         })
         .collect())
+}
+
+/// Turn a 0-based result position into a comparable score: first place
+/// scores 1.0, second 0.5, third 0.33, ... Used for both `search_documents`
+/// and `search_actions` now that neither exposes a numeric relevance score
+/// on the row — both only guarantee the array is already ordered
+/// best-match-first server-side (FTS5 `rank`). Position alone isn't enough
+/// once hits from *different* search terms have to be merged into one
+/// ranked list — see `run_search`'s merge — which is what this score is
+/// actually for.
+fn reciprocal_rank(position: usize) -> f32 {
+    1.0 / (position as f32 + 1.0)
 }
 
 /// An action's category/phrases/paramTypeRef/resultTypeRef, already present

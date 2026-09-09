@@ -1,3 +1,20 @@
+delete doc /solx-inquiry/skills/memories --if-exists;
+delete doc /solx-inquiry/skills/action-catalogue --if-exists;
+delete doc /solx-inquiry/skills/documents --if-exists;
+delete doc /solx-inquiry/skills/wire-keys --if-exists;
+delete doc /solx-inquiry/skills/script-steps --if-exists;
+delete doc /solx-inquiry/skills/solx-scripts --if-exists;
+
+# Sessions and memories are left alone on purpose: they are the user's own
+# records, written over many runs, and removing a package should not delete
+# what it was used to produce.
+delete action /packages/solx-inquiry/instruct --if-exists;
+delete type /packages/solx-inquiry/InquirySkill --if-exists;
+delete type /packages/solx-inquiry/InquiryMemory --if-exists;
+delete type /packages/solx-inquiry/InstructSession --if-exists;
+delete type /packages/solx-inquiry/InstructResult --if-exists;
+delete type /packages/solx-inquiry/InstructParams --if-exists;
+
 delete action /packages/solx-inquiry/inquire --if-exists;
 delete type /packages/solx-inquiry/InquireResult --if-exists;
 delete type /packages/solx-inquiry/InquireParams --if-exists;

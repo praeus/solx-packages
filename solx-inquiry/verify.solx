@@ -1,1 +1,2 @@
-exec /packages/solx-inquiry/inquire --json '{"inquiry":"what solx-inquiry actions exist?","model":"qwen3:4b","scope":"actions","max_terms":2,"max_results":3}'
+exec /packages/solx-inquiry/inquire --json '{"inquiry":"what solx-inquiry actions exist?","model":"qwen3:4b","scope":"actions","max_terms":2,"max_results":3}';
+exec /packages/solx-inquiry/instruct --json '{"instruction":"what actions does solx-inquiry provide, and how would I search my documents?","model":"qwen3:4b","session":"/solx-inquiry/sessions/verify","memory_path":"/solx-inquiry/memories","max_results":3}'

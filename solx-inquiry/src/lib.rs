@@ -10,10 +10,19 @@
 //! straight-line sequence with no interactive loop, which is exactly what one
 //! `exec`-only guest invocation is good for.
 
+pub mod console;
+pub mod fanout;
 pub mod host;
+pub mod instruct_params;
+pub mod instruct;
+pub mod inquiry;
+pub mod intent;
 pub mod llm;
 pub mod params;
 pub mod prompts;
+pub mod recall;
+pub mod script;
+pub mod session;
 pub mod search;
 pub mod summarize;
 pub mod terms;
@@ -26,13 +35,14 @@ use serde_json::{json, Value};
 use host::{Host, Outcome};
 
 pub const INQUIRE_FN: &str = "inquire";
+pub const INSTRUCT_FN: &str = "instruct";
 
 pub fn dispatch(host: &dyn Host, fn_name: Option<&str>, params_json: &str) -> Outcome {
     let Some(fn_name) = fn_name else {
         return Outcome::fail(
             "unknown_action",
             "the action row has no fn_name; solx-inquiry dispatches on fn_name",
-            json!({ "known": [INQUIRE_FN] }),
+            json!({ "known": [INQUIRE_FN, INSTRUCT_FN] }),
         );
     };
 
@@ -54,10 +64,11 @@ pub fn dispatch(host: &dyn Host, fn_name: Option<&str>, params_json: &str) -> Ou
 
     match fn_name {
         INQUIRE_FN => inquire(host, &params),
+        INSTRUCT_FN => instruct::run(host, &params),
         other => Outcome::fail(
             "unknown_action",
             format!("unknown fn_name {other}"),
-            json!({ "fn_name": other, "known": [INQUIRE_FN] }),
+            json!({ "fn_name": other, "known": [INQUIRE_FN, INSTRUCT_FN] }),
         ),
     }
 }

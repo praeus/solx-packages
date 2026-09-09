@@ -40,6 +40,7 @@ impl Scope {
     }
 }
 
+#[derive(Debug)]
 pub struct Params {
     pub inquiry: String,
     pub model: String,

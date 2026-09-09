@@ -546,7 +546,7 @@ fn unknown_and_absent_fn_names() {
     assert!(!out.success);
     assert_eq!(kind(&out), "unknown_action");
     assert_eq!(out.output["fn_name"], json!("nope"));
-    assert_eq!(out.output["known"], json!(["inquire"]));
+    assert_eq!(out.output["known"], json!(["inquire", "instruct"]));
 
     let out = solx_inquiry::dispatch(&host, None, "{}");
     assert_eq!(kind(&out), "unknown_action");
@@ -615,7 +615,7 @@ fn action_hits_keep_search_actions_relevance_order() {
 }
 
 #[test]
-fn an_action_found_by_multiple_terms_keeps_its_best_rank() {
+fn an_action_found_by_multiple_terms_accumulates_their_ranks() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["deploy", "release"]}"#);
     // Under "deploy" it ranks second; under "release" it ranks first.
@@ -644,9 +644,14 @@ fn an_action_found_by_multiple_terms_keeps_its_best_rank() {
     assert!(out.success, "{:?}", out.message);
     let hits = out.output["hits"].as_array().unwrap();
     let deploy_hit = hits.iter().find(|h| h["name"] == "deploy").unwrap();
-    // Best-of-both: first place under "release" (score 1.0), not second
-    // place under "deploy" (score 0.5).
-    assert_eq!(deploy_hit["score"], json!(1.0));
+    // Rank fusion: second place under "deploy" (0.5) *plus* first place under
+    // "release" (1.0). Taking the best of the two instead would score it 1.0
+    // and tie it with "other", which only ever matched one term - corroboration
+    // is what the sum is for.
+    assert_eq!(deploy_hit["score"], json!(1.5));
+    let other_hit = hits.iter().find(|h| h["name"] == "other").unwrap();
+    assert_eq!(other_hit["score"], json!(1.0));
+    assert_eq!(hits[0]["name"], json!("deploy"), "the corroborated hit ranks first: {hits:?}");
 }
 
 #[test]
@@ -716,6 +721,44 @@ fn scope_both_searches_documents_and_actions_and_tags_source() {
     let type_calls = host.calls_named(TYPE_GET_REF);
     assert_eq!(type_calls.len(), 1);
     assert_eq!(type_calls[0], json!({ "path": "/packages/x", "name": "DeployParams" }));
+}
+
+#[test]
+fn two_actions_sharing_a_param_type_fetch_its_schema_once() {
+    // `TypeCache` (see `search::TypeCache`) caches a type by reference for the
+    // life of one `run_search_with` call. Two distinct actions - not the same
+    // hit found by two terms, which `merge` already dedupes - sharing a
+    // `paramTypeRef` used to fetch it twice; this call should fetch it once
+    // and apply the same schema to both.
+    let host = FakeHost::new();
+    host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["deploy"]}"#);
+    host.push_ok(
+        ACTION_SEARCH_REF,
+        json!({
+            "items": [
+                { "id": "1", "path": "/packages/x", "name": "deploy", "caption": "Deploy", "paramTypeRef": "/packages/x/TargetParams" },
+                { "id": "2", "path": "/packages/x", "name": "redeploy", "caption": "Redeploy", "paramTypeRef": "/packages/x/TargetParams" },
+            ],
+            "total": 2, "limit": 10, "offset": 0,
+        }),
+    );
+    host.push_ok(TYPE_GET_REF, json!({ "schema": { "type": "object", "required": ["target"] } }));
+    host.push_llm_call_detached_quiet("inv-summary", "summary");
+
+    let params = json!({ "inquiry": "how do I deploy?", "model": "m", "scope": "actions" });
+    let out = run(&host, params);
+
+    assert!(out.success, "{:?}", out.message);
+    let type_calls = host.calls_named(TYPE_GET_REF);
+    assert_eq!(type_calls.len(), 1, "{type_calls:?}");
+    let hits = out.output["hits"].as_array().unwrap();
+    for hit in hits {
+        assert_eq!(
+            hit["details"]["paramSchema"],
+            json!({ "type": "object", "required": ["target"] }),
+            "{hits:?}"
+        );
+    }
 }
 
 #[test]
@@ -813,12 +856,13 @@ fn result_schema_fetch_failure_does_not_affect_param_schema() {
 }
 
 #[test]
-fn duplicate_hits_across_terms_are_merged_keeping_the_best_score() {
+fn duplicate_hits_across_terms_are_merged_and_their_ranks_fused() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["auth", "login"]}"#);
-    // Under "auth" it ranks second (score 0.5, behind "other"); under
-    // "login" it ranks first (score 1.0). The merge must keep the better of
-    // the two, not the one found last.
+    // Under "auth" it ranks second (0.5, behind "other"); under "login" it
+    // ranks first (1.0). The merge must fold the two into one row whose score
+    // is the sum, rather than keeping one of them and discarding the evidence
+    // the other represents.
     host.push_ok(
         DOCUMENT_SEARCH_REF,
         json!({
@@ -845,7 +889,7 @@ fn duplicate_hits_across_terms_are_merged_keeping_the_best_score() {
         "the same doc hit by two terms must merge into one, not appear twice: {hits:?}"
     );
     let auth_hit = hits.iter().find(|h| h["name"] == "auth").unwrap();
-    assert_eq!(auth_hit["score"], json!(1.0));
+    assert_eq!(auth_hit["score"], json!(1.5));
     let matched: Vec<&str> = auth_hit["matched_terms"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(matched, vec!["auth", "login"]);
 }

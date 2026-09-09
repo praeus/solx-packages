@@ -35,6 +35,7 @@ pub struct HostCall {
 ///
 /// `output` is a `Value` rather than a `String`; `guest.rs` stringifies it on
 /// the way out, which is what the host then re-parses into the action result.
+#[derive(Debug)]
 pub struct Outcome {
     pub success: bool,
     pub message: Option<String>,

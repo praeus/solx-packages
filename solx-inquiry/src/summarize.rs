@@ -24,6 +24,9 @@ pub fn summarize(host: &dyn Host, p: &Params, hits: &[Hit]) -> Result<String, Ou
             { "role": "user", "content": user },
         ],
         "think": false,
+        // As for every other call in this package. No `format`, though: prose
+        // is the point here, unlike the term-generation phase.
+        "options": { "temperature": 0 },
     });
     let payload = crate::params::apply_llm_overrides(payload, p);
 

@@ -25,7 +25,7 @@ const ACTION_POLL: &str = "/builtin/action/poll";
 const ACTION_STOP: &str = "/builtin/action/stop";
 const ACTION_CANCELLED: &str = "/builtin/action/cancelled";
 const CONSOLE_TAIL: &str = "/builtin/console/tail";
-const CONSOLE_PRINT: &str = "/builtin/console/print";
+const CONSOLE_COPY: &str = "/builtin/console/copy";
 
 struct FakeHost {
     calls: RefCell<Vec<(String, Value)>>,
@@ -73,10 +73,8 @@ impl FakeHost {
 
     /// Queue one complete detached llm call that finishes on its very first
     /// poll: `action/start`, `action/cancelled` (false), `action/poll`
-    /// (`ok`, carrying `content`), then `console/tail` (+ one
-    /// `console/print` per entry tagged with this call's own
-    /// `invocation_id` — the shared-console filter in `src/llm.rs` only
-    /// echoes those).
+    /// (`ok`, carrying `content`), then a drain (`console/tail` +
+    /// `console/copy` — see [`Self::push_tail_with_entries`]).
     fn push_llm_call_detached(&self, invocation_id: &str, content: &str, entries: Vec<Value>) -> &Self {
         self.push_ok(
             ACTION_START,
@@ -134,9 +132,11 @@ impl FakeHost {
         self.push_ok(LLM_REF, json!({ "message": { "role": "assistant", "content": content }, "done": true }))
     }
 
-    /// One `console/tail` response, plus one `console/print` response per
-    /// entry tagged with `invocation_id_filter` — matching exactly how many
-    /// `console/print` calls `src/llm.rs`'s echo filter will actually make.
+    /// One `console/tail` response, plus one `console/copy` response — one
+    /// call, whatever the count, mirroring `src/llm.rs::drain_console`'s own
+    /// shape: it copies every tracked invocation's new entries in a single
+    /// `console/copy` regardless of how many there are, rather than one
+    /// `console/print` per entry.
     fn push_tail_with_entries(&self, invocation_id_filter: &str, entries: Vec<Value>) -> &Self {
         let matching = entries
             .iter()
@@ -144,9 +144,7 @@ impl FakeHost {
             .count();
         let next_cursor = entries.len() as i64;
         self.push_ok(CONSOLE_TAIL, json!({ "entries": entries, "next_cursor": next_cursor, "first_seq": 0, "dropped": 0 }));
-        for _ in 0..matching {
-            self.push_ok(CONSOLE_PRINT, json!({ "seq": 1 }));
-        }
+        self.push_ok(CONSOLE_COPY, json!({ "copied": matching, "next_cursor": matching as i64 }));
         self
     }
 
@@ -226,7 +224,12 @@ fn full_pipeline_documents_scope_via_detached_llm_calls() {
 }
 
 #[test]
-fn console_output_from_the_detached_call_is_echoed_into_inquires_own_console() {
+fn console_output_from_the_detached_call_is_drained_via_console_copy() {
+    // The actual filtering, renumbering and message-prefixing now happen
+    // server-side in solx-console's own console/copy (see its own tests) -
+    // what this pipeline is responsible for is calling it with the right
+    // shape: the child's own action_ref and invocation_id, this call's stage
+    // as the label, and a cursor to resume from.
     let host = FakeHost::new();
     host.push_llm_call_detached(
         "inv-terms",
@@ -239,17 +242,22 @@ fn console_output_from_the_detached_call_is_echoed_into_inquires_own_console() {
     let out = run(&host, base_params());
 
     assert!(out.success, "{:?}", out.message);
-    let prints = host.calls_named(CONSOLE_PRINT);
-    assert_eq!(prints.len(), 1, "{prints:?}");
-    assert_eq!(prints[0]["message"], json!("[terms] thinking about it"));
-    assert_eq!(prints[0]["level"], json!("chunk"));
+    let copies = host.calls_named(CONSOLE_COPY);
+    assert_eq!(copies.len(), 2, "one per stage: terms, summary - {copies:?}");
+    assert_eq!(copies[0]["from_action_ref"], json!(LLM_REF));
+    assert_eq!(copies[0]["invocation_id"], json!("inv-terms"));
+    assert_eq!(copies[0]["label"], json!("terms"));
+    assert_eq!(copies[0]["cursor"], json!(0));
 }
 
 #[test]
-fn console_entries_from_a_different_invocation_are_not_echoed() {
+fn console_copy_names_this_calls_own_invocation_not_a_concurrent_callers() {
     // The child action's console is shared across every concurrent caller
-    // (keyed by action_ref alone) — a line from some other invocation must
-    // never leak into this inquiry's own console.
+    // (keyed by action_ref alone) - console/copy's own invocation_id filter
+    // is what keeps a line from some other invocation out of this call's
+    // console (see solx-console's own tests for that filter). What this
+    // pipeline must get right on its side is naming *this* call's
+    // invocation_id, not some other one merely visible on the same tail.
     let host = FakeHost::new();
     host.push_llm_call_detached(
         "inv-terms",
@@ -264,9 +272,8 @@ fn console_entries_from_a_different_invocation_are_not_echoed() {
 
     run(&host, base_params());
 
-    let prints = host.calls_named(CONSOLE_PRINT);
-    assert_eq!(prints.len(), 1);
-    assert_eq!(prints[0]["message"], json!("[terms] mine"));
+    let copies = host.calls_named(CONSOLE_COPY);
+    assert_eq!(copies[0]["invocation_id"], json!("inv-terms"));
 }
 
 #[test]
@@ -285,9 +292,10 @@ fn a_still_running_poll_loops_and_keeps_draining_console_until_terminal() {
     assert!(out.success, "{:?}", out.message);
     assert_eq!(out.output["terms"], json!(["auth"]));
     assert_eq!(host.calls_named(ACTION_POLL).len(), 3, "2 for terms + 1 for summary");
-    let prints = host.calls_named(CONSOLE_PRINT);
-    assert_eq!(prints.len(), 1);
-    assert_eq!(prints[0]["message"], json!("[terms] still working"));
+    // Drained once per poll of the still-running terms call, plus once for
+    // the summary call: three drains, not one print per entry.
+    let copies = host.calls_named(CONSOLE_COPY);
+    assert_eq!(copies.len(), 3, "{copies:?}");
 }
 
 // ── fallback (non-long-lived host) ──────────────────────────────────────────
@@ -432,6 +440,7 @@ fn llm_action_ref_is_overridable() {
         }),
     );
     host.push_ok(CONSOLE_TAIL, json!({ "entries": [], "next_cursor": 0, "first_seq": 0, "dropped": 0 }));
+    host.push_ok(CONSOLE_COPY, json!({ "copied": 0, "next_cursor": 0 }));
     host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-2", "s");
 
@@ -471,11 +480,16 @@ fn connection_overrides_are_forwarded_to_every_llm_call() {
     let mut params = base_params();
     params["base_url"] = json!("http://box:9999");
     params["timeout_secs"] = json!(30);
+    params["options"] = json!({ "num_ctx": 8192 });
     run(&host, params);
 
     for start in host.calls_named(ACTION_START) {
         assert_eq!(start["params"]["base_url"], json!("http://box:9999"));
         assert_eq!(start["params"]["timeout_secs"], json!(30));
+        // Added, not substituted for: both phases already set their own
+        // temperature, and raising num_ctx must not cost the caller that.
+        assert_eq!(start["params"]["options"]["num_ctx"], json!(8192));
+        assert_eq!(start["params"]["options"]["temperature"], json!(0));
     }
 }
 
@@ -494,6 +508,7 @@ fn llm_call_failure_on_terms_phase_is_llm_error() {
         }),
     );
     host.push_ok(CONSOLE_TAIL, json!({ "entries": [], "next_cursor": 0, "first_seq": 0, "dropped": 0 }));
+    host.push_ok(CONSOLE_COPY, json!({ "copied": 0, "next_cursor": 0 }));
 
     let out = run(&host, base_params());
 
@@ -531,6 +546,7 @@ fn llm_call_failure_on_summary_phase_is_llm_error() {
         }),
     );
     host.push_ok(CONSOLE_TAIL, json!({ "entries": [], "next_cursor": 0, "first_seq": 0, "dropped": 0 }));
+    host.push_ok(CONSOLE_COPY, json!({ "copied": 0, "next_cursor": 0 }));
 
     let out = run(&host, base_params());
 

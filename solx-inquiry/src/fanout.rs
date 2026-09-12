@@ -32,12 +32,14 @@
 //! one model call errored would be strictly worse than running them one at a
 //! time, so a failure is recorded against its own job and the rest run on.
 
+use std::collections::HashMap;
+
 use serde_json::{json, Value};
 
 use crate::console;
 use crate::host::{split_ref, Host, Outcome};
 use crate::llm::{
-    echo_console, is_terminal, own_invocation_cancelled, ACTION_POLL_REF, ACTION_START_REF,
+    drain_console, is_terminal, own_invocation_cancelled, ACTION_POLL_REF, ACTION_START_REF,
     ACTION_STOP_REF, LONG_LIVED_HOST_MARKER, POLL_WAIT_SECS,
 };
 use crate::params::Params;
@@ -137,6 +139,10 @@ pub fn run(host: &dyn Host, p: &Params, jobs: Vec<Job>) -> Result<JobResults, Ou
     }
 
     let mut cursor = cursor.unwrap_or(0);
+    // Persisted across iterations, one entry per child, so `drain_console`'s
+    // `console/copy` calls each resume where their own last call left off -
+    // independent of `cursor`, which only ever tracks the shared tail.
+    let mut copy_cursors: HashMap<String, i64> = HashMap::new();
 
     while !pending.is_empty() {
         if own_invocation_cancelled(host) {
@@ -155,7 +161,8 @@ pub fn run(host: &dyn Host, p: &Params, jobs: Vec<Job>) -> Result<JobResults, Ou
             .iter()
             .map(|j| (j.invocation_id.clone(), j.label.clone()))
             .collect();
-        let echo = echo_console(host, &p.llm_action_ref, cursor, &labels, Some(POLL_WAIT_SECS));
+        let echo =
+            drain_console(host, &p.llm_action_ref, cursor, &labels, &mut copy_cursors, Some(POLL_WAIT_SECS));
         cursor = echo.cursor;
 
         let mut finished_any = false;
@@ -181,7 +188,7 @@ pub fn run(host: &dyn Host, p: &Params, jobs: Vec<Job>) -> Result<JobResults, Ou
         //
         // Waiting on one child is enough - every other child is polled again
         // the moment this returns.
-        let tail_paced_us = echo.paced && !(echo.saw_entries && echo.echoed == 0);
+        let tail_paced_us = echo.paced && !(echo.saw_entries && echo.copied == 0);
         if !pending.is_empty() && !finished_any && !tail_paced_us {
             let _ = host.exec(
                 ACTION_POLL_REF,

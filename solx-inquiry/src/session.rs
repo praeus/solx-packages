@@ -19,9 +19,9 @@
 
 use serde_json::{json, Value};
 
-use crate::host::{split_ref, truncate, Host};
+use crate::host::{split_ref, take_within_budget, truncate, Host};
 use crate::instruct_params::{
-    InstructParams, INSTRUCT_AUTHOR, SESSION_TURN_CAP, SESSION_TYPE_REF,
+    InstructParams, HISTORY_BLOCK_CAP, INSTRUCT_AUTHOR, SESSION_TURN_CAP, SESSION_TYPE_REF,
 };
 
 pub const DOCUMENT_GET_REF: &str = "/builtin/document/entity_get_document";
@@ -85,8 +85,20 @@ fn is_not_found(message: &str) -> bool {
 
 /// The history block for the intent prompt: one line per prior turn, oldest
 /// first, capped at `history_limit` turns and [`HISTORY_TEXT_CAP`] characters
-/// each. `None` for a fresh session, so a first instruction carries no empty
-/// heading.
+/// each, and at [`HISTORY_BLOCK_CAP`] characters combined. `None` for a fresh
+/// session, so a first instruction carries no empty heading.
+///
+/// The combined cap drops the *oldest* surviving turns first when even
+/// `history_limit` of them do not fit — the reverse of
+/// [`recall::memory_block`]'s direction, because these `lines` are built
+/// oldest-first while memories are recalled newest-first. So this reverses to
+/// newest-first before calling [`take_within_budget`] (making the newest turn
+/// the unconditional survivor and the oldest what gets dropped), then
+/// reverses the kept prefix back to oldest-first for display. History is
+/// explicitly framed below as orientation, not evidence — the first thing to
+/// give way.
+///
+/// [`recall::memory_block`]: crate::recall::memory_block
 pub fn history_block(session: &Session, history_limit: usize) -> Option<String> {
     if session.turns.is_empty() {
         return None;
@@ -110,10 +122,15 @@ pub fn history_block(session: &Session, history_limit: usize) -> Option<String> 
     if lines.is_empty() {
         return None;
     }
+    let mut newest_first = lines;
+    newest_first.reverse();
+    let mut kept: Vec<String> =
+        take_within_budget(&newest_first, HISTORY_BLOCK_CAP).into_iter().map(str::to_string).collect();
+    kept.reverse();
     Some(format!(
         "Earlier in this session. Context for what the user is asking now, not \
          an answer to it and not evidence for one.\n\n{}",
-        lines.join("\n")
+        kept.join("\n")
     ))
 }
 
@@ -204,5 +221,44 @@ mod tests {
         let second = block.find("second").unwrap();
         let third = block.find("third").unwrap();
         assert!(second < third, "oldest of the kept turns must come first: {block}");
+    }
+
+    #[test]
+    fn history_drops_the_oldest_surviving_turns_once_the_budget_runs_out() {
+        // history_limit already bounds how many turns are considered; this
+        // bounds their combined size once assembled. Each turn's instruction
+        // and answer sit right at HISTORY_TEXT_CAP, so history_limit alone
+        // would keep all 15 turns here - HISTORY_BLOCK_CAP is what has to
+        // trim it further, and it must drop from the oldest end, keeping
+        // oldest-first order in whatever survives.
+        let turns: Vec<Value> = (0..15)
+            .map(|i| turn(&format!("q{i:02} {}", "x".repeat(HISTORY_TEXT_CAP)), &"a".repeat(HISTORY_TEXT_CAP)))
+            .collect();
+        let session = Session { title: None, turns };
+        let block = history_block(&session, 15).unwrap();
+        assert!(block.len() <= HISTORY_BLOCK_CAP, "block was {} chars", block.len());
+        assert!(block.contains("q14 "), "the newest turn must survive: {block}");
+        assert!(!block.contains("q00 "), "the oldest turn should have been dropped: {block}");
+        // Whatever survived stays in oldest-first order.
+        let has = |i: i32| block.find(&format!("q{i:02} ", i = i));
+        let survivors: Vec<i32> = (0..15).filter(|&i| has(i).is_some()).collect();
+        for pair in survivors.windows(2) {
+            assert!(
+                has(pair[0]) < has(pair[1]),
+                "q{:02} must appear before q{:02}: {block}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    #[test]
+    fn history_keeps_the_newest_turn_even_alone_over_budget() {
+        let session = Session {
+            title: None,
+            turns: vec![turn(&"x".repeat(HISTORY_BLOCK_CAP * 2), "a")],
+        };
+        let block = history_block(&session, 1).unwrap();
+        assert!(block.contains(&"x".repeat(HISTORY_TEXT_CAP)), "{block}");
     }
 }

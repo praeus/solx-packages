@@ -65,7 +65,11 @@ its own search terms: distinct single keywords, because every word in one \
 term must appear together in the same result. Use \"prompt\" only to add an \
 instruction-specific note for that one inquiry. Set \"memory\" true on a \
 direct response only when it states something durable that would be worth \
-knowing in a later, unrelated session.";
+knowing in a later, unrelated session. Set \"next_prompt\" only when the \
+instruction clearly needs a separate, later round after this one - for \
+example, once whatever you looked up or asked to run has been acted on. Word \
+it as the instruction for that later round, not a description of it. Leave it \
+out for anything answerable in this one call.";
 
 pub const DEFAULT_DOCUMENT_INQUIRY_PROMPT: &str = "\
 You answer one question using only the search results supplied below. Write \
@@ -148,7 +152,8 @@ pub fn intent_schema(max_inquiries: usize, max_terms: usize) -> Value {
                     },
                     "required": ["kind", "question", "terms"]
                 }
-            }
+            },
+            "next_prompt": { "type": "string" }
         },
         "required": ["mode"]
     })

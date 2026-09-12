@@ -2,6 +2,7 @@ delete doc /solx-inquiry/skills/memories --if-exists;
 delete doc /solx-inquiry/skills/action-catalogue --if-exists;
 delete doc /solx-inquiry/skills/documents --if-exists;
 delete doc /solx-inquiry/skills/wire-keys --if-exists;
+delete doc /solx-inquiry/skills/optional-params --if-exists;
 delete doc /solx-inquiry/skills/script-steps --if-exists;
 delete doc /solx-inquiry/skills/solx-scripts --if-exists;
 

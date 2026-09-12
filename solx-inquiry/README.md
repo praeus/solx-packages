@@ -106,6 +106,7 @@ solx exec /packages/solx-inquiry/inquire --json '{
 | `summary_prompt` | [`DEFAULT_SUMMARY_PROMPT`](src/prompts.rs) | overrides the summary system prompt |
 | `llm_action_ref` | `/packages/solx-ollama/ollama-chat` | swap in a different chat action |
 | `base_url`, `api_key`, `auth_secret_name`, `headers`, `timeout_secs` | — | forwarded verbatim to every llm call |
+| `options` | — | merged into every llm call’s own `options` object, a key at a time, overriding this pipeline’s own default (`temperature: 0`) only for the keys given. The main use is `num_ctx` — see [Prompt size](#prompt-size) |
 
 ### Detached llm calls
 
@@ -114,12 +115,24 @@ tries `/builtin/action/start` before falling back to a plain blocking `exec`.
 Started detached, the chat call runs as its own invocation and this pipeline
 loops: check whether `inquire`'s own invocation has been asked to stop,
 long-poll the chat call's status (`/builtin/action/poll`, 5s at a time), then
-drain and re-print whatever it wrote to its own console
-(`/builtin/console/tail` -> `/builtin/console/print`, prefixed `[terms]` /
-`[summary]`) — so an operator tailing `inquire`'s console sees the nested
-chat call's progress live, not just the final answer. If the cancellation
-check trips, the child invocation is stopped (`/builtin/action/stop`) and
-`inquire` returns `kind: "cancelled"`.
+drain whatever it wrote to its own console into `inquire`'s — so an operator
+tailing `inquire`'s console sees the nested chat call's progress live, not
+just the final answer. If the cancellation check trips, the child invocation
+is stopped (`/builtin/action/stop`) and `inquire` returns `kind: "cancelled"`.
+
+Draining is [`llm::drain_console`](src/llm.rs): `/builtin/console/tail`
+against the *shared* chat-action console still does presence-detection and
+pacing (a detached call's console is shared by every concurrent caller of
+that action, and `tail`'s `wait_secs` is what lets this loop sleep instead of
+spinning), but the actual copying goes through solx-console's
+`/builtin/console/copy` — one call that copies a whole batch of the chat
+call's own entries straight into `inquire`'s console, renumbered and
+prefixed `[terms]` / `[summary]`, however many entries there are. This used
+to be `console/tail` followed by one `console/print` per entry; a detached
+chat call streams roughly one console entry per token, so a single phase
+could cost hundreds of `console/print` round trips. `instruct`'s fan-out
+(below) is the sharper case, since it drains up to three children at once —
+see [The inquiry fan-out](#the-inquiry-fan-out).
 
 Two things send a call down the plain blocking path instead:
 
@@ -262,6 +275,52 @@ wanting *it* to produce a runnable script has to supply that via a
 round and more safely: the model returns structured steps and this package
 renders the syntax — see [Scripts](#scripts).
 
+### Prompt size
+
+Every piece of a prompt this package assembles — search hits, recalled
+skills and memories, session history — has its own per-item cap
+(`max_results`, `MAX_DETAILS_CHARS`, `SKILL_INSTRUCTIONS_CAP`,
+`MEMORY_TEXT_CAP`, `HISTORY_TEXT_CAP`, ...), and each of those was tuned in
+isolation. Nothing stopped them summing past what a small local model's
+context window holds: raise `max_results`, `recall_limit` and
+`history_limit` together and the assembled prompt can run well past it, with
+no error — Ollama truncates silently, typically from the *front* of the
+prompt, which is exactly where every system prompt here puts its grounding
+rules ("answer only from these results," "never invent an action").
+
+Two independent things address this, and neither is automatic summarization
+of old content — that would be a different, heavier feature this package
+does not attempt:
+
+- **`options`** is forwarded (merged, not substituted — see the parameter
+  tables above) into every llm call's own `options` object, which is where
+  Ollama's `num_ctx` lives. This is the only way to raise a model's context
+  window from this pipeline; nothing here can infer what window a given
+  model needs.
+- **A backstop on the three things that actually grow unbounded** with the
+  params above, using [`host::join_within_budget`](src/host.rs) (and
+  [`host::take_within_budget`](src/host.rs) where the natural order runs the
+  other way): the joined hit-context block
+  ([`search::MAX_HIT_CONTEXT_CHARS`](src/search.rs), shared by the
+  summarizer and every `instruct` inquiry), the recalled-memories block
+  ([`instruct_params::MEMORY_BLOCK_CAP`](src/instruct_params.rs)), and the
+  session-history block
+  ([`instruct_params::HISTORY_BLOCK_CAP`](src/instruct_params.rs)). Each
+  drops whole items from the low-priority end of an already-ordered list —
+  lowest-ranked hits, least-recent memories, oldest surviving turns — rather
+  than shrinking every item's own truncation further as the count grows,
+  which would blur everything a little instead of keeping the highest-
+  priority items whole. The first item always survives even alone over
+  budget, so a backstop tripping never empties a whole section — that would
+  read as "there is nothing here" when something plainly exists.
+
+All three are sized generously against *default* settings, so none of them
+changes anything at defaults — they exist only to bound the worst case when
+`max_results`, `recall_limit` or `history_limit` are raised toward their
+ceilings. `options.num_ctx` is the complementary half: the backstop bounds
+what this pipeline *puts* in the prompt, but only a large enough `num_ctx`
+determines what the model actually *keeps* of it.
+
 ## instruct
 
 `instruct` takes an instruction rather than a question, and answers with three
@@ -351,7 +410,7 @@ steps yourself from `steps[]`.
 | `recall_limit` | 5 | clamped to 20 |
 | `history_limit` | 6 | prior turns summarized into the intent prompt; clamped to 20 |
 | `intent_prompt`, `document_prompt`, `action_prompt` | [`src/prompts.rs`](src/prompts.rs) | replace the defaults |
-| `llm_action_ref`, `base_url`, `api_key`, `auth_secret_name`, `headers`, `timeout_secs` | — | as for `inquire` |
+| `llm_action_ref`, `base_url`, `api_key`, `auth_secret_name`, `headers`, `timeout_secs`, `options` | — | as for `inquire` |
 
 `max_inquiries` is clamped rather than merely defaulted. Each inquiry is a
 detached llm call echoing into this action's console, and the whole run is
@@ -412,7 +471,11 @@ more than one child:
   just the one being polled.
 - **One `console/tail` covers all of them.** They share an `action_ref`, and a
   console is keyed by `action_ref` alone. This is also the loop's pacing,
-  since `tail` waits when there is nothing to read.
+  since `tail` waits when there is nothing to read — then one `console/copy`
+  per tracked child pulls that child's own new entries straight into
+  `instruct`'s console (see [Detached llm calls](#detached-llm-calls)), so
+  three children streaming chat output at once cost three copy calls per
+  drain rather than one print call per token across all three.
 - **Each child is polled without `wait_secs`**, which returns immediately, so
   no child's completion is held up behind another's.
 
@@ -420,7 +483,8 @@ That last point creates a trap the first two do not: the shared console also
 carries lines from *unrelated* concurrent callers of the same chat action, and
 `tail` returns the instant any entry exists. On a busy console it therefore
 never waits and the loop would spin, so when a tail returns entries of which
-none are ours and nothing finished, one child is long-polled briefly instead.
+none were actually copied for any of ours and nothing finished, one child is
+long-polled briefly instead.
 
 **A failed inquiry fails alone.** It lands in `errors[]` and the others run on
 — a fan-out that sank everything because one call errored would be strictly
@@ -706,11 +770,11 @@ succeeded; one thing the model wanted kept was not kept, and it says so.
 
 ```
 src/lib.rs             dispatch on fn_name ("inquire" / "instruct")
-src/host.rs            the Host trait - the seam that keeps everything host-testable
+src/host.rs            the Host trait, and shared prompt-budget helpers (see Prompt size)
 src/guest.rs           wit-bindgen shim (wasm32 only)
 
 shared by both actions
-src/llm.rs             drive one chat call: detached start/poll/tail/cancel, or a blocking fallback
+src/llm.rs             drive one chat call: detached start/poll/drain/cancel, or a blocking fallback
 src/prompts.rs         every default prompt and every structured-output schema
 src/search.rs          run search_documents/search_actions, normalize, merge, enrich
 src/terms.rs           generate search terms from a model, or derive them locally
@@ -725,7 +789,7 @@ src/instruct_params.rs parse/default an instruct call's params, and every cap
 src/recall.rs          skills and memories: two lookups, and the blocks they become
 src/intent.rs          decide: answer directly, or name what to look up
 src/inquiry.rs         one inquiry's search, its payload, and parsing what comes back
-src/fanout.rs          run N chat calls at once: start all, then poll/tail/cancel as one
+src/fanout.rs          run N chat calls at once: start all, then poll/drain/cancel as one
 src/script.rs          render structured steps into .solx, dropping unsurfaced actions
 src/session.rs         read the session for history, write it back with this turn
 src/console.rs         the [instruct:...] console tag vocabulary

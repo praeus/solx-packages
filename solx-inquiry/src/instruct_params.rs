@@ -71,10 +71,41 @@ pub const SKILL_TOTAL_CAP: usize = 8000;
 /// it (which is what makes recall a single search with no follow-up reads).
 pub const MEMORY_TEXT_CAP: usize = 1000;
 
+/// Prompt budget on the whole recalled-memories block, mirroring
+/// [`SKILL_TOTAL_CAP`] for the same reason: [`MEMORY_TEXT_CAP`] bounds one
+/// memory, not `recall_limit` of them together, so raising `recall_limit`
+/// toward [`MAX_RECALL_LIMIT`] could otherwise put up to 20,000 characters of
+/// memories into a prompt that also carries skills and, for the intent
+/// phase, history. Memories are recalled most-recent-first (see
+/// [`crate::recall::recall_memories`]), so [`crate::host::join_within_budget`]
+/// drops the least-recent of what did not fit — right in line with them
+/// being explicitly framed as fallible ("may be stale or wrong").
+///
+/// Sized above the *default* case (`recall_limit: 5` fits comfortably under
+/// this) so it changes nothing at default settings.
+pub const MEMORY_BLOCK_CAP: usize = 6000;
+
 /// How many turns a session document retains. Older ones are dropped from the
 /// front, so a long-lived session stays a bounded document rather than growing
 /// without limit under a path nothing prunes.
 pub const SESSION_TURN_CAP: usize = 50;
+
+/// Prompt budget on the whole session-history block in the intent prompt,
+/// mirroring [`MEMORY_BLOCK_CAP`]. `history_limit` already bounds how many
+/// turns are considered; this bounds their combined size once assembled, so
+/// raising it toward [`MAX_HISTORY_LIMIT`] cannot push the intent prompt
+/// arbitrarily large on its own. History is turns oldest-first, and is
+/// explicitly framed as "context ... not evidence" — the least essential of
+/// the three reference blocks — so [`session::history_block`] drops the
+/// *oldest* surviving turns first when even `history_limit` of them do not
+/// fit, which is why it reverses before calling
+/// [`crate::host::take_within_budget`] and reverses the kept prefix back.
+///
+/// Sized above the *default* case (`history_limit: 6` fits comfortably under
+/// this) so it changes nothing at default settings.
+///
+/// [`session::history_block`]: crate::session::history_block
+pub const HISTORY_BLOCK_CAP: usize = 4000;
 
 #[derive(Debug)]
 pub struct InstructParams {
@@ -124,6 +155,7 @@ impl InstructParams {
 }
 
 pub fn parse(params: &Value) -> Result<InstructParams, Outcome> {
+    let params = &crate::host::normalize_params(params);
     let instruction = str_param(params, "instruction").ok_or_else(|| {
         Outcome::fail(
             "bad_params",
@@ -202,6 +234,7 @@ pub fn parse(params: &Value) -> Result<InstructParams, Outcome> {
                 .get("timeout_secs")
                 .and_then(Value::as_u64)
                 .map(|n| n.clamp(1, MAX_LLM_TIMEOUT)),
+            options: params.get("options").filter(|v| v.is_object()).cloned(),
         },
     })
 }
@@ -231,6 +264,22 @@ mod tests {
         p["session"] = json!("no-slash");
         let err = parse(&p).unwrap_err();
         assert_eq!(err.output["kind"], json!("bad_params"));
+    }
+
+    #[test]
+    fn accepts_camel_case_spellings_of_its_own_snake_case_fields() {
+        let mut p = base();
+        p["documentPathPrefix"] = json!("/notes");
+        p["actionPathPrefix"] = json!("/packages/solx-google");
+        p["typeRef"] = json!("/types/core/Object");
+        p["memoryPath"] = json!("/notes/memories");
+        p["maxInquiries"] = json!(2);
+        let parsed = parse(&p).unwrap();
+        assert_eq!(parsed.document_path_prefix.as_deref(), Some("/notes"));
+        assert_eq!(parsed.action_path_prefix.as_deref(), Some("/packages/solx-google"));
+        assert_eq!(parsed.type_ref.as_deref(), Some("/types/core/Object"));
+        assert_eq!(parsed.memory_path.as_deref(), Some("/notes/memories"));
+        assert_eq!(parsed.max_inquiries, 2);
     }
 
     #[test]
@@ -275,9 +324,11 @@ mod tests {
         let mut p = base();
         p["base_url"] = json!("http://box:9999");
         p["timeout_secs"] = json!(30);
+        p["options"] = json!({ "num_ctx": 8192 });
         let parsed = parse(&p).unwrap();
         assert_eq!(parsed.llm.base_url.as_deref(), Some("http://box:9999"));
         assert_eq!(parsed.llm.timeout_secs, Some(30));
+        assert_eq!(parsed.llm.options, Some(json!({ "num_ctx": 8192 })));
         assert_eq!(parsed.llm_action_ref(), DEFAULT_LLM_ACTION_REF);
     }
 }

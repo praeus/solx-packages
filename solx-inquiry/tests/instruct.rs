@@ -33,6 +33,7 @@ const ACTION_STOP: &str = "/builtin/action/stop";
 const ACTION_CANCELLED: &str = "/builtin/action/cancelled";
 const CONSOLE_TAIL: &str = "/builtin/console/tail";
 const CONSOLE_PRINT: &str = "/builtin/console/print";
+const CONSOLE_COPY: &str = "/builtin/console/copy";
 
 const SESSION: &str = "/solx-inquiry/sessions/test";
 /// Optional, and never defaulted. Supplying it is the caller declaring where
@@ -196,6 +197,14 @@ impl Host for FakeHost {
         let default = match action_ref {
             CONSOLE_PRINT => json!({ "seq": 1 }),
             CONSOLE_TAIL => json!({ "entries": [], "next_cursor": 0, "first_seq": 0, "dropped": 0 }),
+            // `drain_console` calls this once per tracked invocation on every
+            // drain, unconditionally — cheap when there is nothing new (see
+            // solx-console's own tests), which this default mirrors: nothing
+            // copied, and the cursor holds rather than advancing.
+            CONSOLE_COPY => json!({
+                "copied": 0,
+                "next_cursor": payload.get("cursor").and_then(Value::as_i64).unwrap_or(0),
+            }),
             ACTION_CANCELLED => json!({ "cancelled": false }),
             _ => panic!("FakeHost ran out of responses at {action_ref}"),
         };
@@ -337,6 +346,42 @@ fn a_model_that_ignores_format_entirely_still_answers() {
     assert_eq!(out.output["responses"][0]["text"], json!("I already know: it uses session tokens."));
 }
 
+#[test]
+fn a_next_prompt_reaches_the_outcome_and_the_saved_turn() {
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done(
+        "inv-intent",
+        r#"{"mode":"direct","response":"created the file","next_prompt":"verify the file was created and report its size"}"#,
+    );
+    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
+
+    let out = run(&host, base_params());
+
+    assert!(out.success, "{:?}", out.message);
+    assert_eq!(out.output["next_prompt"], json!("verify the file was created and report its size"));
+    assert_eq!(out.output["intent"]["next_prompt"], json!("verify the file was created and report its size"));
+
+    let save = host.calls_named(DOCUMENT_SAVE_REF)[0].clone();
+    let turns = save["contents"]["turns"].as_array().unwrap();
+    assert_eq!(turns[0]["next_prompt"], json!("verify the file was created and report its size"));
+}
+
+#[test]
+fn no_next_prompt_is_null_not_missing() {
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done("inv-intent", r#"{"mode":"direct","response":"Auth uses session tokens."}"#);
+    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
+
+    let out = run(&host, base_params());
+
+    assert!(out.success, "{:?}", out.message);
+    assert_eq!(out.output["next_prompt"], Value::Null);
+}
+
 // ── the fan-out ─────────────────────────────────────────────────────────────
 
 /// Intent proposing three inquiries: two document, one action.
@@ -467,7 +512,7 @@ fn a_child_that_reports_running_does_not_hold_up_the_others() {
 
 #[test]
 fn a_failing_console_tail_still_paces_the_fan_out() {
-    // `echo_console` is best-effort - a console hiccup must not fail the run.
+    // `drain_console` is best-effort - a console hiccup must not fail the run.
     // But the fan-out polls its children *without* `wait_secs` (one child must
     // never make another wait), which leaves the tail as the only thing in the
     // loop that can afford to sleep. A tail that errors returns instantly and
@@ -734,7 +779,12 @@ fn milestones_are_printed_with_parseable_tags_and_data() {
 }
 
 #[test]
-fn child_console_lines_are_echoed_per_inquiry_and_other_callers_are_not() {
+fn child_console_lines_are_drained_per_inquiry_and_other_callers_are_not() {
+    // The actual filtering, renumbering and message-prefixing now happen
+    // server-side in solx-console's own console/copy (see its own tests) -
+    // what this pipeline is responsible for is calling it once per tracked
+    // child with the right shape, so a stranger's concurrent output on the
+    // same shared console is never even named as a source to copy from.
     let host = FakeHost::new();
     push_empty_context(&host);
     host.push_start("inv-intent");
@@ -753,7 +803,8 @@ fn child_console_lines_are_echoed_per_inquiry_and_other_callers_are_not() {
     // interesting tail has to be queued behind an empty one.
     host.push_ok(CONSOLE_TAIL, json!({ "entries": [], "next_cursor": 0, "first_seq": 0, "dropped": 0 }));
     // The chat action's console is keyed by action_ref alone, so it carries
-    // every concurrent caller's output - including a stranger's.
+    // every concurrent caller's output - including a stranger's. `tail`
+    // itself is not filtered; the copy calls below are what must be.
     host.push_ok(
         CONSOLE_TAIL,
         json!({
@@ -765,6 +816,9 @@ fn child_console_lines_are_echoed_per_inquiry_and_other_callers_are_not() {
             "next_cursor": 3, "first_seq": 0, "dropped": 0,
         }),
     );
+    // Queued in the order the fan-out starts its children: inv-0, then inv-1.
+    host.push_ok(CONSOLE_COPY, json!({ "copied": 1, "next_cursor": 1 }));
+    host.push_ok(CONSOLE_COPY, json!({ "copied": 1, "next_cursor": 1 }));
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
     host.push_done("inv-1", r#"{"responses":[{"text":"b"}]}"#);
     host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
@@ -772,16 +826,21 @@ fn child_console_lines_are_echoed_per_inquiry_and_other_callers_are_not() {
     let out = run(&host, base_params());
     assert!(out.success, "{:?}", out.message);
 
-    let echoed: Vec<&str> = host
-        .calls_named(CONSOLE_PRINT)
-        .iter()
-        .filter_map(|p| p["message"].as_str())
-        .filter(|m| m.contains("thinking") || m.contains("not mine"))
-        .map(|m| Box::leak(m.to_string().into_boxed_str()) as &str)
-        .collect();
-    assert_eq!(echoed.len(), 2, "{echoed:?}");
-    assert!(echoed.contains(&"[instruct:inquiry:0] thinking about a"), "{echoed:?}");
-    assert!(echoed.contains(&"[instruct:inquiry:1] thinking about b"), "{echoed:?}");
+    // One drain of the intent call's own single-invocation loop, plus one per
+    // tracked child on the fan-out's one iteration here: three total, never
+    // one call naming "someone-elses-invocation".
+    let copies = host.calls_named(CONSOLE_COPY);
+    assert_eq!(copies.len(), 3, "{copies:?}");
+    assert!(!copies.iter().any(|c| c["invocation_id"] == json!("someone-elses-invocation")), "{copies:?}");
+    let child_copies: Vec<&Value> =
+        copies.iter().filter(|c| c["invocation_id"] != json!("inv-intent")).collect();
+    assert_eq!(child_copies.len(), 2);
+    // The label itself is bare (`solx-console`'s console/copy adds the
+    // brackets when it prefixes a copied message with it).
+    assert!(child_copies.iter().any(|c| c["invocation_id"] == json!("inv-0")
+        && c["label"] == json!("instruct:inquiry:0")));
+    assert!(child_copies.iter().any(|c| c["invocation_id"] == json!("inv-1")
+        && c["label"] == json!("instruct:inquiry:1")));
 }
 
 // ── the session document ────────────────────────────────────────────────────
@@ -1128,11 +1187,16 @@ fn connection_overrides_are_forwarded_to_every_call_including_the_fanned_out_one
     let mut params = base_params();
     params["base_url"] = json!("http://box:9999");
     params["timeout_secs"] = json!(30);
+    params["options"] = json!({ "num_ctx": 8192 });
     run(&host, params);
 
     for start in host.calls_named(ACTION_START) {
         assert_eq!(start["params"]["base_url"], json!("http://box:9999"));
         assert_eq!(start["params"]["timeout_secs"], json!(30));
+        // Added, not substituted for: every payload already sets its own
+        // temperature, and raising num_ctx must not cost the caller that.
+        assert_eq!(start["params"]["options"]["num_ctx"], json!(8192));
+        assert_eq!(start["params"]["options"]["temperature"], json!(0));
     }
 }
 

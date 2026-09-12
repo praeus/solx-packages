@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use crate::host::{Host, Outcome};
 use crate::params::Params;
 use crate::prompts;
-use crate::search::Hit;
+use crate::search::{self, Hit};
 
 pub fn summarize(host: &dyn Host, p: &Params, hits: &[Hit]) -> Result<String, Outcome> {
     let system = p
@@ -54,10 +54,5 @@ fn build_user_message(p: &Params, hits: &[Hit]) -> String {
         );
     }
 
-    let lines: Vec<String> = hits
-        .iter()
-        .enumerate()
-        .map(|(i, h)| h.to_context_line(i))
-        .collect();
-    format!("Inquiry: {}\n\nSearch results:\n{}", p.inquiry, lines.join("\n"))
+    format!("Inquiry: {}\n\nSearch results:\n{}", p.inquiry, search::context_block(hits))
 }

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
-use crate::host::{truncate, Host, Outcome};
+use crate::host::{join_within_budget, truncate, Host, Outcome};
 use crate::params::{Params, Scope};
 
 pub const DOCUMENT_SEARCH_REF: &str = "/builtin/document/search_documents";
@@ -22,6 +22,34 @@ pub const TYPE_GET_REF: &str = "/builtin/type/entity_get_type";
 /// since a real parameter schema (required fields, property types) is
 /// exactly the detail a caller wanting a runnable action call needs intact.
 const MAX_DETAILS_CHARS: usize = 1500;
+
+/// Longest `summary` folded into one hit's context line. Unlike `details`,
+/// `summary` is meant to be a one-liner by convention (a document's short
+/// dek, an action's `description`) rather than by any cap on what
+/// `search_documents`/`search_actions` may return in that field — nothing
+/// stops a document from having an unusually long one. Applied for the same
+/// reason `details` already is: one hit's field should not be able to
+/// dominate the prompt on its own.
+const MAX_SUMMARY_CHARS: usize = 300;
+
+/// Longest joined block of hit context lines handed to an llm prompt — the
+/// summarizer's user message, or one `instruct` inquiry's. Independent of
+/// `max_results`, which caps how many hits *exist* after merging, the same
+/// way [`MIN_SEARCH_LIMIT`] is independent of it on the other side.
+///
+/// Hits are already sorted best-first (see [`run_search_with`]'s fused-score
+/// sort), so once this budget is spent every remaining hit is by definition
+/// lower-ranked than what already fit, and [`crate::host::join_within_budget`]
+/// drops it and everything after it. That keeps full detail on the hits that
+/// matter most instead of degrading every hit equally by shrinking
+/// [`MAX_DETAILS_CHARS`] further as `max_results` grows.
+///
+/// Sized generously against the *default* case (`max_results: 10` at each
+/// cap above is comfortably under this), so it changes nothing at default
+/// settings — it exists to bound the worst case at raised ones
+/// (`max_results: 50`, every hit near both per-field caps, can otherwise
+/// reach on the order of 90,000 characters in one message).
+pub const MAX_HIT_CONTEXT_CHARS: usize = 24_000;
 
 /// Floor on the per-term, per-source search `limit` — independent of
 /// `max_results`, which caps the *final*, merged-and-ranked hit list.
@@ -118,13 +146,22 @@ impl Hit {
             self.score
         );
         if let Some(summary) = &self.summary {
-            line.push_str(&format!("\n   {summary}"));
+            line.push_str(&format!("\n   {}", truncate(summary, MAX_SUMMARY_CHARS)));
         }
         if let Some(details) = &self.details {
             line.push_str(&format!("\n   details: {}", truncate(&details.to_string(), MAX_DETAILS_CHARS)));
         }
         line
     }
+}
+
+/// Render `hits` as numbered context lines for an llm prompt, joined and
+/// capped at [`MAX_HIT_CONTEXT_CHARS`] total — see that constant for why.
+/// Shared by `inquire`'s summarizer and every `instruct` inquiry's user
+/// message, the two places a hit list becomes prompt text.
+pub fn context_block(hits: &[Hit]) -> String {
+    let lines: Vec<String> = hits.iter().enumerate().map(|(i, h)| h.to_context_line(i)).collect();
+    join_within_budget(&lines, MAX_HIT_CONTEXT_CHARS)
 }
 
 /// A type's JSON Schema, keyed by its `/path/name` reference, cached for the
@@ -617,5 +654,93 @@ mod tests {
             details: None,
         };
         assert!(!hit.to_context_line(0).contains("details:"));
+    }
+
+    #[test]
+    fn context_line_truncates_a_long_summary() {
+        // Unlike details, nothing upstream caps a document or action summary
+        // - it is meant to be a one-liner by convention, not by any schema
+        // limit, so one unusually long summary must not be able to dominate
+        // the prompt on its own.
+        let hit = Hit {
+            source: "document",
+            path: "/p".into(),
+            name: "n".into(),
+            title: None,
+            summary: Some("x".repeat(2000)),
+            score: 1.0,
+            matched_terms: vec![],
+            type_ref: None,
+            details: None,
+        };
+        let line = hit.to_context_line(0);
+        assert!(line.contains("bytes total"), "{line}");
+        assert!(line.len() < MAX_SUMMARY_CHARS + 200, "line was {} chars", line.len());
+    }
+
+    fn hit_with_details(name: &str, score: f32, details_chars: usize) -> Hit {
+        Hit {
+            source: "document",
+            path: "/p".into(),
+            name: name.into(),
+            title: None,
+            summary: None,
+            score,
+            matched_terms: vec![],
+            type_ref: None,
+            details: Some(json!({ "body": "x".repeat(details_chars) })),
+        }
+    }
+
+    #[test]
+    fn context_block_keeps_everything_when_it_fits() {
+        let hits = vec![hit_with_details("a", 1.0, 10), hit_with_details("b", 0.5, 10)];
+        let block = context_block(&hits);
+        assert!(block.contains("1. [document] /p/a"), "{block}");
+        assert!(block.contains("2. [document] /p/b"), "{block}");
+    }
+
+    #[test]
+    fn context_block_drops_the_lowest_ranked_hits_once_the_budget_runs_out() {
+        // Hits are already sorted best-first by `run_search_with`, so once the
+        // budget is spent every remaining hit is by definition lower ranked -
+        // dropping the tail keeps full detail on what matters most instead of
+        // shrinking every hit's own truncation as max_results grows.
+        //
+        // Each line here truncates to the same ~1574 chars regardless of how
+        // large `details_chars` is (that is `MAX_DETAILS_CHARS` doing its own
+        // job), so ~15 of them fit in `MAX_HIT_CONTEXT_CHARS` and the rest
+        // must not.
+        // Zero-padded so "hit05" is never a substring of "hit05x" - names are
+        // matched with a trailing space, below, for the same reason.
+        let hits: Vec<Hit> = (0..18)
+            .map(|i| hit_with_details(&format!("hit{i:02}"), 1.0 - i as f32 * 0.01, 2000))
+            .collect();
+        let block = context_block(&hits);
+        let has = |i: i32| block.contains(&format!("/p/hit{i:02} "));
+        assert!(has(0), "highest-ranked hit missing: {block}");
+        assert!(!has(17), "lowest-ranked hit should have been dropped: {block}");
+        assert!(block.len() <= MAX_HIT_CONTEXT_CHARS, "block was {} chars", block.len());
+        // Whatever did survive is an unbroken best-first prefix, not a
+        // scattered best-fit selection.
+        let survived = (0..18).filter(|&i| has(i)).count();
+        for i in 0..survived as i32 {
+            assert!(has(i), "gap at hit{i:02}: {block}");
+        }
+        assert!((10..18).contains(&survived), "expected a partial cutoff, got {survived}");
+    }
+
+    #[test]
+    fn context_block_keeps_the_top_hit_even_alone_over_budget() {
+        // An empty context block would read as "no results" to the model when
+        // a result plainly exists - worse than one hit past the ideal size.
+        let hits = vec![hit_with_details("only", 1.0, MAX_HIT_CONTEXT_CHARS * 2)];
+        let block = context_block(&hits);
+        assert!(block.contains("/p/only"), "{block}");
+    }
+
+    #[test]
+    fn context_block_of_no_hits_is_empty() {
+        assert_eq!(context_block(&[]), "");
     }
 }

@@ -62,6 +62,13 @@ pub struct Intent {
     pub response: Option<String>,
     pub memory: bool,
     pub inquiries: Vec<Inquiry>,
+    /// An instruction for a later, separate `instruct` call, once this run's
+    /// inquiries have been acted on. Proposed here, before any inquiry has
+    /// run, so it is speculative — a hint at what comes next in general
+    /// terms, not something grounded in results it has not seen. Nothing in
+    /// this pipeline re-invokes itself with it; a caller decides whether and
+    /// when to.
+    pub next_prompt: Option<String>,
 }
 
 impl Intent {
@@ -71,6 +78,7 @@ impl Intent {
             "response": self.response,
             "memory": self.memory,
             "inquiries": self.inquiries.iter().map(Inquiry::to_json).collect::<Vec<_>>(),
+            "next_prompt": self.next_prompt,
         })
     }
 }
@@ -140,6 +148,7 @@ pub fn parse(content: &str, max_inquiries: usize, max_terms: usize) -> Intent {
             response: (!trimmed.is_empty()).then(|| trimmed.to_string()),
             memory: false,
             inquiries: Vec::new(),
+            next_prompt: None,
         };
     };
 
@@ -151,6 +160,12 @@ pub fn parse(content: &str, max_inquiries: usize, max_terms: usize) -> Intent {
         .map(str::to_string);
     let memory = value.get("memory").and_then(Value::as_bool).unwrap_or(false);
     let inquiries = parse_inquiries(&value, max_inquiries, max_terms);
+    let next_prompt = value
+        .get("next_prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
 
     // The declared mode is a hint, not the authority: a model that says
     // "inquire" and lists nothing has produced no work to do, and one that
@@ -159,7 +174,7 @@ pub fn parse(content: &str, max_inquiries: usize, max_terms: usize) -> Intent {
     // real work in the second.
     let mode = if inquiries.is_empty() { Mode::Direct } else { Mode::Inquire };
 
-    Intent { mode, response, memory, inquiries }
+    Intent { mode, response, memory, inquiries, next_prompt }
 }
 
 fn parse_inquiries(value: &Value, max_inquiries: usize, max_terms: usize) -> Vec<Inquiry> {
@@ -319,6 +334,28 @@ mod tests {
     fn parses_a_fenced_block() {
         let intent = parse("```json\n{\"mode\":\"direct\",\"response\":\"hi\"}\n```", 3, 5);
         assert_eq!(intent.response.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn a_next_prompt_is_carried_through_alongside_a_direct_answer() {
+        let intent = parse(
+            r#"{"mode":"direct","response":"created the file","next_prompt":"verify the file was created and report its size"}"#,
+            3,
+            5,
+        );
+        assert_eq!(intent.next_prompt.as_deref(), Some("verify the file was created and report its size"));
+    }
+
+    #[test]
+    fn an_empty_next_prompt_is_treated_as_absent() {
+        let intent = parse(r#"{"mode":"direct","response":"ok","next_prompt":"   "}"#, 3, 5);
+        assert_eq!(intent.next_prompt, None);
+    }
+
+    #[test]
+    fn no_next_prompt_field_is_none_not_an_error() {
+        let intent = parse(r#"{"mode":"direct","response":"ok"}"#, 3, 5);
+        assert_eq!(intent.next_prompt, None);
     }
 
     #[test]

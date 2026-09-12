@@ -255,6 +255,7 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         "responses": responses.iter().map(Response::to_json).collect::<Vec<_>>(),
         "scripts": scripts.iter().map(Script::to_json).collect::<Vec<_>>(),
         "memories": memories,
+        "next_prompt": intent.next_prompt,
         "notes": notes,
         "errors": errors,
     });
@@ -295,6 +296,7 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         "responses": responses.iter().map(Response::to_json).collect::<Vec<_>>(),
         "memories": memories,
         "scripts": scripts.iter().map(Script::to_json).collect::<Vec<_>>(),
+        "next_prompt": intent.next_prompt,
         "hits": hits,
         "notes": notes,
         "errors": errors,

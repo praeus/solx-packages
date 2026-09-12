@@ -246,14 +246,8 @@ fn user_message(prepared: &Prepared) -> String {
             )
         };
     }
-    let lines: Vec<String> = prepared
-        .hits
-        .iter()
-        .enumerate()
-        .map(|(i, h)| h.to_context_line(i))
-        .collect();
     let heading = if prepared.inquiry.is_actions() { "Available actions" } else { "Search results" };
-    format!("Question: {question}\n\n{heading}:\n{}", lines.join("\n"))
+    format!("Question: {question}\n\n{heading}:\n{}", search::context_block(&prepared.hits))
 }
 
 /// Read a document inquiry's answer.

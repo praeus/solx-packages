@@ -21,9 +21,23 @@
 //!
 //! Once started, [`poll_to_completion`] loops: check `inquire`'s own
 //! cancellation first (so a cancelled pipeline doesn't have to sit out a
-//! whole poll wait), long-poll the child's status, then echo whatever
-//! console output it produced meanwhile — mirroring the check/wait/drain
-//! shape `solx-ollama`'s own HTTP-stream loop already uses, one layer up.
+//! whole poll wait), long-poll the child's status, then drain whatever
+//! console output it produced meanwhile into this call's own console —
+//! mirroring the check/wait/drain shape `solx-ollama`'s own HTTP-stream loop
+//! already uses, one layer up.
+//!
+//! Draining used to mean reading the child's console via `console/tail` and
+//! re-`console/print`ing each entry one at a time. A detached chat call
+//! streams roughly one console entry per token, so a single call could cost
+//! hundreds of `console/print` round trips. [`drain_console`] now does the
+//! bulk of that work with `/builtin/console/copy` (see `solx-console`),
+//! which copies a whole batch of one invocation's entries into the caller's
+//! own console — renumbered and optionally message-prefixed — in one call,
+//! however many entries there are. `console/tail` against the *shared* child
+//! console is still needed alongside it purely for presence-detection and
+//! pacing (a bulk copy is a point-in-time operation with nothing to wait on).
+
+use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
@@ -46,6 +60,7 @@ pub const ACTION_POLL_REF: &str = "/builtin/action/poll";
 pub const ACTION_CANCELLED_REF: &str = "/builtin/action/cancelled";
 pub const CONSOLE_TAIL_REF: &str = "/builtin/console/tail";
 pub const CONSOLE_PRINT_REF: &str = "/builtin/console/print";
+pub const CONSOLE_COPY_REF: &str = "/builtin/console/copy";
 
 const TERMINAL_OK: &str = "ok";
 const TERMINAL_FAILED: &str = "failed";
@@ -134,6 +149,10 @@ fn poll_to_completion(host: &dyn Host, start_result: &Value, stage: &str) -> Res
         .unwrap_or_default()
         .to_string();
     let mut cursor = start_result.get("console_seq_start").and_then(Value::as_i64).unwrap_or(0);
+    // One entry, but `drain_console` takes this either way: a single-call
+    // loop and a fan-out share the same draining logic.
+    let mut copy_cursors: HashMap<String, i64> = HashMap::new();
+    let labels = [(invocation_id.clone(), stage.to_string())];
 
     loop {
         if own_invocation_cancelled(host) {
@@ -165,8 +184,7 @@ fn poll_to_completion(host: &dyn Host, start_result: &Value, stage: &str) -> Res
             ));
         }
 
-        let labels = [(invocation_id.clone(), stage.to_string())];
-        cursor = echo_console(host, &action_ref, cursor, &labels, None).cursor;
+        cursor = drain_console(host, &action_ref, cursor, &labels, &mut copy_cursors, None).cursor;
 
         let status = poll.result.get("status").and_then(Value::as_str).unwrap_or("");
         if is_terminal(status) {
@@ -190,15 +208,17 @@ pub fn finish(status: &str, inv: &Value, stage: &str) -> Result<Value, Outcome> 
 /// Best-effort: a console hiccup must not fail the pipeline over what is
 /// purely an observability nicety. Returns the cursor to resume from next
 /// time — unchanged on any failure.
-/// One drained console tail: the cursor to resume from, and whether the tail
-/// returned any entries at all (including ones belonging to somebody else).
+///
+/// One drain: the tail cursor to resume from, whether the tail returned any
+/// entries at all (including ones belonging to somebody else), and how many
+/// entries were actually copied into this call's own console this time.
 ///
 /// `saw_entries` and `paced` exist for `fanout`'s spin guard. `tail` returns
 /// the instant *any* entry exists on that console, and the console is keyed by
 /// `action_ref` alone — so a busy `ollama-chat` console shared with unrelated
 /// concurrent callers returns immediately every time, and a loop that relied
 /// on `tail` for its pacing would spin. Knowing entries arrived but none were
-/// ours is one condition that needs a different wait; a `tail` that *failed*
+/// copied is one condition that needs a different wait; a `tail` that *failed*
 /// is the other, and it is indistinguishable from a quiet one by `saw_entries`
 /// alone — a console call that errors returns instantly and forever, which
 /// would turn the fan-out into a hot loop of polls for the whole action
@@ -206,31 +226,55 @@ pub fn finish(status: &str, inv: &Value, stage: &str) -> Result<Value, Outcome> 
 pub struct EchoResult {
     pub cursor: i64,
     pub saw_entries: bool,
-    pub echoed: usize,
+    pub copied: usize,
     /// Whether this call actually did the caller's pacing: it was asked to
     /// wait (`wait_secs`) *and* the tail succeeded. False means the loop slept
     /// for nothing and must find its wait elsewhere.
     pub paced: bool,
 }
 
-/// `labels` maps an `invocation_id` to the prefix its lines are echoed under.
-/// One entry for a single call (`inquire`); one per child for a fan-out, all
-/// of which share a console because they share an `action_ref`. An entry whose
-/// `invocation_id` is in neither belongs to some other caller entirely and is
-/// never echoed.
+/// Drain a shared child console into this call's own, for every tracked
+/// invocation at once.
+///
+/// `labels` maps an `invocation_id` to the message-prefix label its copied
+/// entries get, `[label] message` — one entry for a single call (`inquire`);
+/// one per child for a fan-out, all of which share a console because they
+/// share an `action_ref`. An id not in `labels` belongs to some other caller
+/// entirely and is never copied.
+///
+/// `copy_cursors` is this call's own resume point per invocation id — where
+/// *its* [`CONSOLE_COPY_REF`] left off, independent of `cursor`, which is
+/// only ever advanced by `tail` against the shared console. The caller owns
+/// this map across iterations (a fan-out needs one entry per child); an id
+/// seen for the first time starts at 0.
+///
+/// Two host calls layered, not one. `console/tail` against the shared child
+/// console still does presence-detection and pacing — a bulk copy is a
+/// point-in-time operation with nothing to wait on, so tailing is still what
+/// lets this loop sleep instead of spinning. Once tail says *something* is
+/// there (from anyone), one [`CONSOLE_COPY_REF`] per tracked invocation id
+/// pulls that invocation's own new entries straight into this call's own
+/// console in a single call, however many there are — replacing what used to
+/// be one `console/print` per entry. A copy call made when nothing is
+/// actually new for that id is cheap (one read, no write — see
+/// `solx-console`'s own tests), so this runs unconditionally for every
+/// tracked id each drain rather than first inspecting `tail`'s entries to
+/// guess which ids to bother with.
+///
 /// `wait_secs` decides whether this call is also the caller's *pacing*.
 /// `inquire`'s single-call loop passes `None`, because its `action_poll`
 /// already long-polls. A fan-out passes `Some`, because polling N children
 /// has to be non-blocking (one child must never make another wait), which
 /// leaves the tail as the only thing in the loop that can afford to sleep.
-pub fn echo_console(
+pub fn drain_console(
     host: &dyn Host,
     action_ref: &str,
     cursor: i64,
     labels: &[(String, String)],
+    copy_cursors: &mut HashMap<String, i64>,
     wait_secs: Option<u64>,
 ) -> EchoResult {
-    let unchanged = EchoResult { cursor, saw_entries: false, echoed: 0, paced: false };
+    let unchanged = EchoResult { cursor, saw_entries: false, copied: 0, paced: false };
     let mut payload = json!({ "action_ref": action_ref, "cursor": cursor });
     if let Some(w) = wait_secs {
         payload["wait_secs"] = json!(w);
@@ -240,34 +284,31 @@ pub fn echo_console(
         _ => return unchanged,
     };
     let next_cursor = tail.get("next_cursor").and_then(Value::as_i64).unwrap_or(cursor);
+    let saw_entries = tail.get("entries").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
 
-    let entries = tail.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
-    let saw_entries = !entries.is_empty();
-    let mut echoed = 0;
-    for entry in entries {
-        // The child's console is shared across every concurrent caller
-        // (keyed only by action_ref, not by invocation) — only echo the
-        // lines one of *our* calls produced.
-        let Some(id) = entry.get("invocation_id").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some((_, label)) = labels.iter().find(|(inv, _)| inv == id) else {
-            continue;
-        };
-        let level = entry.get("level").and_then(Value::as_str).unwrap_or("info").to_string();
-        let message = entry.get("message").and_then(Value::as_str).unwrap_or("").to_string();
-        let _ = host.exec(
-            CONSOLE_PRINT_REF,
+    let mut copied = 0usize;
+    for (invocation_id, label) in labels {
+        let from = copy_cursors.get(invocation_id).copied().unwrap_or(0);
+        let call = host.exec(
+            CONSOLE_COPY_REF,
             &json!({
-                "level": level,
-                "message": format!("[{label}] {message}"),
-                "data": entry.get("data").cloned().unwrap_or(Value::Null),
+                "from_action_ref": action_ref,
+                "invocation_id": invocation_id,
+                "cursor": from,
+                "label": label,
             }),
         );
-        echoed += 1;
+        let Ok(call) = call else { continue };
+        if !call.success {
+            continue;
+        }
+        let this_copied = call.result.get("copied").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let this_next = call.result.get("next_cursor").and_then(Value::as_i64).unwrap_or(from);
+        copy_cursors.insert(invocation_id.clone(), this_next);
+        copied += this_copied;
     }
 
-    EchoResult { cursor: next_cursor, saw_entries, echoed, paced: wait_secs.is_some() }
+    EchoResult { cursor: next_cursor, saw_entries, copied, paced: wait_secs.is_some() }
 }
 
 /// Best-effort, same as `solx-ollama`'s own `is_cancelled`: a failure to

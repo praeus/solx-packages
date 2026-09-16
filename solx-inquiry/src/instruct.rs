@@ -19,14 +19,16 @@
 //! grounded output with nothing to check it against.
 //!
 //! `instruct` **saves nothing**. Memories come back as ready-to-save document
-//! payloads and scripts as `.solx` text; deciding what to keep and what to run
-//! is the caller's, which is what keeps a pipeline that writes model output
-//! from also being the thing that acts on it. The one exception is the session
+//! payloads and scripts as validated, structured action steps for the caller
+//! to execute directly; deciding what to keep and what to run is the
+//! caller's, which is what keeps a pipeline that writes model output from
+//! also being the thing that acts on it. The one exception is the session
 //! document, which is this action's own record of what it did.
 
 use serde_json::{json, Value};
 
 use crate::console;
+use crate::context;
 use crate::fanout::{self, Job};
 use crate::host::{truncate, Host, Outcome};
 use crate::instruct_params::{
@@ -57,9 +59,21 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         recalled.to_json(),
     );
 
+    let (context_docs, mut notes) = context::fetch(host, &p);
+    let context_block = context::context_block(&context_docs);
+    console::print(
+        host,
+        &console::phase_tag(console::PHASE_CONTEXT),
+        &format!("loaded {} context document(s)", context_docs.len()),
+        json!({
+            "context": context_docs.iter().map(|d| Value::String(d.reference.clone())).collect::<Vec<_>>(),
+            "notes": notes,
+        }),
+    );
+
     let stored = session::load(host, &p);
 
-    let intent = match intent::decide(host, &p, &recalled, &stored) {
+    let intent = match intent::decide(host, &p, &recalled, &stored, context_block.as_deref()) {
         Ok(i) => i,
         Err(outcome) => return outcome,
     };
@@ -75,7 +89,6 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
 
     let mut responses: Vec<Response> = Vec::new();
     let mut scripts: Vec<Script> = Vec::new();
-    let mut notes: Vec<String> = Vec::new();
     let mut errors: Vec<Value> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     let mut hits: Vec<Value> = Vec::new();
@@ -146,7 +159,7 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
             .iter()
             .map(|ready| Job {
                 label: console::inquiry_tag(ready.index),
-                payload: inquiry::payload(&p, &recalled, ready),
+                payload: inquiry::payload(&p, &recalled, ready, context_block.as_deref()),
             })
             .collect();
 

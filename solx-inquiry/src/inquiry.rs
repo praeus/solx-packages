@@ -9,8 +9,9 @@
 //!
 //! A document inquiry answers in prose (responses, some flagged as worth
 //! remembering); an action inquiry answers in structured steps that
-//! [`crate::script`] renders. The two differ only in prompt, schema, and how
-//! their result is read.
+//! [`crate::script`] validates against the catalogue below and hands back as
+//! JSON, for a caller to execute directly. The two differ only in prompt,
+//! schema, and how their result is read.
 
 use serde_json::{json, Value};
 
@@ -27,10 +28,9 @@ pub struct Prepared {
     pub index: usize,
     pub inquiry: Inquiry,
     pub hits: Vec<Hit>,
-    /// What the search surfaced, in the form [`crate::script::render`] checks a
-    /// proposed step against: which actions may be called, which of them are
-    /// destructive, and each one's parameter schema. Empty for a document
-    /// inquiry, which proposes no steps.
+    /// What the search surfaced, in the form [`crate::script::assemble`] checks
+    /// a proposed step against: which actions may be called and which of them
+    /// are destructive. Empty for a document inquiry, which proposes no steps.
     pub catalogue: Catalogue,
 }
 
@@ -113,17 +113,6 @@ pub fn prepare(
             .filter(|h| search::is_destructive(h))
             .map(Hit::reference)
             .collect(),
-        // Already on the hit: `search::enrich_hits` fetched it for the prompt,
-        // and the renderer needs the same schema to decide whether a capture
-        // reference is spelled quoted or bare. No extra call.
-        param_schemas: hits
-            .iter()
-            .filter(|h| h.source == "action")
-            .filter_map(|h| {
-                let schema = h.details.as_ref()?.get("paramSchema")?.clone();
-                Some((h.reference(), schema))
-            })
-            .collect(),
     };
     Ok(Prepared { index, inquiry, hits, catalogue })
 }
@@ -178,7 +167,7 @@ fn under(path: &str, root: &str) -> bool {
 }
 
 /// The chat payload for one prepared inquiry.
-pub fn payload(p: &InstructParams, recalled: &Recalled, prepared: &Prepared) -> Value {
+pub fn payload(p: &InstructParams, recalled: &Recalled, prepared: &Prepared, context_block: Option<&str>) -> Value {
     let actions = prepared.inquiry.is_actions();
 
     let mut system = if actions {
@@ -186,7 +175,7 @@ pub fn payload(p: &InstructParams, recalled: &Recalled, prepared: &Prepared) -> 
             .action_prompt
             .clone()
             .unwrap_or_else(|| prompts::DEFAULT_ACTION_INQUIRY_PROMPT.to_string());
-        format!("{base}\n\n{}", prompts::SOLX_SCRIPT_PRIMER)
+        format!("{base}\n\n{}", prompts::ACTION_STEPS_PRIMER)
     } else {
         p.document_prompt
             .clone()
@@ -199,6 +188,15 @@ pub fn payload(p: &InstructParams, recalled: &Recalled, prepared: &Prepared) -> 
     if let Some(amendment) = &prepared.inquiry.amendment {
         system.push_str("\n\nFor this question in particular: ");
         system.push_str(amendment);
+    }
+
+    // Named by the caller for this instruction, so unlike a skill or a
+    // memory it rides along with every inquiry regardless of kind - a
+    // document supplied as context can bear on which action to call just as
+    // much as it bears on a document inquiry's answer.
+    if let Some(block) = context_block {
+        system.push_str("\n\n");
+        system.push_str(block);
     }
 
     let applicable = skills_for(&recalled.skills, actions, &prepared.catalogue.allowed);
@@ -296,10 +294,10 @@ pub fn parse_responses(result: &Value, index: usize) -> Vec<Response> {
         .collect()
 }
 
-/// Read an action inquiry's answer, rendering each proposed step list into
-/// `.solx`. Returns the surviving scripts and any notes from scripts that did
-/// not survive, so a caller is told *why* an inquiry produced nothing runnable
-/// rather than just being handed an empty list.
+/// Read an action inquiry's answer, validating each proposed step list
+/// against the catalogue. Returns the surviving scripts and any notes from
+/// scripts that did not survive, so a caller is told *why* an inquiry
+/// produced nothing runnable rather than just being handed an empty list.
 pub fn parse_scripts(result: &Value, catalogue: &Catalogue) -> (Vec<Script>, Vec<String>) {
     let content = result.pointer("/message/content").and_then(Value::as_str).unwrap_or("").trim();
     let mut scripts = Vec::new();
@@ -329,7 +327,7 @@ pub fn parse_scripts(result: &Value, catalogue: &Catalogue) -> (Vec<Script>, Vec
             .filter(|s| !s.is_empty())
             .map(str::to_string);
         let steps = script::parse_steps(item);
-        match script::render(title, model_notes.clone(), &steps, catalogue) {
+        match script::assemble(title, model_notes.clone(), &steps, catalogue) {
             Some(rendered) => scripts.push(rendered),
             None => {
                 // A "script" with nothing runnable in it is how the prompt
@@ -523,7 +521,9 @@ mod tests {
         let (scripts, notes) = parse_scripts(&result, &catalogue);
         assert_eq!(scripts.len(), 1);
         assert!(notes.is_empty());
-        assert!(scripts[0].source.starts_with("$hits = exec /builtin/document/search_documents"));
+        assert_eq!(scripts[0].steps.len(), 1);
+        assert_eq!(scripts[0].steps[0].action_ref, "/builtin/document/search_documents");
+        assert_eq!(scripts[0].steps[0].capture.as_deref(), Some("hits"));
     }
 
     #[test]

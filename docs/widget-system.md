@@ -161,6 +161,48 @@ underlying `/builtin/action/*` routes are ordinary actions, so a widget
 cancellation logic in the host — the same `api.ts` helpers `ActionRunner`
 itself is tested against — instead of re-implemented in every widget.
 
+### `hostFromClient`: a convenience wrapper, once a widget's calls multiply
+
+`src/wrap/host.ts` wraps `client.actions.exec` for widgets whose own logic
+(not just their rendering) issues more than a handful of calls: a
+`"path/name"` ref instead of two arguments, a throwing `call()` vs a
+non-throwing `try()` depending on whether a failure should abort the
+surrounding work or just be shown, and a `compact()` helper for dropping
+`null`/`undefined` params — solx validates against a JSON Schema, so an
+explicit `null` for an optional field fails validation outright where an
+absent key would not. This started as a private seam inside `solx-agent`'s
+harness (`hostFromClient`, ported from the wasm guest it replaced) and was
+promoted here once `solx-xprompt` needed the same thing. A widget with only
+one or two one-off calls has no reason to reach for it — call
+`client.actions.exec` directly.
+
+### A merged console across several actions, without a backend change
+
+A widget that drives more than one action per turn (an orchestrator, a
+multi-step tool) often wants one unified, time-ordered console rather than
+switching between each action's own. The natural-looking way to build that —
+have the widget's own console `console_copy` the others into itself — does
+not work: `console_copy`'s destination is always resolved from `ctx.caller`,
+the *currently executing action's* identity, and a widget's calls are
+external execs with no caller at all (same as the CLI or MCP). There is no
+id you can hand it that stands in for "the widget."
+
+The workaround, implemented once as the reference example in
+`solx-xprompt/src/console/`: start each call detached with
+`client.invocations.start(path, name, params)` rather than plain `exec` —
+only the detached path returns an `invocation_id` and a `console_seq_start`
+at all — persist the `(action_ref, invocation_id, cursor)` tuple as an
+ordinary document (the durable index; the console entries themselves are
+already persisted per `action_ref` regardless), and merge each tracked
+call's own entries client-side with `readMergedConsole`. This needs no new
+backend capability because `console_read`/`console_tail` are already
+unrestricted by caller — reading was never the blocked half of this, only
+writing into another console was. See `solx-xprompt/src/console/index.ts`'s
+doc comment for the full rationale, and `tests/console.test.ts` there for the
+cross-invocation filtering this depends on getting right (a console is
+shared by every invocation of its `action_ref`, so a naive "everything since
+my cursor" read would pick up an unrelated concurrent caller's entries too).
+
 Wiring, end to end:
 
 1. `mountWidget(descriptor, container, { files, client })` assigns

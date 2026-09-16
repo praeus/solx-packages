@@ -1,0 +1,4 @@
+delete action /packages/solx-names/random-name --if-exists;
+delete type /packages/solx-names/RandomNameResult --if-exists;
+delete type /packages/solx-names/RandomNameParams --if-exists;
+delete file files/actions/shared/solx-names.wasm --if-exists;

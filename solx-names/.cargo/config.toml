@@ -1,0 +1,4 @@
+# Alias only — deliberately NOT `[build] target = "wasm32-wasip2"`, which would
+# make `cargo test` target wasm32-wasip2 and leave the host unit tests unrunnable.
+[alias]
+wasm = ["build", "--release", "--target", "wasm32-wasip2"]

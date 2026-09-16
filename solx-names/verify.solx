@@ -1,0 +1,2 @@
+exec /packages/solx-names/random-name --json '{}';
+exec /packages/solx-names/random-name --json '{"with_id":true}'

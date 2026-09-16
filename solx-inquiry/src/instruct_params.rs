@@ -90,6 +90,21 @@ pub const MEMORY_BLOCK_CAP: usize = 6000;
 /// without limit under a path nothing prunes.
 pub const SESSION_TURN_CAP: usize = 50;
 
+/// Hard ceiling on how many documents a caller may name in
+/// `context_documents`. Each one is a separate `entity_get_document` call,
+/// made once up front before the intent call - generous enough for a caller
+/// grounding an instruction in a handful of specific documents, bounded so
+/// that is not an unbounded number of host calls.
+pub const MAX_CONTEXT_DOCUMENTS: usize = 10;
+
+/// Cap on one context document's text, mirroring [`MEMORY_TEXT_CAP`].
+pub const CONTEXT_TEXT_CAP: usize = 2000;
+
+/// Prompt budget on the whole context-documents block, mirroring
+/// [`MEMORY_BLOCK_CAP`] for the same reason: [`CONTEXT_TEXT_CAP`] bounds one
+/// document, not [`MAX_CONTEXT_DOCUMENTS`] of them together.
+pub const CONTEXT_BLOCK_CAP: usize = 8000;
+
 /// Prompt budget on the whole session-history block in the intent prompt,
 /// mirroring [`MEMORY_BLOCK_CAP`]. `history_limit` already bounds how many
 /// turns are considered; this bounds their combined size once assembled, so
@@ -139,6 +154,15 @@ pub struct InstructParams {
     pub memory_path: Option<String>,
     pub recall_limit: usize,
     pub history_limit: usize,
+    /// Full `/path/name` references of documents the caller wants read into
+    /// every prompt this run makes, unconditionally - unlike a skill or a
+    /// memory, nothing here decides whether one applies; naming it is the
+    /// caller saying it does. A reference that is not a valid `/path/name`
+    /// shape, or that fails to load, is dropped with a note rather than
+    /// failing the call - the same reasoning as recalled skills and
+    /// memories, except the reason is worth surfacing here since the caller
+    /// asked for this document by name.
+    pub context_documents: Vec<String>,
     pub intent_prompt: Option<String>,
     pub document_prompt: Option<String>,
     pub action_prompt: Option<String>,
@@ -207,6 +231,20 @@ pub fn parse(params: &Value) -> Result<InstructParams, Outcome> {
         type_ref: str_param(params, "type_ref"),
         skills_path: str_param(params, "skills_path").unwrap_or_else(|| DEFAULT_SKILLS_PATH.to_string()),
         memory_path: str_param(params, "memory_path"),
+        context_documents: params
+            .get("context_documents")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .take(MAX_CONTEXT_DOCUMENTS)
+                    .collect()
+            })
+            .unwrap_or_default(),
         recall_limit: clamped("recall_limit", DEFAULT_RECALL_LIMIT, MAX_RECALL_LIMIT),
         history_limit: clamped("history_limit", DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT),
         intent_prompt: str_param(params, "intent_prompt"),
@@ -302,6 +340,24 @@ mod tests {
         let parsed = parse(&p).unwrap();
         assert_eq!(parsed.document_path_prefix, None);
         assert_eq!(parsed.action_path_prefix.as_deref(), Some("/packages/solx-google"));
+    }
+
+    #[test]
+    fn context_documents_default_to_empty_and_are_capped() {
+        let p = parse(&base()).unwrap();
+        assert!(p.context_documents.is_empty());
+
+        let mut p = base();
+        let refs: Vec<Value> = (0..MAX_CONTEXT_DOCUMENTS + 5).map(|i| json!(format!("/notes/{i}"))).collect();
+        p["context_documents"] = json!(refs);
+        assert_eq!(parse(&p).unwrap().context_documents.len(), MAX_CONTEXT_DOCUMENTS);
+    }
+
+    #[test]
+    fn context_documents_drops_blank_and_non_string_entries() {
+        let mut p = base();
+        p["context_documents"] = json!(["/notes/a", "  ", 5, null, "/notes/b"]);
+        assert_eq!(parse(&p).unwrap().context_documents, vec!["/notes/a", "/notes/b"]);
     }
 
     #[test]

@@ -1,0 +1,41 @@
+[package]
+name = "solx-names"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Random name generator action package for solx-core, backed by the `names` crate"
+
+# Its own workspace: this is a wasm32-wasip2 artifact built by build.ps1 /
+# build.sh, not a member of any surrounding workspace.
+[workspace]
+
+[lib]
+# `cdylib` produces the component; `rlib` lets `tests/` link the crate so the
+# pure name-building logic can be exercised on the host target.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+# `default-features = false` drops the `application` feature (and its `clap`
+# dependency), which exists only for the crate's own CLI binary.
+names = { version = "0.14", default-features = false }
+# Same major version `names` itself pulls in for `Generator`; declared
+# explicitly so the optional id suffix can draw from the same RNG rather than
+# adding a second randomness dependency (e.g. `uuid`).
+rand = "0.8"
+
+# wit-bindgen only exists for the guest. Keeping it off the host target is what
+# lets `cargo test` link: `generate!` emits `#[link(wasm_import_module = ...)]`
+# externs and `export!` emits `#[export_name]` shims referencing them, neither
+# of which resolve in a host test binary.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = "0.36"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+# Safe: a guest panic traps and `wasm_host.rs` reports it as success:false.
+# Note this makes `cargo test --release` unusable — test in the dev profile.
+panic = "abort"

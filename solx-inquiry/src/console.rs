@@ -22,6 +22,7 @@ use crate::llm::CONSOLE_PRINT_REF;
 pub const TAG_ROOT: &str = "instruct";
 
 pub const PHASE_RECALL: &str = "recall";
+pub const PHASE_CONTEXT: &str = "context";
 pub const PHASE_INTENT: &str = "intent";
 pub const PHASE_RESULT: &str = "result";
 

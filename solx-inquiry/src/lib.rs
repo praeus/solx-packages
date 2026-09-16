@@ -11,6 +11,7 @@
 //! `exec`-only guest invocation is good for.
 
 pub mod console;
+pub mod context;
 pub mod fanout;
 pub mod host;
 pub mod instruct_params;

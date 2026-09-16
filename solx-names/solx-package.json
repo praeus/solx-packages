@@ -1,0 +1,5 @@
+{
+  "name": "solx-names",
+  "version": "0.1.0",
+  "description": "Random name generator action package for solx-core - one wasm32-wasip2 component backing the random-name action, via the names crate"
+}

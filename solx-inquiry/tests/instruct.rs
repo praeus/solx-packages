@@ -467,8 +467,12 @@ fn document_inquiries_produce_responses_and_an_action_inquiry_produces_a_script(
     let scripts = out.output["scripts"].as_array().unwrap();
     assert_eq!(scripts.len(), 1);
     assert_eq!(
-        scripts[0]["source"],
-        json!("$hits = exec /builtin/document/search_documents --json '{\"q\":\"auth\"}';\n")
+        scripts[0]["steps"],
+        json!([{
+            "action_ref": "/builtin/document/search_documents",
+            "params": { "q": "auth" },
+            "capture": "hits",
+        }])
     );
     assert_eq!(scripts[0]["actions"], json!(["/builtin/document/search_documents"]));
 }
@@ -761,6 +765,7 @@ fn milestones_are_printed_with_parseable_tags_and_data() {
     let messages: Vec<&str> = prints.iter().map(|p| p["message"].as_str().unwrap()).collect();
     for tag in [
         "[instruct:recall]",
+        "[instruct:context]",
         "[instruct:intent]",
         "[instruct:inquiry:0:terms]",
         "[instruct:inquiry:0:hits]",
@@ -967,7 +972,56 @@ fn seeded_skills_and_stored_memories_reach_the_prompts() {
     assert!(act.contains("Statements are separated by semicolons."), "{act}");
     assert!(!act.contains("Cite a document by path and name."), "{act}");
     assert!(!act.contains("auth uses session tokens"), "{act}");
-    assert!(act.contains("Your steps become a .solx script"), "{act}");
+    assert!(act.contains("Your steps run in order"), "{act}");
+}
+
+#[test]
+fn context_documents_reach_every_prompt_and_a_missing_one_is_noted() {
+    let host = FakeHost::new();
+    host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 40, "offset": 0 }));
+    host.push_ok(DOCUMENT_LIST_REF, json!({ "items": [], "total": 0, "limit": 5, "offset": 0 }));
+    // Consumed in order: the two context documents first, then the session
+    // read - `instruct::run` fetches context before it loads the session.
+    host.push_ok(
+        DOCUMENT_GET_REF,
+        json!({ "path": "/notes", "name": "auth", "title": "Auth notes", "contents": { "text": "Auth issues a signed session token." } }),
+    );
+    host.push_fail(DOCUMENT_GET_REF, "not found: document /notes/missing");
+    host.push_fail(DOCUMENT_GET_REF, "not found");
+
+    host.push_start("inv-intent");
+    host.push_done("inv-intent", THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_start("inv-2");
+    host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
+    host.push_done("inv-1", r#"{"responses":[{"text":"b"}]}"#);
+    host.push_done("inv-2", r#"{"scripts":[]}"#);
+    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
+
+    let mut params = base_params();
+    params["context_documents"] = json!(["/notes/auth", "/notes/missing"]);
+
+    let out = run(&host, params);
+    assert!(out.success, "{:?}", out.message);
+
+    let starts = host.calls_named(ACTION_START);
+    let system = |i: usize| starts[i]["params"]["messages"][0]["content"].as_str().unwrap().to_string();
+
+    // The intent call and all three inquiries (two document, one action) all
+    // carry the context document, unconditionally - unlike a memory, which a
+    // fanned-out action inquiry never sees.
+    for i in 0..4 {
+        assert!(system(i).contains("Auth issues a signed session token."), "{}", system(i));
+    }
+
+    let notes = out.output["notes"].as_array().unwrap();
+    assert!(
+        notes.iter().any(|n| n.as_str().unwrap().contains("/notes/missing")),
+        "{:?}",
+        notes
+    );
 }
 
 #[test]

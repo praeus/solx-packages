@@ -50,6 +50,16 @@ every time.
   widget bundle runs in the same JS realm as its host (shadow root, not an
   iframe), so it could already reach the host's own token directly. See the
   doc comment at the top of `widgetClient.ts`.
+- **`src/wrap/host.ts`** — `hostFromClient(client)` wraps that same
+  `client.actions.exec` in `Host.call(ref, params)` (throws on failure) and
+  `Host.try(ref, params)` (returns `{ok, value}` / `{ok, error}`), taking a
+  single `"path/name"` ref instead of two arguments, plus a `compact()`
+  helper for dropping `null`/`undefined` params before an optional-field
+  schema check rejects them. Worth reaching for once a widget's own logic —
+  not just its rendering — issues more than a couple of one-off calls (an
+  agent loop, a multi-step workflow); for a widget that just needs one or
+  two calls, `client.actions.exec` directly is simpler. Promoted here from
+  `solx-agent`'s harness once `solx-xprompt` needed the same thing.
 
 ## How a widget package uses this
 

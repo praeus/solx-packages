@@ -1,13 +1,13 @@
 # solx-inquiry
 
 Ask a question, get a grounded answer — or give an instruction, and get back
-prose, memories and runnable scripts. One `wasm32-wasip2` component
+prose, memories and runnable action plans. One `wasm32-wasip2` component
 (`bin/solx-inquiry.wasm`) backs two registered actions:
 
 | action | in | out |
 |---|---|---|
 | [`inquire`](#inquire) | a question | one grounded prose answer |
-| [`instruct`](#instruct) | an instruction | responses, save-ready memories, and `.solx` scripts |
+| [`instruct`](#instruct) | an instruction | responses, save-ready memories, and runnable action plans |
 
 `instruct` is not a wrapper around `inquire`. It reuses this package's search,
 merge and enrichment code directly rather than calling `inquire` as an action,
@@ -271,9 +271,10 @@ same call or run.
 
 `inquire` does not teach `.solx` syntax to the model anywhere, so a caller
 wanting *it* to produce a runnable script has to supply that via a
-`summary_prompt` override. `instruct` solves the same problem the other way
-round and more safely: the model returns structured steps and this package
-renders the syntax — see [Scripts](#scripts).
+`summary_prompt` override. `instruct` avoids the problem rather than solving
+it: the model returns structured steps, which this package validates and
+hands back as JSON for the caller to execute directly — no script syntax is
+ever generated — see [Scripts](#scripts).
 
 ### Prompt size
 
@@ -325,11 +326,11 @@ determines what the model actually *keeps* of it.
 
 `instruct` takes an instruction rather than a question, and answers with three
 things a caller can act on: **responses** (prose), **memories** (responses the
-model judged worth keeping, returned ready to save) and **scripts** (`.solx`
-text, ready to run).
+model judged worth keeping, returned ready to save) and **scripts** (validated,
+ordered action steps, as JSON, ready to execute).
 
 It saves nothing and runs nothing. Deciding which memories are worth keeping
-and which scripts are worth running is the caller's, which is what keeps the
+and which scripts are worth executing is the caller's, which is what keeps the
 thing that generates model output from also being the thing that acts on it.
 The one exception is its own session document.
 
@@ -381,16 +382,20 @@ returned payloads, everything else unchanged.
   "scripts": [
     { "title": "Search for auth notes",
       "actions": ["/builtin/document/search_documents"], "destructive": [], "notes": [],
-      "source": "$hits = exec /builtin/document/search_documents --json '{\"q\":\"auth\"}';\n" }
+      "steps": [
+        { "action_ref": "/builtin/document/search_documents", "params": { "q": "auth" }, "capture": "hits" }
+      ] }
   ],
   "hits": [ "..." ], "notes": [], "errors": [], "warnings": []
 }
 ```
 
 A returned memory is a complete `entity_save_document` payload — pipe it
-straight in. A returned script is `.solx` source; register it with
-`save file` + `save action --json '{"actionType":"script", ...}'`, or run its
-steps yourself from `steps[]`.
+straight in. A returned script is a validated, ordered list of `{action_ref,
+params, capture}` steps; there is no `.solx` text anywhere in it. Executing
+one is the caller's job: call each `action_ref` with its `params` in order,
+substituting any `$name`/`$name.field` string value with the actual result an
+earlier step captured under that name before making the call.
 
 ### Parameters
 
@@ -400,6 +405,7 @@ steps yourself from `steps[]`.
 | `model` | — (required) | used for the intent call and every inquiry |
 | `session` | — (required) | full `/path/name` doc ref; created on first use |
 | `memory_path` | — (off) | where memories are recalled from and stamped on the returned payloads. **Omit it and memories are off entirely** |
+| `context_documents` | — | full `/path/name` refs of documents read into every prompt this run makes, unconditionally. **Clamped to 10** — see below |
 | `max_inquiries` | 3 | **clamped to 3** — see below |
 | `max_terms` | 5 | clamped to 10; per inquiry |
 | `max_results` | 10 | clamped to 50; per inquiry |
@@ -500,56 +506,44 @@ job 1 cannot be refused for that reason, so nothing can be run twice.
 
 ### Scripts
 
-An action inquiry does **not** write `.solx`. It returns structured steps —
+An action inquiry does **not** write `.solx`, and never has — and nothing here
+generates any script syntax on its behalf. It returns structured steps —
 `{action_ref, params, capture}` — under a `format` schema, and
-[`src/script.rs`](src/script.rs) renders the text. That division eliminates
-the two ways generated `.solx` goes silently wrong, rather than explaining
-them in a prompt and hoping:
+[`src/script.rs`](src/script.rs) validates that list against what the
+inquiry's own search actually surfaced, then hands it back as JSON for the
+caller to execute directly:
 
-- **Quoting.** A `--json` argument is single-quoted, and an *unescaped* `'`
-  inside it does not error — it ends the argument right there, and the rest of
-  the line becomes unrelated bare tokens that still parse as a valid but
-  completely different statement. (`solx-core/solx-scripts/src/lib.rs` records
-  this as having broken a real package's `install.solx`.) One tested function
-  can now get that wrong instead of every model call.
 - **Invented actions.** A step naming an action that does not exist fails at
-  run time, long after a plausible-looking script was handed over. Any step
+  run time, long after a plausible-looking plan was handed over. Any step
   whose `action_ref` was not among the actions that inquiry's own search
   surfaced is dropped, with the reason recorded in the script's `notes`; a
   script left with no steps is discarded rather than returned empty.
-- **Capture references.** `.solx` substitutes `$name` textually *and by the
-  captured value's runtime type*: a captured string is inserted raw and
-  unquoted, everything else as JSON. So a reference has to be spelled
-  `"$name"` where the parameter wants a string and bare `$name` where it wants
-  an object, array or number — and the wrong one produces a `--json` body that
-  fails to parse at run time. `script.rs` picks the spelling from the callee's
-  own `paramSchema`, walking down alongside the value so a nested parameter is
-  judged by its own declared type. That schema is already on the hit (see
-  [Content enrichment](#content-enrichment)), so this costs no extra call.
-  With no schema to consult the reference stays quoted — right for the scalar
-  case a model writes most often — and the script's `notes[]` says which
-  references were rendered on that assumption.
+- **Capture references.** A step's `capture` name makes its result readable by
+  a later step as `$name`, or `$name.field` for one field of it. Executing a
+  step means substituting each such reference with the real value an earlier
+  step captured under that name, in place, before calling the action —
+  substituting an actual JSON value for another JSON value has no quoting or
+  typing ambiguity the way splicing text into text does, so that substitution
+  is the whole of what a caller needs to do with a `capture`.
 
-  Worse than the wrong spelling is a reference to a capture that does not
-  exist: solx leaves an undefined `$name` in the text verbatim, so the action
-  receives the literal string `"$name"` and either fails late or, quietly,
-  succeeds against the wrong input. A step referencing a capture no *earlier
-  surviving* step defines is dropped, exactly like one naming an invented
-  action. Only a whole-value reference counts as one — a `$` inside longer
-  prose is left alone, since a parameter containing a `$` is far more likely
-  than one deliberately splicing a capture mid-sentence.
+  A reference to a capture that does not exist has nothing to substitute at
+  run time. A step referencing a capture no *earlier surviving* step defines
+  is dropped, exactly like one naming an invented action. Only a whole-value
+  reference counts as one — a `$` inside longer prose is left alone, since a
+  parameter containing a `$` is far more likely than one deliberately
+  splicing a capture mid-sentence.
 
-Only `exec` stages are emitted, which is exactly what a `script`-typed action
-supports. There is no `return` — a script evaluates to its last statement,
-which is why the prompt asks for the answering step last.
+There is no `return` and no control flow between steps — a plan's last step is
+the one whose result answers the question, which is why the prompt asks for
+the answering step last.
 
 **Destructive actions are marked, not refused.** A script containing a step
 solx-core would stop for a human decision lists that action in `destructive[]`
 and says so in `notes[]`, and the marker reaches the model too — it is told to
 pick such an action only when the instruction actually asked for it. Deleting
 something can be exactly what was asked for, and this pipeline runs nothing;
-but a caller told to run these scripts should not have to read the `.solx` to
-discover one of them deletes an action. Not hypothetical: a live 4B run
+but a caller told to execute these steps should not have to inspect each one
+to discover one of them deletes an action. Not hypothetical: a live 4B run
 answered "list every installed action" by proposing `entity_delete_action`.
 
 The check is honest about its own limit. `solx-config`'s
@@ -565,9 +559,8 @@ seeded with empty `capabilities` and an `internal` `actionType` and therefore
 trip neither available check.
 
 The model is still told what it is authoring for
-(`prompts::SOLX_SCRIPT_PRIMER`: captures, ordering, no control flow), and the
-full `.solx` primer is seeded as a skill at
-`/solx-inquiry/skills/solx-scripts` for a human reading a returned script.
+(`prompts::ACTION_STEPS_PRIMER`: captures, ordering, no control flow) — but
+never `.solx` syntax, since nothing it writes passes through any.
 
 ### Skills and memories
 
@@ -600,7 +593,7 @@ guidance: `{scope, instructions, tools?}`. `scope` is `documents`, `actions`
 or `both` — an absent or unrecognized value means `both`, so a typo makes a
 skill apply too often rather than silently never. An actions-scoped skill with
 `tools` globs only rides along with an inquiry whose search surfaced a
-matching action. Six are seeded by `install.solx`; they are package content,
+matching action. Five are seeded by `install.solx`; they are package content,
 so `uninstall.solx` removes them.
 
 **Memories** (type `InquiryMemory`) are responses a model flagged as durable.
@@ -648,6 +641,35 @@ the instruction is repeated.
 Both enter a prompt framed as reference material, never as instruction. A
 memory is model-written text re-entering a prompt; a skill is operator-written
 guidance. Neither is a fact and neither decides an answer.
+
+### Context documents
+
+`context_documents` names specific documents, by full `/path/name` reference,
+that the caller wants grounding this particular instruction — the difference
+from a skill or a memory is that nothing here decides whether one applies.
+Naming it is the caller saying it does, so every one that loads rides along
+with the intent call *and* every inquiry, document or action alike (a memory,
+by contrast, is left out of action inquiries — see [Skills and
+memories](#skills-and-memories) — because a memory is a prior finding and a
+context document is not).
+
+Each is fetched with one `entity_get_document` call, once, up front —
+before the intent call, alongside recall — capped at 10 documents. A document's
+text is read the same way a memory's is (`contents.text`, so a document minted
+by an earlier `instruct` run reads back cleanly), falling back to `summary`
+and then to the document's raw `contents` for one written by hand or another
+tool, so a context document reads as whatever it actually holds rather than
+nothing at all. The assembled block is capped like the memory and skill blocks
+are, dropping whichever named document would push it over budget.
+
+A reference that is not a valid `/path/name` shape, or that fails to load, is
+**not** silently dropped the way a failed skill or memory lookup is: the
+caller named this document specifically, so a typo is more likely than
+indifference, and a `notes[]` entry says which reference did not load and why.
+
+Framed in the prompt as given fact for this instruction, not evidence to
+verify — the caller supplied it deliberately, unlike a search hit or a
+recalled memory.
 
 ### This package's own documents are never evidence
 
@@ -713,6 +735,7 @@ solx exec /builtin/console/read --json '{"action_ref":"/packages/solx-inquiry/in
 | tag | `data` |
 |---|---|
 | `[instruct:recall]` | `{skills: [refs], memories: [refs]}` |
+| `[instruct:context]` | `{context: [refs], notes: [why a named reference did not load]}` |
 | `[instruct:intent]` | the parsed intent object |
 | `[instruct:inquiry:<i>:terms]` | `{kind, question, terms}` |
 | `[instruct:inquiry:<i>:hits]` | `{count, refs}` |
@@ -735,6 +758,108 @@ Every other model call here is anchored to something: search hits, or a
 parameter schema. A caller who wants one answer out of several can add that
 layer — with `inquire`, or with another `instruct` — over output that is still
 individually cited.
+
+## Looping instruct
+
+`instruct` is one call: recall, one intent decision, up to three inquiries,
+assemble, write the session, return. It does not loop itself, does not
+re-invoke itself, and consumes none of its own output — a multi-turn agent
+built on it is a caller wrapping repeated calls around what is otherwise a
+straight-line pipeline, the same way [Why there is no result
+phase](#why-there-is-no-result-phase) says a caller adds its own synthesis
+layer on top rather than finding one built in.
+
+### What one call gives a loop to work with
+
+- **`next_prompt`** — set only when the intent phase judged this instruction
+  needs a later, separate round (`prompts::DEFAULT_INTENT_PROMPT`: "once
+  whatever you looked up or asked to run has been acted on"). It is the
+  model's own suggestion for that round's instruction, written *before* any
+  inquiry ran — speculative, not grounded in what they found. A loop decides
+  whether to use it verbatim, edit it, or ignore it.
+- **`scripts[]`** — validated, ordered `{action_ref, params, capture}` steps
+  (see [Scripts](#scripts)), plus `destructive[]` naming which of them solx
+  would stop a human for.
+- **`memories[]`** — ready-to-save `entity_save_document` payloads, present
+  only when `memory_path` was given and only for responses an inquiry
+  produced and the model flagged durable.
+- **`responses[]`/`hits[]`** — the answer and its evidence, each response
+  tagged with the inquiry index (or `null` for a direct answer) that produced
+  it.
+- **`session`** — the same reference handed back unchanged, so the next call
+  in the loop passes it straight through.
+
+### The shape of a loop
+
+```text
+instruction, session = (starting instruction, a fresh or existing session ref)
+loop:
+    result = exec instruct --json {instruction, model, session, memory_path?, context_documents?, ...}
+
+    if not result.success:
+        handle by result.kind (see Errors) - a "cancelled" result carries
+        whatever was assembled so far under result.partial
+
+    for memory in result.memories:
+        # instruct never saves these itself
+        exec entity_save_document --json memory
+
+    for script in result.scripts:
+        if script.destructive is non-empty:
+            stop for a human decision before running it
+        execute script.steps in order, substituting each capture reference
+        yourself (see Scripts) - nothing in this package does that for you
+        # decide what, if anything, about that execution reaches the next
+        # turn: fold it into the next instruction's text, save it as a
+        # document and name it in context_documents, or save it as a memory
+        # directly
+
+    if result.next_prompt is set and the loop should continue:
+        instruction = result.next_prompt   # or your own next question
+    else:
+        break                              # nothing says "done" but this
+```
+
+`session` stays the same reference across every iteration - that is what
+lets each call's intent phase see the last `history_limit` turns as context
+(see [Session documents](#session-documents)). Everything else above is
+this package returning the same shape of output it always does; nothing
+about calling it in a loop changes that shape.
+
+### Before building one
+
+- **Nothing executes a script.** `scripts[].steps` is validated JSON, not a
+  side effect — a loop that wants to *act* on what `instruct` proposes has to
+  write the executor itself: call each `action_ref` with its `params` in
+  order, substituting `$name`/`$name.field` for the real value an earlier
+  step in that same script captured. See [Scripts](#scripts).
+- **`destructive[]` is not exhaustive** (see the caveat in
+  [Scripts](#scripts)): a configured `tool_destructive` list is invisible
+  from inside a wasm guest. Treat an empty `destructive[]` as "nothing *this
+  package* could see," not as a clearance to auto-run anything, especially
+  in a loop with no human in it to catch what the check could not.
+- **Session history is orientation, not a memory of what the loop did.**
+  `history_block` carries only `responses[0].text` per turn, truncated, for
+  up to `history_limit` turns — not `scripts`, not execution results, not
+  every response. A loop whose later turns need to know what an earlier
+  turn's script *did* has to say so explicitly: fold it into the next
+  instruction, or persist it somewhere `context_documents` or `memory_path`
+  can reach next time. Nothing carries it forward on its own.
+- **`next_prompt` is a suggestion, never a command.** Nothing stops the loop
+  but the loop's own logic — build in a turn limit independent of
+  `SESSION_TURN_CAP` (50), which only bounds the session *document*, silently
+  dropping the oldest turns rather than ending anything.
+- **One session, one writer at a time.** The session read-modify-write
+  (load turns, append this one, save) has no guard against two overlapping
+  `instruct` calls against the same `session` racing each other — do not run
+  concurrent loop iterations, or concurrent loops, against one session.
+- **Size the loop's own timeout to how the call actually runs.** Under
+  `solx-server`/`solx-mcp` each `instruct` call fans its inquiries out
+  concurrently (see [The inquiry fan-out](#the-inquiry-fan-out)); under a
+  bare `solx exec` it falls back to running its `1 + N` model calls one after
+  another (see [Detached llm calls](#detached-llm-calls)) - a loop driven
+  that way should expect each iteration to take roughly the sum, not the max,
+  of its model calls.
 
 ## Errors
 
@@ -790,7 +915,7 @@ src/recall.rs          skills and memories: two lookups, and the blocks they bec
 src/intent.rs          decide: answer directly, or name what to look up
 src/inquiry.rs         one inquiry's search, its payload, and parsing what comes back
 src/fanout.rs          run N chat calls at once: start all, then poll/drain/cancel as one
-src/script.rs          render structured steps into .solx, dropping unsurfaced actions
+src/script.rs          validate structured steps against the catalogue, dropping unsurfaced actions
 src/session.rs         read the session for history, write it back with this turn
 src/console.rs         the [instruct:...] console tag vocabulary
 

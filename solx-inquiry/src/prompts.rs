@@ -96,28 +96,20 @@ capabilities include solx:destructive changes or removes something: choose \
 one only when the instruction actually asked for that, and never merely to \
 inspect, list or read something.";
 
-/// What the model is authoring *for*, given it never writes `.solx` itself.
+/// What the model is authoring *for*: a plan a caller executes directly,
+/// never `.solx` text.
 ///
-/// A step list is only sensible if you know it becomes a pipeline of `exec`
-/// stages whose captured values later steps can read, and that the last one
-/// decides the result. Those, plus the two constraints that actually bind (no
-/// control flow, no return), are all this needs to say.
-///
-/// The full `.solx` grammar - quoting, `;` rules, textual substitution - is
-/// deliberately absent, because nothing the model produces passes through it:
-/// [`crate::script`] owns every character of syntax, which is the whole reason
-/// the model emits steps instead of text. The complete primer is seeded as a
-/// skill document at `/solx-inquiry/skills/solx-scripts`, for a human reading
-/// a returned script and for an action inquiry that recall pulls it into.
-pub const SOLX_SCRIPT_PRIMER: &str = "\
-Your steps become a .solx script: a sequence of statements, each one action \
-call, run in the order you give. A step's \"capture\" name makes its result \
-readable by later steps as $name, or $name.field for one field of it. A \
-script runs as an action, which supports only action calls - no conditionals, \
-no loops, and no return, because the last step's result is the script's \
-result. So order the steps so the one whose result answers the question comes \
-last. You do not write .solx syntax yourself: write the steps and their \
-parameters, and the syntax is generated for you.";
+/// A step list is only sensible if you know it runs as an ordered sequence of
+/// action calls whose captured values later steps can read, and that the last
+/// one decides the result. Those, plus the constraint that actually binds (no
+/// control flow), are all this needs to say.
+pub const ACTION_STEPS_PRIMER: &str = "\
+Your steps run in order, each one an action call. A step's \"capture\" name \
+makes its result readable by later steps as $name, or $name.field for one \
+field of it - the caller substitutes the real value in place of that \
+reference before calling the step. There is no conditional or loop between \
+steps, and the last step's result is what answers the question, so order the \
+steps accordingly.";
 
 /// Forces the intent phase to answer with a parseable decision rather than
 /// prose.
@@ -184,7 +176,8 @@ pub fn responses_schema() -> Value {
     })
 }
 
-/// The action-inquiry answer shape: structured steps, never `.solx` text.
+/// The action-inquiry answer shape: structured steps for a caller to execute
+/// directly, never `.solx` text.
 ///
 /// `params` is left unconstrained here on purpose. The real constraint is the
 /// called action's own `paramSchema`, which sits in the prompt beside it and

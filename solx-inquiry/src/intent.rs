@@ -90,12 +90,20 @@ pub fn decide(
     p: &InstructParams,
     recalled: &Recalled,
     session: &Session,
+    context_block: Option<&str>,
 ) -> Result<Intent, Outcome> {
     let mut system = p
         .intent_prompt
         .clone()
         .unwrap_or_else(|| prompts::DEFAULT_INTENT_PROMPT.to_string());
 
+    // Named by the caller for this instruction specifically, so it rides
+    // along unconditionally - unlike a skill or a memory, nothing here
+    // decides whether it applies.
+    if let Some(block) = context_block {
+        system.push_str("\n\n");
+        system.push_str(block);
+    }
     // Nothing has been searched yet, so there are no hits to narrow a skill's
     // `tools` globs against and no one scope to select by: every skill is
     // eligible, under one shared budget.

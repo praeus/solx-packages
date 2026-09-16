@@ -1,0 +1,7 @@
+save file files/actions/shared/solx-names.wasm --file bin/solx-names.wasm;
+
+save type /packages/solx-names/RandomNameParams --json '{"description":"Parameters for the random-name action.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"with_id":{"type":["boolean","null"],"description":"Append an 8-hex-digit id to the name for extra uniqueness, e.g. capable-tiger-9f2c1a06. Defaults to false."}}}}';
+
+save type /packages/solx-names/RandomNameResult --json '{"description":"Result of the random-name action. Documentation only - result schemas are not validated.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"name":{"type":"string","description":"An adjective-noun name (e.g. capable-tiger), optionally suffixed with an 8-hex-digit id when with_id was true."}}}}';
+
+save action /packages/solx-names/random-name --json '{"actionType":"wasm","binName":"solx-names.wasm","fnName":"random_name","caption":"Random name","category":"utility","description":"Generate a random adjective-noun name (e.g. capable-tiger) via the names crate, optionally suffixed with an 8-hex-digit id for extra uniqueness.","capabilities":["names","random","generate"],"phrases":["give me a random name","generate a random name","random name generator","name this instance"],"paramTypeRef":"/packages/solx-names/RandomNameParams","resultTypeRef":"/packages/solx-names/RandomNameResult","actionConfig":{"timeout_secs":30}}';

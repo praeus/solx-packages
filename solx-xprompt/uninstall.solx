@@ -1,0 +1,10 @@
+# Removes the action row, document type, and artifacts installed by
+# install.solx. Deliberately does NOT remove call-log documents under
+# /xprompt/call-logs -- like solx-agent's sessions, a call log is a record of
+# what actually ran, not package content.
+#
+# Every delete carries --if-exists, because a script aborts on the first
+# failing statement and a partial install should still be removable.
+
+delete action /packages/solx-xprompt/xprompt-widget --if-exists;
+delete type /packages/solx-xprompt/XPromptCallLog --if-exists;

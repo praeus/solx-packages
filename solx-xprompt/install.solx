@@ -1,0 +1,15 @@
+# solx-xprompt install.
+#
+# One action (the WidgetDescriptor-typed action solx-web mounts) plus one
+# document type: XPromptCallLog, the durable index behind the merged-console
+# mechanism in src/console/ — see docs/widget-system.md and the doc comment
+# on src/console/index.ts for why a widget needs this at all (console_copy
+# requires an action caller, and a widget's own calls never have one).
+
+save type /packages/solx-xprompt/XPromptCallLog --json '''{"description": "The durable index behind one widget session's merged console: which action invocations (action_ref, invocation_id, starting cursor) belong to it, so a reload or another client can re-tail and re-merge the same console entries. Not the console entries themselves -- those already persist per action_ref regardless of this document.", "schema": {"$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "properties": {"calls": {"type": "array", "description": "One entry per tracked action invocation, oldest first.", "items": {"type": "object", "required": ["actionRef", "name", "invocationId", "consoleSeqStart", "startedAt"], "properties": {"actionRef": {"type": "string", "description": "The full action reference whose console this invocation wrote to."}, "name": {"type": "string", "description": "The action name, for display when no label is given."}, "invocationId": {"type": "string", "description": "Filters the shared console down to entries from just this invocation."}, "consoleSeqStart": {"type": "integer", "description": "The console seq in place when this call started; entries before it predate the call."}, "startedAt": {"type": "string", "description": "ISO timestamp this call was started."}, "label": {"type": "string", "description": "Optional display label, shown instead of name."}}}}}}}''';
+
+save file files/actions/shared/solx-xprompt-widget-descriptor.solx --file xprompt-widget-descriptor.solx;
+
+save file widgets/solx-xprompt.js --file dist/solx-xprompt.js;
+
+save action /packages/solx-xprompt/xprompt-widget --json '''{"actionType": "script", "binName": "solx-xprompt-widget-descriptor.solx", "caption": "XPrompt", "category": "widgets", "description": "TODO: describe what this widget does.", "capabilities": ["widget", "ui"], "phrases": ["open xprompt", "show xprompt"], "resultTypeRef": "/builtin/types/WidgetDescriptor"}''';

@@ -149,7 +149,7 @@ pub fn run(host: &dyn Host, p: &Params, jobs: Vec<Job>) -> Result<JobResults, Ou
             stop_all(host, &pending);
             return Err(Outcome::fail(
                 "cancelled",
-                "instruct was cancelled while its inquiries were running",
+                "multi_inquire was cancelled while its inquiries were running",
                 json!({
                     "stage": "inquiry",
                     "stopped": pending.iter().map(|j| j.invocation_id.clone()).collect::<Vec<_>>(),

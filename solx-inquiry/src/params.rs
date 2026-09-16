@@ -1,15 +1,17 @@
-//! Parse and default an `inquire` call's params. One place so `lib.rs`,
-//! `terms.rs`, `search.rs`, and `summarize.rs` all agree on what a field
-//! means and what it defaults to.
+//! Shared param plumbing: the connection-carrier struct both actions use, and
+//! the search-scope enum both search against.
+//!
+//! Each action parses its own request shape into a [`Params`] independently -
+//! see [`inquire`] for `inquire`'s own parsing and [`multi::parse`] for
+//! `multi_inquire`'s, which builds one purely to carry the connection
+//! overrides below so [`apply_llm_overrides`]/[`crate::llm::call`] work
+//! unchanged for both actions.
+
+pub mod inquire;
+pub mod multi;
 
 use serde_json::Value;
 
-use crate::host::{str_param, Outcome};
-
-/// Ceiling on how many search terms the model may be asked to produce.
-pub const MAX_TERMS_CEILING: usize = 10;
-/// Ceiling on how many hits are fed to the summarizer / returned to the caller.
-pub const MAX_RESULTS_CEILING: usize = 50;
 /// Ceiling on the per-LLM-call `timeout_secs` a caller may request.
 pub const MAX_LLM_TIMEOUT: u64 = 900;
 
@@ -79,73 +81,6 @@ pub struct Params {
     pub options: Option<Value>,
 }
 
-pub fn parse(params: &Value) -> Result<Params, Outcome> {
-    let params = &crate::host::normalize_params(params);
-    let inquiry = str_param(params, "inquiry").ok_or_else(|| {
-        Outcome::fail(
-            "bad_params",
-            "inquire requires a non-empty inquiry",
-            serde_json::json!({ "missing": ["inquiry"] }),
-        )
-    })?;
-    let model = str_param(params, "model").ok_or_else(|| {
-        Outcome::fail(
-            "bad_params",
-            "inquire requires a model",
-            serde_json::json!({ "missing": ["model"] }),
-        )
-    })?;
-
-    let scope_str = str_param(params, "scope").unwrap_or_else(|| "documents".to_string());
-    let scope = match scope_str.as_str() {
-        "documents" => Scope::Documents,
-        "actions" => Scope::Actions,
-        "both" => Scope::Both,
-        other => {
-            return Err(Outcome::fail(
-                "bad_params",
-                format!("scope must be one of documents, actions, both (got {other:?})"),
-                serde_json::json!({}),
-            ))
-        }
-    };
-
-    let max_terms = params
-        .get("max_terms")
-        .and_then(Value::as_u64)
-        .map(|n| (n as usize).clamp(1, MAX_TERMS_CEILING))
-        .unwrap_or(5);
-    let max_results = params
-        .get("max_results")
-        .and_then(Value::as_u64)
-        .map(|n| (n as usize).clamp(1, MAX_RESULTS_CEILING))
-        .unwrap_or(10);
-    let timeout_secs = params
-        .get("timeout_secs")
-        .and_then(Value::as_u64)
-        .map(|n| n.clamp(1, MAX_LLM_TIMEOUT));
-
-    Ok(Params {
-        inquiry,
-        model,
-        scope,
-        max_terms,
-        max_results,
-        path_prefix: str_param(params, "path_prefix"),
-        type_ref: str_param(params, "type_ref"),
-        inquiry_prompt: str_param(params, "inquiry_prompt"),
-        summary_prompt: str_param(params, "summary_prompt"),
-        llm_action_ref: str_param(params, "llm_action_ref")
-            .unwrap_or_else(|| DEFAULT_LLM_ACTION_REF.to_string()),
-        base_url: str_param(params, "base_url"),
-        api_key: str_param(params, "api_key"),
-        auth_secret_name: str_param(params, "auth_secret_name"),
-        headers: params.get("headers").filter(|v| v.is_object()).cloned(),
-        timeout_secs,
-        options: params.get("options").filter(|v| v.is_object()).cloned(),
-    })
-}
-
 /// Merge the connection-related overrides (`base_url`/`api_key`/
 /// `auth_secret_name`/`headers`/`timeout_secs`/`options`) into a chat-call
 /// payload that already carries `model`/`messages`/etc. Only present fields
@@ -190,39 +125,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn base() -> Value {
-        json!({ "inquiry": "q", "model": "m" })
-    }
-
-    #[test]
-    fn accepts_camel_case_spellings_of_its_own_snake_case_fields() {
-        let mut p = base();
-        p["typeRef"] = json!("/types/core/Object");
-        p["pathPrefix"] = json!("/notes");
-        p["maxTerms"] = json!(3);
-        p["llmActionRef"] = json!("/packages/solx-ollama/ollama-chat");
-        let parsed = parse(&p).unwrap();
-        assert_eq!(parsed.type_ref.as_deref(), Some("/types/core/Object"));
-        assert_eq!(parsed.path_prefix.as_deref(), Some("/notes"));
-        assert_eq!(parsed.max_terms, 3);
-        assert_eq!(parsed.llm_action_ref, "/packages/solx-ollama/ollama-chat");
-    }
-
-    #[test]
-    fn options_parses_only_when_given_as_an_object() {
-        let mut p = base();
-        p["options"] = json!({ "num_ctx": 8192 });
-        assert_eq!(parse(&p).unwrap().options, Some(json!({ "num_ctx": 8192 })));
-
-        let mut p = base();
-        p["options"] = json!("not an object");
-        assert_eq!(parse(&p).unwrap().options, None);
-
-        assert_eq!(parse(&base()).unwrap().options, None);
-    }
-
     fn params_with_options(options: Option<Value>) -> Params {
-        let mut p = parse(&base()).unwrap();
+        let mut p = inquire::parse(&json!({ "inquiry": "q", "model": "m" })).unwrap();
         p.options = options;
         p
     }

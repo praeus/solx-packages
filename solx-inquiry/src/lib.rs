@@ -1,9 +1,11 @@
-//! solx-inquiry — one `wasm32-wasip2` component backing the `inquire`
-//! action: take a question, ask an LLM action for search terms, search
-//! documents and/or actions with those terms, then ask the LLM action to
-//! summarize the results against the original question.
+//! solx-inquiry — one `wasm32-wasip2` component backing two actions:
+//! `inquire`, which takes a question, asks an LLM action for search terms,
+//! searches documents and/or actions with those terms, then asks the LLM
+//! action to summarize the results against the original question; and
+//! `multi_inquire`, which takes an instruction and plans/runs up to three
+//! `inquire`-shaped inquiries in parallel to answer it.
 //!
-//! The three phases are ordinary nested `exec` calls — this component has no
+//! Every phase is an ordinary nested `exec` call — this component has no
 //! capability the built-in catalogue and an installed chat action (by
 //! default `solx-ollama`'s `ollama-chat`) don't already provide. See
 //! README.md for why that pipeline shape belongs in wasm: it's a single
@@ -14,8 +16,7 @@ pub mod console;
 pub mod context;
 pub mod fanout;
 pub mod host;
-pub mod instruct_params;
-pub mod instruct;
+pub mod multi;
 pub mod inquiry;
 pub mod intent;
 pub mod llm;
@@ -36,14 +37,14 @@ use serde_json::{json, Value};
 use host::{Host, Outcome};
 
 pub const INQUIRE_FN: &str = "inquire";
-pub const INSTRUCT_FN: &str = "instruct";
+pub const MULTI_INQUIRE_FN: &str = "multi_inquire";
 
 pub fn dispatch(host: &dyn Host, fn_name: Option<&str>, params_json: &str) -> Outcome {
     let Some(fn_name) = fn_name else {
         return Outcome::fail(
             "unknown_action",
             "the action row has no fn_name; solx-inquiry dispatches on fn_name",
-            json!({ "known": [INQUIRE_FN, INSTRUCT_FN] }),
+            json!({ "known": [INQUIRE_FN, MULTI_INQUIRE_FN] }),
         );
     };
 
@@ -65,17 +66,17 @@ pub fn dispatch(host: &dyn Host, fn_name: Option<&str>, params_json: &str) -> Ou
 
     match fn_name {
         INQUIRE_FN => inquire(host, &params),
-        INSTRUCT_FN => instruct::run(host, &params),
+        MULTI_INQUIRE_FN => multi::run(host, &params),
         other => Outcome::fail(
             "unknown_action",
             format!("unknown fn_name {other}"),
-            json!({ "fn_name": other, "known": [INQUIRE_FN, INSTRUCT_FN] }),
+            json!({ "fn_name": other, "known": [INQUIRE_FN, MULTI_INQUIRE_FN] }),
         ),
     }
 }
 
 fn inquire(host: &dyn Host, params: &Value) -> Outcome {
-    let p = match params::parse(params) {
+    let p = match params::inquire::parse(params) {
         Ok(p) => p,
         Err(outcome) => return outcome,
     };

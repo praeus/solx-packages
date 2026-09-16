@@ -33,7 +33,7 @@ const MAX_DETAILS_CHARS: usize = 1500;
 const MAX_SUMMARY_CHARS: usize = 300;
 
 /// Longest joined block of hit context lines handed to an llm prompt — the
-/// summarizer's user message, or one `instruct` inquiry's. Independent of
+/// summarizer's user message, or one `multi_inquire` inquiry's. Independent of
 /// `max_results`, which caps how many hits *exist* after merging, the same
 /// way [`MIN_SEARCH_LIMIT`] is independent of it on the other side.
 ///
@@ -62,7 +62,7 @@ pub const MAX_HIT_CONTEXT_CHARS: usize = 24_000;
 const MIN_SEARCH_LIMIT: usize = 10;
 
 /// Everything [`run_search_with`] needs, lifted out of [`Params`] so a caller
-/// that has no `inquire` params at all — `instruct`, whose inquiries each pick
+/// that has no `inquire` params at all — `multi_inquire`, whose inquiries each pick
 /// their *own* scope — can drive the same search without inventing one.
 /// `inquire` still goes through [`SearchSpec::from_params`], so its behaviour
 /// is unchanged.
@@ -99,7 +99,7 @@ pub struct Hit {
     pub matched_terms: Vec<String>,
     /// The document's `typeRef`, straight off the `search-documents` row.
     /// `None` for an action hit. Not surfaced in [`Hit::to_json`] - it exists
-    /// so `instruct` can tell its own document kinds apart from evidence, and
+    /// so `multi_inquire` can tell its own document kinds apart from evidence, and
     /// adding a field to `inquire`'s documented result shape for that would be
     /// a change nothing asked for.
     pub type_ref: Option<String>,
@@ -157,7 +157,7 @@ impl Hit {
 
 /// Render `hits` as numbered context lines for an llm prompt, joined and
 /// capped at [`MAX_HIT_CONTEXT_CHARS`] total — see that constant for why.
-/// Shared by `inquire`'s summarizer and every `instruct` inquiry's user
+/// Shared by `inquire`'s summarizer and every `multi_inquire` inquiry's user
 /// message, the two places a hit list becomes prompt text.
 pub fn context_block(hits: &[Hit]) -> String {
     let lines: Vec<String> = hits.iter().enumerate().map(|(i, h)| h.to_context_line(i)).collect();
@@ -170,7 +170,7 @@ pub fn context_block(hits: &[Hit]) -> String {
 /// `entity-get-type` is fetched per action hit per type-ref field
 /// (`paramTypeRef`/`resultTypeRef`), and nothing before this cache stopped the
 /// same reference from being fetched twice: two actions can share a param
-/// type, and `instruct` calls [`run_search_with`] once per inquiry — up to
+/// type, and `multi_inquire` calls [`run_search_with`] once per inquiry — up to
 /// three times in one run — so an action two inquiries both surface (a common
 /// helper like `search-documents` is a likely one) paid for its schema twice
 /// over. `None` is cached too, so a reference that is absent or fails to
@@ -180,7 +180,7 @@ pub fn context_block(hits: &[Hit]) -> String {
 ///
 /// Scoped by the caller, not global: [`run_search`] builds a fresh one per
 /// call (a single search phase has nothing to share across calls), while
-/// `instruct::run` builds one and threads it through every inquiry's
+/// `multi::run` builds one and threads it through every inquiry's
 /// [`crate::inquiry::prepare`], which is where the cross-inquiry sharing
 /// actually pays off.
 #[derive(Debug, Default)]

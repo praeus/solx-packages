@@ -1,7 +1,7 @@
-//! Host-target tests for the whole `instruct` pipeline.
+//! Host-target tests for the whole `multi_inquire` pipeline.
 //!
 //! The `FakeHost` here is a sibling of the one in `dispatch.rs`, not a copy of
-//! it, because `instruct` needs something that one cannot do: **script several
+//! it, because `multi_inquire` needs something that one cannot do: **script several
 //! concurrent children independently**. A fan-out polls three invocations that
 //! are all the same `action_ref`, so a single FIFO queue per ref could not say
 //! which child a given poll response belonged to — the queue order would
@@ -40,7 +40,7 @@ const SESSION: &str = "/solx-inquiry/sessions/test";
 /// its own past output lives, which is what lets that output be kept out of a
 /// later inquiry's evidence; omitting it turns memories off entirely.
 const MEMORY_PATH: &str = "/solx-inquiry/memories";
-const INSTRUCT_AUTHOR: &str = "/packages/solx-inquiry/instruct";
+const MULTI_INQUIRE_AUTHOR: &str = "/packages/solx-inquiry/multi_inquire";
 
 struct FakeHost {
     calls: RefCell<Vec<(String, Value)>>,
@@ -215,7 +215,7 @@ impl Host for FakeHost {
 }
 
 fn run(host: &FakeHost, params: Value) -> Outcome {
-    solx_inquiry::dispatch(host, Some("instruct"), &params.to_string())
+    solx_inquiry::dispatch(host, Some("multi_inquire"), &params.to_string())
 }
 
 fn base_params() -> Value {
@@ -256,7 +256,6 @@ fn a_direct_intent_answers_without_searching_or_fanning_out() {
     push_empty_context(&host);
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"Auth uses session tokens.","memory":true}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -282,7 +281,6 @@ fn a_direct_response_flagged_as_memory_is_reported_but_never_minted() {
     push_empty_context(&host);
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"Tokens expire hourly.","memory":true}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -313,7 +311,6 @@ fn a_flagged_inquiry_response_comes_back_ready_to_save() {
         "inv-0",
         r#"{"responses":[{"text":"Tokens expire hourly.","memory":true,"citations":["/notes/auth"]}]}"#,
     );
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -323,7 +320,7 @@ fn a_flagged_inquiry_response_comes_back_ready_to_save() {
     assert_eq!(memory["typeRef"], json!("/packages/solx-inquiry/InquiryMemory"));
     // Provenance: a saved memory is model output and should say so to whoever
     // reads it later. Nothing in the pipeline branches on this.
-    assert_eq!(memory["author"], json!(INSTRUCT_AUTHOR));
+    assert_eq!(memory["author"], json!(MULTI_INQUIRE_AUTHOR));
     // The text is in `summary` as well as contents, which is what lets recall
     // be one lookup with no follow-up reads.
     assert_eq!(memory["summary"], json!("Tokens expire hourly."));
@@ -337,7 +334,6 @@ fn a_model_that_ignores_format_entirely_still_answers() {
     push_empty_context(&host);
     host.push_start("inv-intent");
     host.push_done("inv-intent", "I already know: it uses session tokens.");
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -355,16 +351,13 @@ fn a_next_prompt_reaches_the_outcome_and_the_saved_turn() {
         "inv-intent",
         r#"{"mode":"direct","response":"created the file","next_prompt":"verify the file was created and report its size"}"#,
     );
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
-
     let out = run(&host, base_params());
 
     assert!(out.success, "{:?}", out.message);
     assert_eq!(out.output["next_prompt"], json!("verify the file was created and report its size"));
     assert_eq!(out.output["intent"]["next_prompt"], json!("verify the file was created and report its size"));
 
-    let save = host.calls_named(DOCUMENT_SAVE_REF)[0].clone();
-    let turns = save["contents"]["turns"].as_array().unwrap();
+    let turns = out.output["session_document"]["contents"]["turns"].as_array().unwrap();
     assert_eq!(turns[0]["next_prompt"], json!("verify the file was created and report its size"));
 }
 
@@ -374,7 +367,6 @@ fn no_next_prompt_is_null_not_missing() {
     push_empty_context(&host);
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"Auth uses session tokens."}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -414,7 +406,6 @@ fn every_inquiry_is_started_before_any_of_them_is_polled() {
     host.push_done("inv-0", r#"{"responses":[{"text":"auth uses tokens"}]}"#);
     host.push_done("inv-1", r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
     host.push_done("inv-2", r#"{"scripts":[{"steps":[{"action_ref":"/builtin/document/search-documents","params":{"q":"auth"}}]}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
     assert!(out.success, "{:?}", out.message);
@@ -453,7 +444,6 @@ fn document_inquiries_produce_responses_and_an_action_inquiry_produces_a_script(
         "inv-2",
         r#"{"scripts":[{"title":"Find auth","steps":[{"action_ref":"/builtin/document/search-documents","params":{"q":"auth"},"capture":"hits"}]}]}"#,
     );
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -490,7 +480,6 @@ fn a_child_that_reports_running_does_not_hold_up_the_others() {
     host.push_running_then_done("inv-0", r#"{"responses":[{"text":"slow but done"}]}"#);
     host.push_done("inv-1", r#"{"responses":[{"text":"quick"}]}"#);
     host.push_done("inv-2", r#"{"scripts":[]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -537,7 +526,6 @@ fn a_failing_console_tail_still_paces_the_fan_out() {
     // ever starts.
     host.push_fail(CONSOLE_TAIL, "console unavailable");
     host.push_fail(CONSOLE_TAIL, "console unavailable");
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -566,7 +554,6 @@ fn one_failed_inquiry_does_not_sink_the_others() {
     host.push_failed("inv-0", "context length exceeded");
     host.push_done("inv-1", r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
     host.push_done("inv-2", r#"{"scripts":[]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -659,7 +646,6 @@ fn a_host_that_cannot_detach_runs_the_inquiries_sequentially_and_still_answers()
     host.push_blocking(r#"{"responses":[{"text":"auth uses tokens"}]}"#);
     host.push_blocking(r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
     host.push_blocking(r#"{"scripts":[]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -689,7 +675,6 @@ fn a_start_failure_for_any_other_reason_fails_only_that_inquiry() {
     host.push_start("inv-0");
     host.push_err(ACTION_START, "no such action /packages/solx-ollama/ollama-chat");
     host.push_done("inv-0", r#"{"responses":[{"text":"found a"}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -703,7 +688,7 @@ fn a_start_failure_for_any_other_reason_fails_only_that_inquiry() {
 
 #[test]
 fn two_inquiries_sharing_an_action_fetch_its_param_schema_once() {
-    // `search::TypeCache` is built once per `instruct::run` and threaded
+    // `search::TypeCache` is built once per `multi::run` and threaded
     // through every inquiry's `prepare`, precisely so this can happen: two
     // different inquiries surface actions that share a paramTypeRef (or, as
     // here, the very same action - a common helper both questions turn up).
@@ -734,7 +719,6 @@ fn two_inquiries_sharing_an_action_fetch_its_param_schema_once() {
     host.push_start("inv-1");
     host.push_done("inv-0", r#"{"scripts":[]}"#);
     host.push_done("inv-1", r#"{"scripts":[]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -756,7 +740,6 @@ fn milestones_are_printed_with_parseable_tags_and_data() {
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/notes", "name": "auth", "typeRef": "x" }])));
     host.push_start("inv-0");
     host.push_done("inv-0", r#"{"responses":[{"text":"auth uses tokens"}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
     assert!(out.success, "{:?}", out.message);
@@ -764,22 +747,22 @@ fn milestones_are_printed_with_parseable_tags_and_data() {
     let prints = host.calls_named(CONSOLE_PRINT);
     let messages: Vec<&str> = prints.iter().map(|p| p["message"].as_str().unwrap()).collect();
     for tag in [
-        "[instruct:recall]",
-        "[instruct:context]",
-        "[instruct:intent]",
-        "[instruct:inquiry:0:terms]",
-        "[instruct:inquiry:0:hits]",
-        "[instruct:inquiry:0:result]",
-        "[instruct:result]",
+        "[multi_inquire:recall]",
+        "[multi_inquire:context]",
+        "[multi_inquire:intent]",
+        "[multi_inquire:inquiry:0:terms]",
+        "[multi_inquire:inquiry:0:hits]",
+        "[multi_inquire:inquiry:0:result]",
+        "[multi_inquire:result]",
     ] {
         assert!(messages.iter().any(|m| m.starts_with(tag)), "missing {tag} in {messages:?}");
     }
 
     // The machine-readable half is what makes a run reconstructable from the
     // console alone, so it must actually carry the data, not just a summary.
-    let intent = prints.iter().find(|p| p["message"].as_str().unwrap().starts_with("[instruct:intent]")).unwrap();
+    let intent = prints.iter().find(|p| p["message"].as_str().unwrap().starts_with("[multi_inquire:intent]")).unwrap();
     assert_eq!(intent["data"]["inquiries"][0]["question"], json!("what is auth?"));
-    let hits = prints.iter().find(|p| p["message"].as_str().unwrap().starts_with("[instruct:inquiry:0:hits]")).unwrap();
+    let hits = prints.iter().find(|p| p["message"].as_str().unwrap().starts_with("[multi_inquire:inquiry:0:hits]")).unwrap();
     assert_eq!(hits["data"]["refs"], json!(["/notes/auth"]));
 }
 
@@ -826,7 +809,6 @@ fn child_console_lines_are_drained_per_inquiry_and_other_callers_are_not() {
     host.push_ok(CONSOLE_COPY, json!({ "copied": 1, "next_cursor": 1 }));
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
     host.push_done("inv-1", r#"{"responses":[{"text":"b"}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
     assert!(out.success, "{:?}", out.message);
@@ -843,15 +825,21 @@ fn child_console_lines_are_drained_per_inquiry_and_other_callers_are_not() {
     // The label itself is bare (`solx-console`'s console/copy adds the
     // brackets when it prefixes a copied message with it).
     assert!(child_copies.iter().any(|c| c["invocation_id"] == json!("inv-0")
-        && c["label"] == json!("instruct:inquiry:0")));
+        && c["label"] == json!("multi_inquire:inquiry:0")));
     assert!(child_copies.iter().any(|c| c["invocation_id"] == json!("inv-1")
-        && c["label"] == json!("instruct:inquiry:1")));
+        && c["label"] == json!("multi_inquire:inquiry:1")));
 }
 
 // ── the session document ────────────────────────────────────────────────────
 
 #[test]
-fn the_session_is_read_for_history_and_rewritten_with_this_turn_appended() {
+fn the_session_is_read_for_history_and_the_updated_document_is_returned_not_written() {
+    // No `DOCUMENT_SAVE_REF` response is queued at all - `multi_inquire` never
+    // writes the session itself, so `FakeHost` would panic ("ran out of
+    // responses") if any code path here ever called it. That is a stronger
+    // guard than an `is_empty()` assertion alone: it fails loudly the moment
+    // a write is reintroduced, rather than only when someone remembers to
+    // check for it.
     let host = FakeHost::new();
     host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 40, "offset": 0 }));
     host.push_ok(DOCUMENT_LIST_REF, json!({ "items": [], "total": 0, "limit": 5, "offset": 0 }));
@@ -864,7 +852,6 @@ fn the_session_is_read_for_history_and_rewritten_with_this_turn_appended() {
     );
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"Auth uses tokens."}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
     assert!(out.success, "{:?}", out.message);
@@ -875,11 +862,13 @@ fn the_session_is_read_for_history_and_rewritten_with_this_turn_appended() {
     assert!(system.contains("an earlier question"), "{system}");
     assert!(system.contains("an earlier answer"), "{system}");
 
-    let save = host.calls_named(DOCUMENT_SAVE_REF)[0].clone();
+    assert!(host.calls_named(DOCUMENT_SAVE_REF).is_empty());
+
+    let save = &out.output["session_document"];
     assert_eq!(save["path"], json!("/solx-inquiry/sessions"));
     assert_eq!(save["name"], json!("test"));
-    assert_eq!(save["typeRef"], json!("/packages/solx-inquiry/InstructSession"));
-    assert_eq!(save["author"], json!(INSTRUCT_AUTHOR));
+    assert_eq!(save["typeRef"], json!("/packages/solx-inquiry/MultiInquireSession"));
+    assert_eq!(save["author"], json!(MULTI_INQUIRE_AUTHOR));
     // The existing title is kept, so a session stays findable by what it was
     // originally about.
     assert_eq!(save["title"], json!("First question"));
@@ -890,20 +879,30 @@ fn the_session_is_read_for_history_and_rewritten_with_this_turn_appended() {
 }
 
 #[test]
-fn a_session_that_cannot_be_written_is_a_warning_not_a_failure() {
+fn multi_inquire_never_calls_entity_save_document() {
+    // The broader invariant this whole change introduces: not just the
+    // session (above), but nothing anywhere in a representative run - one
+    // that also mints a memory - ever calls `entity-save-document`. No
+    // `DOCUMENT_SAVE_REF` response is queued, so `FakeHost` panics if
+    // anything tries.
     let host = FakeHost::new();
     push_empty_context(&host);
     host.push_start("inv-intent");
-    host.push_done("inv-intent", r#"{"mode":"direct","response":"Auth uses tokens."}"#);
-    host.push_fail(DOCUMENT_SAVE_REF, "disk full");
+    host.push_done("inv-intent", THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_start("inv-2");
+    host.push_done("inv-0", r#"{"responses":[{"text":"auth uses tokens","memory":true,"citations":["/notes/auth"]}]}"#);
+    host.push_done("inv-1", r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
+    host.push_done("inv-2", r#"{"scripts":[]}"#);
 
     let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
 
-    assert!(out.success, "a completed instruction must not be discarded over its own bookkeeping");
-    assert_eq!(out.output["responses"][0]["text"], json!("Auth uses tokens."));
-    let warnings = out.output["warnings"].as_array().unwrap();
-    assert_eq!(warnings.len(), 1);
-    assert!(warnings[0].as_str().unwrap().contains("disk full"));
+    assert!(host.calls_named(DOCUMENT_SAVE_REF).is_empty());
+    assert!(!out.output["memories"].as_array().unwrap().is_empty());
+    assert!(out.output["session_document"].is_object());
 }
 
 // ── recall ──────────────────────────────────────────────────────────────────
@@ -945,7 +944,6 @@ fn seeded_skills_and_stored_memories_reach_the_prompts() {
     host.push_start("inv-1");
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
     host.push_done("inv-1", r#"{"scripts":[]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
     assert!(out.success, "{:?}", out.message);
@@ -981,7 +979,7 @@ fn context_documents_reach_every_prompt_and_a_missing_one_is_noted() {
     host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 40, "offset": 0 }));
     host.push_ok(DOCUMENT_LIST_REF, json!({ "items": [], "total": 0, "limit": 5, "offset": 0 }));
     // Consumed in order: the two context documents first, then the session
-    // read - `instruct::run` fetches context before it loads the session.
+    // read - `multi::run` fetches context before it loads the session.
     host.push_ok(
         DOCUMENT_GET_REF,
         json!({ "path": "/notes", "name": "auth", "title": "Auth notes", "contents": { "text": "Auth issues a signed session token." } }),
@@ -998,7 +996,6 @@ fn context_documents_reach_every_prompt_and_a_missing_one_is_noted() {
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
     host.push_done("inv-1", r#"{"responses":[{"text":"b"}]}"#);
     host.push_done("inv-2", r#"{"scripts":[]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let mut params = base_params();
     params["context_documents"] = json!(["/notes/auth", "/notes/missing"]);
@@ -1038,7 +1035,6 @@ fn caller_chosen_skills_and_memory_paths_are_honoured_on_both_sides() {
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/notes", "name": "a", "typeRef": "x" }])));
     host.push_start("inv-0");
     host.push_done("inv-0", r#"{"responses":[{"text":"a durable fact","memory":true}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let mut params = base_params();
     params["memory_path"] = json!("/team/notes/memories");
@@ -1069,7 +1065,6 @@ fn omitting_memory_path_turns_memories_off_on_both_sides() {
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/notes", "name": "a", "typeRef": "x" }])));
     host.push_start("inv-0");
     host.push_done("inv-0", r#"{"responses":[{"text":"a durable fact","memory":true}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let mut params = base_params();
     params.as_object_mut().unwrap().remove("memory_path");
@@ -1096,7 +1091,6 @@ fn memories_off_with_nothing_flagged_says_nothing() {
     host.push_fail(DOCUMENT_GET_REF, "not found");
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"nothing durable here"}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let mut params = base_params();
     params.as_object_mut().unwrap().remove("memory_path");
@@ -1116,7 +1110,6 @@ fn recall_failing_does_not_stop_the_run() {
     host.push_fail(DOCUMENT_GET_REF, "not found");
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"Auth uses tokens."}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
 
@@ -1145,7 +1138,6 @@ fn an_action_inquiry_carries_the_parameter_schema_into_its_prompt() {
     host.push_ok(TYPE_GET_REF, json!({ "schema": { "type": "object", "properties": { "q": { "type": "string" } } } }));
     host.push_start("inv-0");
     host.push_done("inv-0", r#"{"scripts":[]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
     assert!(out.success, "{:?}", out.message);
@@ -1170,7 +1162,6 @@ fn an_intent_amendment_is_appended_to_the_default_never_substituted_for_it() {
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/n", "name": "a", "typeRef": "x" }])));
     host.push_start("inv-0");
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     run(&host, base_params());
 
@@ -1196,7 +1187,6 @@ fn caller_prompt_overrides_replace_the_defaults() {
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/n", "name": "a", "typeRef": "x" }])));
     host.push_start("inv-0");
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let mut params = base_params();
     params["intent_prompt"] = json!("custom intent prompt");
@@ -1214,7 +1204,6 @@ fn max_inquiries_cannot_be_raised_past_three() {
     push_empty_context(&host);
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"ok"}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let mut params = base_params();
     params["max_inquiries"] = json!(25);
@@ -1236,7 +1225,6 @@ fn connection_overrides_are_forwarded_to_every_call_including_the_fanned_out_one
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/n", "name": "a", "typeRef": "x" }])));
     host.push_start("inv-0");
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let mut params = base_params();
     params["base_url"] = json!("http://box:9999");
@@ -1283,7 +1271,6 @@ fn recall_and_the_session_read_happen_before_the_first_llm_call() {
     push_empty_context(&host);
     host.push_start("inv-intent");
     host.push_done("inv-intent", r#"{"mode":"direct","response":"ok"}"#);
-    host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     run(&host, base_params());
 

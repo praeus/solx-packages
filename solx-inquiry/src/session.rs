@@ -1,27 +1,28 @@
-//! The session document: reading it for history, and rewriting it with this
-//! turn appended.
+//! The session document: reading it for history, and assembling (never
+//! writing) the updated document for the caller to persist.
 //!
 //! One session is one document, addressed by the caller as a full
-//! `/path/name` reference. This is the first thing in `solx-inquiry` that
-//! *writes*, and the write is deliberately the last thing an `instruct` does:
-//! the results are already assembled by then, so a session that cannot be
-//! written costs the caller a history entry, not the answer they asked for.
+//! `/path/name` reference. `multi_inquire` performs no writes of its own
+//! anywhere - [`build_document`] is the last piece of its output assembled,
+//! mirroring how [`crate::multi::mint_memories`] builds save-ready memory
+//! payloads.
 //!
-//! The `InstructSession` type declares `title`, `lastInstruction` and
+//! The `MultiInquireSession` type declares `title`, `lastInstruction` and
 //! `turnCount`, and pointedly **does not declare `turns`**. `solx-docs`
 //! computes a document's full-text content by walking only the fields its type
 //! declares, so an undeclared `turns` is stored and returned but never enters
-//! the FTS index. That matters because these documents are rewritten on every
+//! the FTS index. That matters because these documents grow with every
 //! instruction and would otherwise re-index an entire growing transcript each
 //! time — the same reasoning behind `solx-agent`'s undeclared `messages`.
 //! `title` and `summary` *are* indexed, which is what lets a session be found
-//! later by what it was about.
+//! later by what it was about — still true whichever caller ends up saving it
+//! with this same type.
 
 use serde_json::{json, Value};
 
 use crate::host::{split_ref, take_within_budget, truncate, Host};
-use crate::instruct_params::{
-    InstructParams, HISTORY_BLOCK_CAP, INSTRUCT_AUTHOR, SESSION_TURN_CAP, SESSION_TYPE_REF,
+use crate::params::multi::{
+    MultiInquireParams, HISTORY_BLOCK_CAP, MULTI_INQUIRE_AUTHOR, SESSION_TURN_CAP, SESSION_TYPE_REF,
 };
 
 pub const DOCUMENT_GET_REF: &str = "/builtin/document/entity-get-document";
@@ -47,7 +48,7 @@ pub struct Session {
 ///
 /// A *failed* read is also treated as empty rather than fatal, and says so in
 /// the log — losing history is a worse outcome to cause than to tolerate.
-pub fn load(host: &dyn Host, p: &InstructParams) -> Session {
+pub fn load(host: &dyn Host, p: &MultiInquireParams) -> Session {
     let Some((path, name)) = split_ref(&p.session) else {
         return Session::default();
     };
@@ -134,16 +135,15 @@ pub fn history_block(session: &Session, history_limit: usize) -> Option<String> 
     ))
 }
 
-/// Append this turn and write the document back.
+/// Append this turn and assemble the document a caller would save - never
+/// written by this pipeline itself, only returned.
 ///
-/// `Err` carries a warning string rather than an `Outcome`: the caller records
-/// it in `warnings[]` and still returns the results it already has. A session
-/// write that did not land is worth telling the caller about; it is not worth
-/// discarding a completed instruction over.
-pub fn save(host: &dyn Host, p: &InstructParams, session: &Session, turn: Value) -> Result<(), String> {
-    let Some((path, name)) = split_ref(&p.session) else {
-        return Err(format!("session {} is not a /path/name reference", p.session));
-    };
+/// `p.session` is already validated as a well-formed `/path/name` reference
+/// at [`crate::params::multi::parse`] time, so `split_ref` cannot fail here;
+/// the `.expect()` documents that invariant rather than carrying a `Result`
+/// for a failure mode already ruled out upstream.
+pub fn build_document(p: &MultiInquireParams, session: &Session, turn: Value) -> Value {
+    let (path, name) = split_ref(&p.session).expect("validated in params::multi::parse");
 
     let mut turns = session.turns.clone();
     turns.push(turn.clone());
@@ -164,13 +164,13 @@ pub fn save(host: &dyn Host, p: &InstructParams, session: &Session, turn: Value)
         .map(|t| truncate(t, SUMMARY_CAP))
         .unwrap_or_else(|| truncate(&p.instruction, SUMMARY_CAP));
 
-    let payload = json!({
+    json!({
         "path": path,
         "name": name,
         "typeRef": SESSION_TYPE_REF,
         // Provenance, not a control: this document is a record of model
         // output, and should say so to anything that reads it later.
-        "author": INSTRUCT_AUTHOR,
+        "author": MULTI_INQUIRE_AUTHOR,
         "title": title,
         "summary": summary,
         "contents": {
@@ -178,17 +178,7 @@ pub fn save(host: &dyn Host, p: &InstructParams, session: &Session, turn: Value)
             "turnCount": turns.len(),
             "lastInstruction": p.instruction,
         },
-    });
-
-    match host.exec(DOCUMENT_SAVE_REF, &payload) {
-        Ok(c) if c.success => Ok(()),
-        Ok(c) => Err(format!(
-            "could not write session {}: {}",
-            p.session,
-            c.message.unwrap_or_else(|| "no message".to_string())
-        )),
-        Err(e) => Err(format!("could not write session {}: {e}", p.session)),
-    }
+    })
 }
 
 #[cfg(test)]

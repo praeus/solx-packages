@@ -63,7 +63,7 @@ const STOPWORDS: &[&str] = &[
 
 /// Derive search terms from a question **without** an llm call.
 ///
-/// `instruct`'s intent schema marks each inquiry's `terms` as `required`, so
+/// `multi_inquire`'s intent schema marks each inquiry's `terms` as `required`, so
 /// a compliant model always supplies them. This covers the model that ignores
 /// `format` anyway — and it covers it locally, because the alternative (one
 /// `generate_search_terms` call per inquiry) would double the call budget and,

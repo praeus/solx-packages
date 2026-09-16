@@ -562,7 +562,7 @@ fn unknown_and_absent_fn_names() {
     assert!(!out.success);
     assert_eq!(kind(&out), "unknown_action");
     assert_eq!(out.output["fn_name"], json!("nope"));
-    assert_eq!(out.output["known"], json!(["inquire", "instruct"]));
+    assert_eq!(out.output["known"], json!(["inquire", "multi_inquire"]));
 
     let out = solx_inquiry::dispatch(&host, None, "{}");
     assert_eq!(kind(&out), "unknown_action");

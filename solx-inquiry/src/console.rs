@@ -1,12 +1,12 @@
-//! Tagged console output for `instruct`.
+//! Tagged console output for `multi_inquire`.
 //!
-//! Every milestone of an `instruct` run is printed to the action's own console
-//! with **both** a human-readable tagged message and a machine-readable `data`
-//! object, so a caller can reconstruct the run afterwards from
-//! `/builtin/console/read` without re-running anything. The point of the tag
-//! grammar is that it is parseable: `[instruct:<phase>]` or
-//! `[instruct:inquiry:<index>:<step>]`, one vocabulary, defined here and
-//! nowhere else.
+//! Every milestone of a `multi_inquire` run is printed to the action's own
+//! console with **both** a human-readable tagged message and a
+//! machine-readable `data` object, so a caller can reconstruct the run
+//! afterwards from `/builtin/console/read` without re-running anything. The
+//! point of the tag grammar is that it is parseable: `[multi_inquire:<phase>]`
+//! or `[multi_inquire:inquiry:<index>:<step>]`, one vocabulary, defined here
+//! and nowhere else.
 //!
 //! Printing is best-effort throughout. A console hiccup is an observability
 //! problem, never a reason to fail a pipeline that is otherwise producing
@@ -18,8 +18,8 @@ use crate::host::Host;
 use crate::llm::CONSOLE_PRINT_REF;
 
 /// Root of every tag this package prints. A caller filtering console entries
-/// for an `instruct` run matches on this prefix.
-pub const TAG_ROOT: &str = "instruct";
+/// for a `multi_inquire` run matches on this prefix.
+pub const TAG_ROOT: &str = "multi_inquire";
 
 pub const PHASE_RECALL: &str = "recall";
 pub const PHASE_CONTEXT: &str = "context";
@@ -31,18 +31,19 @@ pub const STEP_HITS: &str = "hits";
 pub const STEP_RESULT: &str = "result";
 pub const STEP_ERROR: &str = "error";
 
-/// `[instruct:<phase>]`.
+/// `[multi_inquire:<phase>]`.
 pub fn phase_tag(phase: &str) -> String {
     format!("{TAG_ROOT}:{phase}")
 }
 
-/// `[instruct:inquiry:<index>]` — also the prefix echoed child console lines
-/// carry, which is what makes live model output attributable to one inquiry.
+/// `[multi_inquire:inquiry:<index>]` — also the prefix echoed child console
+/// lines carry, which is what makes live model output attributable to one
+/// inquiry.
 pub fn inquiry_tag(index: usize) -> String {
     format!("{TAG_ROOT}:inquiry:{index}")
 }
 
-/// `[instruct:inquiry:<index>:<step>]`.
+/// `[multi_inquire:inquiry:<index>:<step>]`.
 pub fn inquiry_step_tag(index: usize, step: &str) -> String {
     format!("{}:{}", inquiry_tag(index), step)
 }
@@ -57,7 +58,7 @@ pub fn print(host: &dyn Host, tag: &str, message: &str, data: Value) {
 }
 
 /// Same, at `warn` — used for a degraded-but-continuing outcome (a failed
-/// inquiry among several that succeeded, a session write that did not land).
+/// inquiry among several that succeeded).
 pub fn warn(host: &dyn Host, tag: &str, message: &str, data: Value) {
     let _ = host.exec(
         CONSOLE_PRINT_REF,
@@ -71,8 +72,8 @@ mod tests {
 
     #[test]
     fn tags_are_parseable_and_stable() {
-        assert_eq!(phase_tag(PHASE_INTENT), "instruct:intent");
-        assert_eq!(inquiry_tag(0), "instruct:inquiry:0");
-        assert_eq!(inquiry_step_tag(2, STEP_HITS), "instruct:inquiry:2:hits");
+        assert_eq!(phase_tag(PHASE_INTENT), "multi_inquire:intent");
+        assert_eq!(inquiry_tag(0), "multi_inquire:inquiry:0");
+        assert_eq!(inquiry_step_tag(2, STEP_HITS), "multi_inquire:inquiry:2:hits");
     }
 }

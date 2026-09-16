@@ -20,7 +20,7 @@
 use serde_json::{json, Value};
 
 use crate::host::{join_within_budget, split_ref, truncate, Host};
-use crate::instruct_params::{InstructParams, CONTEXT_BLOCK_CAP, CONTEXT_TEXT_CAP};
+use crate::params::multi::{MultiInquireParams, CONTEXT_BLOCK_CAP, CONTEXT_TEXT_CAP};
 use crate::session::DOCUMENT_GET_REF;
 
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ pub struct ContextDocument {
 /// Fetch every named document, in the order given. Returns what loaded and a
 /// note for each one that did not, so a caller who mistyped a reference is
 /// told rather than left to wonder why their document never showed up.
-pub fn fetch(host: &dyn Host, p: &InstructParams) -> (Vec<ContextDocument>, Vec<String>) {
+pub fn fetch(host: &dyn Host, p: &MultiInquireParams) -> (Vec<ContextDocument>, Vec<String>) {
     let mut docs = Vec::new();
     let mut notes = Vec::new();
 
@@ -63,11 +63,12 @@ pub fn fetch(host: &dyn Host, p: &InstructParams) -> (Vec<ContextDocument>, Vec<
 }
 
 /// A document has no fixed shape below `contents`, unlike a memory (which
-/// this pipeline itself writes with a known `text` field). `contents.text` is
-/// read the same way a memory is, for a context document another `instruct`
-/// run minted; anything else is read as the document's contents verbatim, so
-/// a context document written by hand or by another tool still comes through
-/// as whatever it actually holds rather than nothing at all.
+/// this pipeline itself produces with a known `text` field). `contents.text`
+/// is read the same way a memory is, for a context document another
+/// `multi_inquire` run minted; anything else is read as the document's
+/// contents verbatim, so a context document written by hand or by another
+/// tool still comes through as whatever it actually holds rather than
+/// nothing at all.
 fn to_context_document(reference: &str, doc: &Value) -> Option<ContextDocument> {
     let title = doc.get("title").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
     let contents = doc.get("contents")?;
@@ -120,7 +121,7 @@ pub fn context_block(docs: &[ContextDocument]) -> Option<String> {
 mod tests {
     use super::*;
 
-    // `fetch` itself is exercised end to end in `tests/instruct.rs`, against
+    // `fetch` itself is exercised end to end in `tests/multi.rs`, against
     // that suite's `FakeHost` - these cover the pure logic: reading a
     // document's text out of whatever shape it actually has, and assembling
     // the block from what was read.

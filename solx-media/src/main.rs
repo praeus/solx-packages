@@ -1,4 +1,5 @@
-//! solx-media — media extraction action binary for solx-core.
+//! solx-media — media ex
+//! traction action binary for solx-core.
 //!
 //! Reads JSON on stdin, dispatches on `argv[1]` to image / audio / video /
 //! materialize-html / install-whisper-model. Extraction modes POST their

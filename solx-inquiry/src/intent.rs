@@ -1,4 +1,4 @@
-//! Phase 1 of `instruct`: decide what the instruction actually needs.
+//! Phase 1 of `multi_inquire`: decide what the instruction actually needs.
 //!
 //! One llm call, `format`-constrained to a decision rather than prose: either
 //! answer now (`direct`), or name up to three things to look up (`inquire`).
@@ -14,7 +14,7 @@
 use serde_json::{json, Value};
 
 use crate::host::{Host, Outcome};
-use crate::instruct_params::InstructParams;
+use crate::params::multi::MultiInquireParams;
 use crate::params::Scope;
 use crate::prompts;
 use crate::recall::{all_skills, memory_block, skill_block, Recalled};
@@ -62,7 +62,7 @@ pub struct Intent {
     pub response: Option<String>,
     pub memory: bool,
     pub inquiries: Vec<Inquiry>,
-    /// An instruction for a later, separate `instruct` call, once this run's
+    /// An instruction for a later, separate `multi_inquire` call, once this run's
     /// inquiries have been acted on. Proposed here, before any inquiry has
     /// run, so it is speculative — a hint at what comes next in general
     /// terms, not something grounded in results it has not seen. Nothing in
@@ -87,7 +87,7 @@ pub const STAGE: &str = "intent";
 
 pub fn decide(
     host: &dyn Host,
-    p: &InstructParams,
+    p: &MultiInquireParams,
     recalled: &Recalled,
     session: &Session,
     context_block: Option<&str>,

@@ -8,7 +8,7 @@
 //! two different reasons: both calls return full `Document` rows (so a skill's
 //! `contents` is already on the hit), and a memory's text is written into its
 //! `summary` as well as its contents (so recall reads the row directly). Both
-//! are done **once** per `instruct`, before the fan-out, so N parallel
+//! are done **once** per `multi_inquire`, before the fan-out, so N parallel
 //! inquiries share one lookup rather than repeating it N times.
 //!
 //! Neither call passes a `q`. `solx-docs`' `fts_match_query` quotes and
@@ -25,8 +25,8 @@
 use serde_json::{json, Value};
 
 use crate::host::{join_within_budget, truncate, Host};
-use crate::instruct_params::{
-    InstructParams, MEMORY_BLOCK_CAP, MEMORY_TEXT_CAP, MEMORY_TYPE_REF, SKILL_INSTRUCTIONS_CAP,
+use crate::params::multi::{
+    MultiInquireParams, MEMORY_BLOCK_CAP, MEMORY_TEXT_CAP, MEMORY_TYPE_REF, SKILL_INSTRUCTIONS_CAP,
     SKILL_SEARCH_LIMIT, SKILL_TOTAL_CAP, SKILL_TYPE_REF,
 };
 use crate::search::DOCUMENT_SEARCH_REF;
@@ -103,14 +103,14 @@ impl Recalled {
 /// Both lookups. Best-effort as a whole: recall is reference material, and an
 /// instruction that can be answered without it must not fail because a search
 /// hiccupped or because the skills path does not exist yet on a fresh install.
-pub fn recall(host: &dyn Host, p: &InstructParams) -> Recalled {
+pub fn recall(host: &dyn Host, p: &MultiInquireParams) -> Recalled {
     Recalled {
         skills: recall_skills(host, p),
         memories: recall_memories(host, p),
     }
 }
 
-fn recall_skills(host: &dyn Host, p: &InstructParams) -> Vec<Skill> {
+fn recall_skills(host: &dyn Host, p: &MultiInquireParams) -> Vec<Skill> {
     let payload = json!({
         "pathPrefix": p.skills_path,
         "typeRef": SKILL_TYPE_REF,
@@ -162,7 +162,7 @@ fn recall_skills(host: &dyn Host, p: &InstructParams) -> Vec<Skill> {
 /// `list` filters a column by substring rather than by exact value, so the
 /// rows are checked against [`MEMORY_TYPE_REF`] again below: cheap, and it
 /// keeps a neighbouring type whose name merely contains this one out.
-fn recall_memories(host: &dyn Host, p: &InstructParams) -> Vec<Memory> {
+fn recall_memories(host: &dyn Host, p: &MultiInquireParams) -> Vec<Memory> {
     let Some(memory_path) = p.memory_path.as_deref() else {
         return Vec::new();
     };

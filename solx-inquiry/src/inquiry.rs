@@ -1,4 +1,4 @@
-//! Phase 2 of `instruct`: one inquiry's search, its llm payload, and the
+//! Phase 2 of `multi_inquire`: one inquiry's search, its llm payload, and the
 //! parsing of what comes back.
 //!
 //! The searching happens *before* the fan-out and the parsing *after* it, so
@@ -16,7 +16,7 @@
 use serde_json::{json, Value};
 
 use crate::host::{Host, Outcome};
-use crate::instruct_params::{InstructParams, MEMORY_TYPE_REF, SESSION_TYPE_REF, SKILL_TYPE_REF};
+use crate::params::multi::{MultiInquireParams, MEMORY_TYPE_REF, SESSION_TYPE_REF, SKILL_TYPE_REF};
 use crate::intent::Inquiry;
 use crate::prompts;
 use crate::recall::{memory_block, skill_block, skills_for, Recalled};
@@ -65,13 +65,13 @@ impl Response {
 /// its `paramSchema` already fetched — which is exactly what the action prompt
 /// needs in order to ask for correct parameters rather than plausible ones.
 ///
-/// `type_cache` is the caller's, not this function's: `instruct::run` builds
+/// `type_cache` is the caller's, not this function's: `multi::run` builds
 /// one and passes the same one to every inquiry's `prepare`, so an action two
 /// inquiries both surface (a common helper like `search-documents` is a likely
 /// one) fetches its schema once rather than once per inquiry that finds it.
 pub fn prepare(
     host: &dyn Host,
-    p: &InstructParams,
+    p: &MultiInquireParams,
     index: usize,
     inquiry: Inquiry,
     type_cache: &mut search::TypeCache,
@@ -81,7 +81,7 @@ pub fn prepare(
         max_results: p.max_results,
         // Each inquiry picks its own scope, so it takes the path prefix that
         // matches: `document_path_prefix` and `action_path_prefix` are
-        // independent because one `instruct` call can fan out inquiries of
+        // independent because one `multi_inquire` call can fan out inquiries of
         // both kinds with different reach in mind.
         path_prefix: if inquiry.is_actions() {
             p.action_path_prefix.clone()
@@ -141,10 +141,10 @@ pub fn prepare(
 /// the first answer. Model output must not become evidence by having been
 /// written down.
 ///
-/// `author` is stamped on everything `instruct` writes, but nothing here
-/// branches on it: it is provenance for a human or a later tool reading the
-/// document, not a control this pipeline depends on.
-fn is_reference_material(p: &InstructParams, hit: &Hit) -> bool {
+/// `author` is stamped on every document payload `multi_inquire` produces,
+/// but nothing here branches on it: it is provenance for a human or a later
+/// tool reading the document, not a control this pipeline depends on.
+fn is_reference_material(p: &MultiInquireParams, hit: &Hit) -> bool {
     if hit.source != "document" {
         return false;
     }
@@ -167,7 +167,7 @@ fn under(path: &str, root: &str) -> bool {
 }
 
 /// The chat payload for one prepared inquiry.
-pub fn payload(p: &InstructParams, recalled: &Recalled, prepared: &Prepared, context_block: Option<&str>) -> Value {
+pub fn payload(p: &MultiInquireParams, recalled: &Recalled, prepared: &Prepared, context_block: Option<&str>) -> Value {
     let actions = prepared.inquiry.is_actions();
 
     let mut system = if actions {
@@ -411,8 +411,8 @@ mod tests {
         }
     }
 
-    fn params() -> InstructParams {
-        crate::instruct_params::parse(&json!({
+    fn params() -> MultiInquireParams {
+        crate::params::multi::parse(&json!({
             "instruction": "i", "model": "m", "session": "/s/one",
             "memory_path": "/solx-inquiry/memories",
         }))
@@ -441,7 +441,7 @@ mod tests {
         // With no memory_path there is no path to compare against, so the type
         // check is the only thing standing between a past answer and being
         // cited as fact.
-        let mut off = crate::instruct_params::parse(&json!({
+        let mut off = crate::params::multi::parse(&json!({
             "instruction": "i", "model": "m", "session": "/s/one",
         }))
         .unwrap();

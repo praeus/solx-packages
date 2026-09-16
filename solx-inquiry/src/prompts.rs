@@ -3,9 +3,9 @@
 //!
 //! Every default is deliberately short: this pipeline targets small local
 //! models via Ollama, and a long system prompt eats into the context budget
-//! those models can least afford to spend. That bites hardest on `instruct`'s
-//! inquiry prompts, which also carry skills, memories and a page of search
-//! hits.
+//! those models can least afford to spend. That bites hardest on
+//! `multi_inquire`'s inquiry prompts, which also carry skills, memories and a
+//! page of search hits.
 
 use serde_json::{json, Value};
 
@@ -42,10 +42,10 @@ pub fn terms_schema(max_terms: usize) -> Value {
     })
 }
 
-// ── instruct ────────────────────────────────────────────────────────────────
+// ── multi_inquire ─────────────────────────────────────────────────────────
 //
-// Three prompts, one per decision the `instruct` pipeline asks a model to
-// make: what the instruction needs (intent), what the documents say (document
+// Three prompts, one per decision the `multi_inquire` pipeline asks a model
+// to make: what the instruction needs (intent), what the documents say (document
 // inquiry), and what to run (action inquiry). Each is paired with a `format`
 // schema below, so a compliant model answers in a shape that parses rather
 // than in prose that has to be guessed at.

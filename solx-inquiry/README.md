@@ -7,11 +7,11 @@ prose, memories and runnable action plans. One `wasm32-wasip2` component
 | action | in | out |
 |---|---|---|
 | [`inquire`](#inquire) | a question | one grounded prose answer |
-| [`instruct`](#instruct) | an instruction | responses, save-ready memories, and runnable action plans |
+| [`multi_inquire`](#multi_inquire) | an instruction | responses, save-ready memories, and runnable action plans |
 
-`instruct` is not a wrapper around `inquire`. It reuses this package's search,
-merge and enrichment code directly rather than calling `inquire` as an action,
-which is why it lives here.
+`multi_inquire` is not a wrapper around `inquire`. It reuses this package's
+search, merge and enrichment code directly rather than calling `inquire` as
+an action, which is why it lives here.
 
 ## Build and install
 
@@ -60,9 +60,11 @@ that package first, or point `llm_action_ref` at another action taking
 This is a single straight-line sequence with no interactive loop, which is
 exactly what one guest invocation is good for: unlike an agent harness that
 has to hold state across turns a user drives, this pipeline starts and
-finishes inside one action call. `instruct` keeps that property — it is a
-wider sequence, not a loop — but it is **not** stateless: it reads and writes
-a session document. See [Session documents](#session-documents).
+finishes inside one action call. `multi_inquire` keeps that property — it is
+a wider sequence, not a loop — and, like `inquire`, it performs no writes of
+its own: it reads a session document for history and returns the updated
+version for the caller to persist. See [Session
+documents](#session-documents).
 
 Both chat calls (phase 1 and phase 3) go through [`src/llm.rs`](src/llm.rs)
 rather than a plain nested `exec`. See "Detached llm calls" below for why.
@@ -130,7 +132,7 @@ call's own entries straight into `inquire`'s console, renumbered and
 prefixed `[terms]` / `[summary]`, however many entries there are. This used
 to be `console/tail` followed by one `console/print` per entry; a detached
 chat call streams roughly one console entry per token, so a single phase
-could cost hundreds of `console/print` round trips. `instruct`'s fan-out
+could cost hundreds of `console/print` round trips. `multi_inquire`'s fan-out
 (below) is the sharper case, since it drains up to three children at once —
 see [The inquiry fan-out](#the-inquiry-fan-out).
 
@@ -207,7 +209,7 @@ model for single keywords rather than 2-4 word phrases — a phrasal term can
 silently zero out recall against real documents that only contain some of
 its words.
 
-Asking is not enough on its own, so `instruct` also expands what comes back
+Asking is not enough on its own, so `multi_inquire` also expands what comes back
 (`inquire` does not — it returns its terms to the caller as part of its
 documented result, and quietly rewriting them there would misreport what the
 model said). `max_terms` is a budget of *search calls*, so
@@ -260,9 +262,9 @@ full, untruncated value is still in the returned `hits[].details`.
 
 A type reference is fetched at most once per [`search::TypeCache`](src/search.rs),
 so two actions sharing a `paramTypeRef` — or the same action surfaced by more
-than one of `instruct`'s inquiries — pay for the schema once, not once per hit
-that names it. `inquire` builds a fresh cache per call; `instruct` builds one
-per run and shares it across every inquiry's search, since that is where
+than one of `multi_inquire`'s inquiries — pay for the schema once, not once
+per hit that names it. `inquire` builds a fresh cache per call; `multi_inquire`
+builds one per run and shares it across every inquiry's search, since that is where
 duplication across up-to-three inquiries actually happens. The cache lives
 only for that one call or run — a wasm guest instance carries nothing between
 separate `exec` invocations, so this is not a persistent cache and cannot be.
@@ -271,8 +273,8 @@ same call or run.
 
 `inquire` does not teach `.solx` syntax to the model anywhere, so a caller
 wanting *it* to produce a runnable script has to supply that via a
-`summary_prompt` override. `instruct` avoids the problem rather than solving
-it: the model returns structured steps, which this package validates and
+`summary_prompt` override. `multi_inquire` avoids the problem rather than
+solving it: the model returns structured steps, which this package validates and
 hands back as JSON for the caller to execute directly — no script syntax is
 ever generated — see [Scripts](#scripts).
 
@@ -303,10 +305,10 @@ does not attempt:
   [`host::take_within_budget`](src/host.rs) where the natural order runs the
   other way): the joined hit-context block
   ([`search::MAX_HIT_CONTEXT_CHARS`](src/search.rs), shared by the
-  summarizer and every `instruct` inquiry), the recalled-memories block
-  ([`instruct_params::MEMORY_BLOCK_CAP`](src/instruct_params.rs)), and the
+  summarizer and every `multi_inquire` inquiry), the recalled-memories block
+  ([`params::multi::MEMORY_BLOCK_CAP`](src/params/multi.rs)), and the
   session-history block
-  ([`instruct_params::HISTORY_BLOCK_CAP`](src/instruct_params.rs)). Each
+  ([`params::multi::HISTORY_BLOCK_CAP`](src/params/multi.rs)). Each
   drops whole items from the low-priority end of an already-ordered list —
   lowest-ranked hits, least-recent memories, oldest surviving turns — rather
   than shrinking every item's own truncation further as the count grows,
@@ -322,25 +324,26 @@ ceilings. `options.num_ctx` is the complementary half: the backstop bounds
 what this pipeline *puts* in the prompt, but only a large enough `num_ctx`
 determines what the model actually *keeps* of it.
 
-## instruct
+## multi_inquire
 
-`instruct` takes an instruction rather than a question, and answers with three
-things a caller can act on: **responses** (prose), **memories** (responses the
-model judged worth keeping, returned ready to save) and **scripts** (validated,
-ordered action steps, as JSON, ready to execute).
+`multi_inquire` takes an instruction rather than a question, and answers with
+four things a caller can act on: **responses** (prose), **memories**
+(responses the model judged worth keeping, returned ready to save),
+**scripts** (validated, ordered action steps, as JSON, ready to execute), and
+the **session document** (the updated conversation history, ready to save).
 
-It saves nothing and runs nothing. Deciding which memories are worth keeping
-and which scripts are worth executing is the caller's, which is what keeps the
-thing that generates model output from also being the thing that acts on it.
-The one exception is its own session document.
+It saves nothing and runs nothing at all. Deciding which memories are worth
+keeping, which scripts are worth executing, and whether to persist the
+updated session document is entirely the caller's, which is what keeps the
+thing that generates model output from also being the thing that acts on it
+or records it.
 
 ```text
 recall (skills + memories)      no llm
 intent                          1 detached llm call
-  direct? -> assemble, write the session, return
+  direct? -> assemble, return
 inquiry fan-out                 N <= 3 detached llm calls, in parallel
 assemble                        no llm
-session write
 ```
 
 That is **1 + N** model calls, four at the cap.
@@ -348,7 +351,7 @@ That is **1 + N** model calls, four at the cap.
 ### Usage
 
 ```bash
-solx exec /packages/solx-inquiry/instruct --json '{
+solx exec /packages/solx-inquiry/multi_inquire --json '{
   "instruction": "what do I know about authentication, and how would I search for it?",
   "model": "qwen3:4b",
   "session": "/solx-inquiry/sessions/my-thread",
@@ -375,7 +378,7 @@ returned payloads, everything else unchanged.
   "memories": [
     { "path": "/solx-inquiry/memories", "name": "authentication-issues-a-signed-session-9f2c1b04",
       "typeRef": "/packages/solx-inquiry/InquiryMemory",
-      "author": "/packages/solx-inquiry/instruct",
+      "author": "/packages/solx-inquiry/multi_inquire",
       "summary": "Authentication issues a signed session token at login.",
       "contents": { "text": "...", "tags": [], "instruction": "...", "session": "..." } }
   ],
@@ -386,16 +389,27 @@ returned payloads, everything else unchanged.
         { "action_ref": "/builtin/document/search-documents", "params": { "q": "auth" }, "capture": "hits" }
       ] }
   ],
-  "hits": [ "..." ], "notes": [], "errors": [], "warnings": []
+  "session_document": {
+    "path": "/solx-inquiry/sessions", "name": "my-thread",
+    "typeRef": "/packages/solx-inquiry/MultiInquireSession",
+    "author": "/packages/solx-inquiry/multi_inquire",
+    "title": "what do I know about authentication...",
+    "summary": "Authentication issues a signed session token at login.",
+    "contents": { "turns": [ "..." ], "turnCount": 1, "lastInstruction": "..." }
+  },
+  "hits": [ "..." ], "notes": [], "errors": []
 }
 ```
 
 A returned memory is a complete `entity-save-document` payload — pipe it
-straight in. A returned script is a validated, ordered list of `{action_ref,
-params, capture}` steps; there is no `.solx` text anywhere in it. Executing
-one is the caller's job: call each `action_ref` with its `params` in order,
-substituting any `$name`/`$name.field` string value with the actual result an
-earlier step captured under that name before making the call.
+straight in. So is `session_document` — this call never writes it itself; pass
+it to `entity-save-document` to make this turn part of history the next time
+you call `multi_inquire` with the same `session`. A returned script is a
+validated, ordered list of `{action_ref, params, capture}` steps; there is no
+`.solx` text anywhere in it. Executing one is the caller's job: call each
+`action_ref` with its `params` in order, substituting any `$name`/`$name.field`
+string value with the actual result an earlier step captured under that name
+before making the call.
 
 ### Parameters
 
@@ -403,7 +417,7 @@ earlier step captured under that name before making the call.
 |---|---|---|
 | `instruction` | — (required) | what the user wants, in natural language |
 | `model` | — (required) | used for the intent call and every inquiry |
-| `session` | — (required) | full `/path/name` doc ref; created on first use |
+| `session` | — (required) | full `/path/name` doc ref; read for history, and the updated document is returned as `session_document` for the caller to create/update |
 | `memory_path` | — (off) | where memories are recalled from and stamped on the returned payloads. **Omit it and memories are off entirely** |
 | `context_documents` | — | full `/path/name` refs of documents read into every prompt this run makes, unconditionally. **Clamped to 10** — see below |
 | `max_inquiries` | 3 | **clamped to 3** — see below |
@@ -479,7 +493,7 @@ more than one child:
   console is keyed by `action_ref` alone. This is also the loop's pacing,
   since `tail` waits when there is nothing to read — then one `console/copy`
   per tracked child pulls that child's own new entries straight into
-  `instruct`'s console (see [Detached llm calls](#detached-llm-calls)), so
+  `multi_inquire`'s console (see [Detached llm calls](#detached-llm-calls)), so
   three children streaming chat output at once cost three copy calls per
   drain rather than one print call per token across all three.
 - **Each child is polled without `wait_secs`**, which returns immediately, so
@@ -597,7 +611,7 @@ matching action. Five are seeded by `install.solx`; they are package content,
 so `uninstall.solx` removes them.
 
 **Memories** (type `InquiryMemory`) are responses a model flagged as durable.
-`instruct` returns the payload; the caller saves it.
+`multi_inquire` returns the payload; the caller saves it.
 
 **Memories are off unless `memory_path` is given.** Omit it and nothing is
 recalled — there is not even a search call — and no payload is minted.
@@ -626,8 +640,9 @@ switching memories on would be worth anything. If any mintable response was
 flagged, a `notes[]` entry says how many, so an empty `memories[]` never reads
 as "nothing was worth keeping".
 
-Every document `instruct` writes — the session, and each returned memory —
-carries `author: /packages/solx-inquiry/instruct`. That is provenance for
+Every document payload `multi_inquire` produces — the session document, and
+each returned memory — carries `author: /packages/solx-inquiry/multi_inquire`.
+That is provenance for
 whoever reads the document later: a memory is model output, and a document that
 does not say so looks exactly like something a person wrote. **Nothing in this
 pipeline branches on it.** Keeping model output out of evidence is the declared
@@ -656,7 +671,7 @@ context document is not).
 Each is fetched with one `entity-get-document` call, once, up front —
 before the intent call, alongside recall — capped at 10 documents. A document's
 text is read the same way a memory's is (`contents.text`, so a document minted
-by an earlier `instruct` run reads back cleanly), falling back to `summary`
+by an earlier `multi_inquire` run reads back cleanly), falling back to `summary`
 and then to the document's raw `contents` for one written by hand or another
 tool, so a context document reads as whatever it actually holds rather than
 nothing at all. The assembled block is capped like the memory and skill blocks
@@ -701,49 +716,49 @@ guidance is not a document about the subject it happens to teach with.
 
 `session` is a full `/path/name` reference, so sessions can live wherever the
 caller wants. The document is read before the intent call (its recent turns
-become history in that prompt) and rewritten once at the very end, with this
-turn appended and the oldest dropped past 50.
+become history in that prompt), and a payload with this turn appended (oldest
+dropped past 50) is assembled once at the very end and returned as
+`session_document` — `multi_inquire` never writes it. Pass it to
+`entity-save-document` yourself to make this turn part of history the next
+time you call with the same `session`.
 
-The `InstructSession` type declares `turnCount` and `lastInstruction` and
+The `MultiInquireSession` type declares `turnCount` and `lastInstruction` and
 pointedly **does not declare `turns`**. `solx-docs` computes a document's
 full-text content by walking only the fields its type declares, so an
 undeclared `turns` is stored and returned but never enters the FTS index —
-which is what keeps rewriting this document on every instruction affordable.
+which is what keeps saving this document on every instruction affordable.
 `title` and `summary` *are* indexed, which is what lets a session be found
-later by what it was about.
+later by what it was about — still true whichever caller ends up saving it.
 
-The write is deliberately last, and a failure to write is a `warnings[]` entry
-rather than an error: by then the results already exist, and discarding a
-completed instruction over its own bookkeeping would be the worse outcome. A
-session document that does not exist yet is an empty session, not an error.
+A session document that does not exist yet is an empty session, not an error.
 
 ### Console tags
 
 Every milestone is printed to the action's own console with both a tagged
 message and a machine-readable `data` object, so a run can be reconstructed
 from `/builtin/console/read` without re-running it. The grammar is
-`[instruct:<phase>]` or `[instruct:inquiry:<index>:<step>]`, and it is defined
-in [`src/console.rs`](src/console.rs) and nowhere else.
+`[multi_inquire:<phase>]` or `[multi_inquire:inquiry:<index>:<step>]`, and it
+is defined in [`src/console.rs`](src/console.rs) and nowhere else.
 
 There is no `solx console` subcommand; the console is read through the
 built-in action:
 
 ```bash
-solx exec /builtin/console/read --json '{"action_ref":"/packages/solx-inquiry/instruct","limit":50}'
+solx exec /builtin/console/read --json '{"action_ref":"/packages/solx-inquiry/multi_inquire","limit":50}'
 ```
 
 | tag | `data` |
 |---|---|
-| `[instruct:recall]` | `{skills: [refs], memories: [refs]}` |
-| `[instruct:context]` | `{context: [refs], notes: [why a named reference did not load]}` |
-| `[instruct:intent]` | the parsed intent object |
-| `[instruct:inquiry:<i>:terms]` | `{kind, question, terms}` |
-| `[instruct:inquiry:<i>:hits]` | `{count, refs}` |
-| `[instruct:inquiry:<i>:result]` | `{responses}` or `{scripts, notes}` |
-| `[instruct:inquiry:<i>:error]` | the failure's own error object |
-| `[instruct:result]` | `{responses, memories, scripts, errors, warnings}` |
+| `[multi_inquire:recall]` | `{skills: [refs], memories: [refs]}` |
+| `[multi_inquire:context]` | `{context: [refs], notes: [why a named reference did not load]}` |
+| `[multi_inquire:intent]` | the parsed intent object |
+| `[multi_inquire:inquiry:<i>:terms]` | `{kind, question, terms}` |
+| `[multi_inquire:inquiry:<i>:hits]` | `{count, refs}` |
+| `[multi_inquire:inquiry:<i>:result]` | `{responses}` or `{scripts, notes}` |
+| `[multi_inquire:inquiry:<i>:error]` | the failure's own error object |
+| `[multi_inquire:result]` | `{responses, memories, scripts, errors}` |
 
-Echoed child lines keep the `[instruct:inquiry:<i>]` prefix, so live model
+Echoed child lines keep the `[multi_inquire:inquiry:<i>]` prefix, so live model
 output is attributable to the inquiry that produced it.
 
 ### Why there is no result phase
@@ -756,16 +771,16 @@ already say, and it would be the one place in this pipeline where a model
 could contradict its own grounded output with nothing to check it against.
 Every other model call here is anchored to something: search hits, or a
 parameter schema. A caller who wants one answer out of several can add that
-layer — with `inquire`, or with another `instruct` — over output that is still
-individually cited.
+layer — with `inquire`, or with another `multi_inquire` — over output that is
+still individually cited.
 
-## Looping instruct
+## Looping multi_inquire
 
-`instruct` is one call: recall, one intent decision, up to three inquiries,
-assemble, write the session, return. It does not loop itself, does not
-re-invoke itself, and consumes none of its own output — a multi-turn agent
-built on it is a caller wrapping repeated calls around what is otherwise a
-straight-line pipeline, the same way [Why there is no result
+`multi_inquire` is one call: recall, one intent decision, up to three
+inquiries, assemble, return. It does not loop itself, does not re-invoke
+itself, and consumes none of its own output — a multi-turn agent built on it
+is a caller wrapping repeated calls around what is otherwise a straight-line
+pipeline, the same way [Why there is no result
 phase](#why-there-is-no-result-phase) says a caller adds its own synthesis
 layer on top rather than finding one built in.
 
@@ -783,6 +798,9 @@ layer on top rather than finding one built in.
 - **`memories[]`** — ready-to-save `entity-save-document` payloads, present
   only when `memory_path` was given and only for responses an inquiry
   produced and the model flagged durable.
+- **`session_document`** — the updated session, ready for the same
+  `entity-save-document` call, present on every successful run. Like
+  `memories[]` and `scripts[]`, `multi_inquire` never saves this itself.
 - **`responses[]`/`hits[]`** — the answer and its evidence, each response
   tagged with the inquiry index (or `null` for a direct answer) that produced
   it.
@@ -794,15 +812,20 @@ layer on top rather than finding one built in.
 ```text
 instruction, session = (starting instruction, a fresh or existing session ref)
 loop:
-    result = exec instruct --json {instruction, model, session, memory_path?, context_documents?, ...}
+    result = exec multi_inquire --json {instruction, model, session, memory_path?, context_documents?, ...}
 
     if not result.success:
         handle by result.kind (see Errors) - a "cancelled" result carries
         whatever was assembled so far under result.partial
 
     for memory in result.memories:
-        # instruct never saves these itself
+        # multi_inquire never saves these itself
         exec entity-save-document --json memory
+
+    if result.session_document:
+        # multi_inquire never saves this itself either - skip it and the
+        # next call in this loop starts with no history, not an error
+        exec entity-save-document --json result.session_document
 
     for script in result.scripts:
         if script.destructive is non-empty:
@@ -820,24 +843,31 @@ loop:
         break                              # nothing says "done" but this
 ```
 
-`session` stays the same reference across every iteration - that is what
-lets each call's intent phase see the last `history_limit` turns as context
-(see [Session documents](#session-documents)). Everything else above is
-this package returning the same shape of output it always does; nothing
-about calling it in a loop changes that shape.
+`session` stays the same reference across every iteration - that is what lets
+each call's intent phase see the last `history_limit` turns as context (see
+[Session documents](#session-documents)), *provided* the loop actually saved
+the previous iteration's `session_document` - since `multi_inquire` never
+writes it itself, history only carries forward if the loop persists it each
+turn. Everything else above is this package returning the same shape of
+output it always does; nothing about calling it in a loop changes that shape.
 
 ### Before building one
 
 - **Nothing executes a script.** `scripts[].steps` is validated JSON, not a
-  side effect — a loop that wants to *act* on what `instruct` proposes has to
-  write the executor itself: call each `action_ref` with its `params` in
-  order, substituting `$name`/`$name.field` for the real value an earlier
+  side effect — a loop that wants to *act* on what `multi_inquire` proposes
+  has to write the executor itself: call each `action_ref` with its `params`
+  in order, substituting `$name`/`$name.field` for the real value an earlier
   step in that same script captured. See [Scripts](#scripts).
 - **`destructive[]` is not exhaustive** (see the caveat in
   [Scripts](#scripts)): a configured `tool_destructive` list is invisible
   from inside a wasm guest. Treat an empty `destructive[]` as "nothing *this
   package* could see," not as a clearance to auto-run anything, especially
   in a loop with no human in it to catch what the check could not.
+- **Nothing persists the session document either.** Like `scripts[]` and
+  `memories[]`, `session_document` is returned, not saved — a loop (or
+  single-shot caller) that wants history to survive into the next call must
+  `exec entity-save-document` with it itself; skipping this silently means
+  every call starts with an empty session and no history, not an error.
 - **Session history is orientation, not a memory of what the loop did.**
   `history_block` carries only `responses[0].text` per turn, truncated, for
   up to `history_limit` turns — not `scripts`, not execution results, not
@@ -849,12 +879,14 @@ about calling it in a loop changes that shape.
   but the loop's own logic — build in a turn limit independent of
   `SESSION_TURN_CAP` (50), which only bounds the session *document*, silently
   dropping the oldest turns rather than ending anything.
-- **One session, one writer at a time.** The session read-modify-write
-  (load turns, append this one, save) has no guard against two overlapping
-  `instruct` calls against the same `session` racing each other — do not run
+- **One session, one writer at a time.** The session read-modify-append that
+  produces `session_document` (load turns, append this one) has no guard
+  against two overlapping `multi_inquire` calls against the same `session`
+  racing each other — and since the caller is now the one saving it, that
+  race is entirely on whoever calls `entity-save-document`. Do not run
   concurrent loop iterations, or concurrent loops, against one session.
 - **Size the loop's own timeout to how the call actually runs.** Under
-  `solx-server`/`solx-mcp` each `instruct` call fans its inquiries out
+  `solx-server`/`solx-mcp` each `multi_inquire` call fans its inquiries out
   concurrently (see [The inquiry fan-out](#the-inquiry-fan-out)); under a
   bare `solx exec` it falls back to running its `1 + N` model calls one after
   another (see [Detached llm calls](#detached-llm-calls)) - a loop driven
@@ -865,27 +897,24 @@ about calling it in a loop changes that shape.
 
 A failed call returns `success: false` with a machine-readable `result`
 object carrying `kind`, `error`, and `stage` — `"terms"`, `"search"` or
-`"summary"` for `inquire`; `"intent"`, `"inquiry"` or `instruct:inquiry:<i>`
-for `instruct`:
+`"summary"` for `inquire`; `"intent"`, `"inquiry"` or `multi_inquire:inquiry:<i>`
+for `multi_inquire`:
 
 | `kind` | meaning |
 |---|---|
-| `bad_params` | `inquiry`/`model` missing or `scope` invalid; for `instruct`, `instruction`/`model`/`session` missing or `session` not a `/path/name` ref |
+| `bad_params` | `inquiry`/`model` missing or `scope` invalid; for `multi_inquire`, `instruction`/`model`/`session` missing or `session` not a `/path/name` ref |
 | `dispatch_error` | the host rejected a nested call (e.g. `llm_action_ref` isn't installed, or `action-poll`/`action-start` itself failed) |
 | `llm_error` | the llm action ran but reported failure (bad model, auth, transport, ...); its own output is under `inner` |
-| `inquiry_error` | `instruct` only: *every* inquiry failed. Each entry in `errors` carries its own kind, since the causes can differ |
+| `inquiry_error` | `multi_inquire` only: *every* inquiry failed. Each entry in `errors` carries its own kind, since the causes can differ |
 | `search_error` | `search-documents`/`search-actions` reported failure; carries `term` and `inner` |
-| `bad_llm_output` | the model's response had no extractable search terms, or an empty summary. `instruct` does not raise this: unparseable intent output becomes a direct answer, and unparseable inquiry output becomes an uncited response or a note |
-| `cancelled` | the action's own invocation was stopped mid-call; every outstanding child chat invocation was stopped too. `instruct` carries what it had under `partial` |
-| `unknown_action` | the row's `fn_name` is neither `inquire` nor `instruct` |
+| `bad_llm_output` | the model's response had no extractable search terms, or an empty summary. `multi_inquire` does not raise this: unparseable intent output becomes a direct answer, and unparseable inquiry output becomes an uncited response or a note |
+| `cancelled` | the action's own invocation was stopped mid-call; every outstanding child chat invocation was stopped too. `multi_inquire` carries what it had under `partial` |
+| `unknown_action` | the row's `fn_name` is neither `inquire` nor `multi_inquire` |
 
-Two failures `instruct` deliberately does **not** raise, because they are
-partial rather than total:
-
-- **One inquiry failing** (a failed search, a failed model call, a refused
-  `action-start`) lands in `errors[]` and the run continues.
-- **A session document that could not be written** lands in `warnings[]`. The
-  results already exist by then.
+One failure `multi_inquire` deliberately does **not** raise, because it is
+partial rather than total: one inquiry failing (a failed search, a failed
+model call, a refused `action-start`) lands in `errors[]` and the run
+continues.
 
 Neither is a memory that was refused for being ungrounded, either: a direct
 answer flagged `memory` produces a `notes[]` entry, not an error. The run
@@ -894,7 +923,7 @@ succeeded; one thing the model wanted kept was not kept, and it says so.
 ## Layout
 
 ```
-src/lib.rs             dispatch on fn_name ("inquire" / "instruct")
+src/lib.rs             dispatch on fn_name ("inquire" / "multi_inquire")
 src/host.rs            the Host trait, and shared prompt-budget helpers (see Prompt size)
 src/guest.rs           wit-bindgen shim (wasm32 only)
 
@@ -903,24 +932,26 @@ src/llm.rs             drive one chat call: detached start/poll/drain/cancel, or
 src/prompts.rs         every default prompt and every structured-output schema
 src/search.rs          run search-documents/search-actions, normalize, merge, enrich
 src/terms.rs           generate search terms from a model, or derive them locally
-src/params.rs          parse/default an inquire call's params, and the shared llm overrides
+src/params.rs          the shared Params/Scope/llm-overrides root
+src/params/inquire.rs  parse/default an inquire call's params
+src/params/multi.rs    parse/default a multi_inquire call's params, and every cap
 
 inquire
 src/summarize.rs       summarize the merged hits against the inquiry
 
-instruct
-src/instruct.rs        the orchestrator, and minting save-ready memory payloads
-src/instruct_params.rs parse/default an instruct call's params, and every cap
+multi_inquire
+src/multi.rs           the orchestrator, and minting save-ready memory payloads
 src/recall.rs          skills and memories: two lookups, and the blocks they become
+src/context.rs         named context documents: fetch, and the block they become
 src/intent.rs          decide: answer directly, or name what to look up
 src/inquiry.rs         one inquiry's search, its payload, and parsing what comes back
 src/fanout.rs          run N chat calls at once: start all, then poll/drain/cancel as one
 src/script.rs          validate structured steps against the catalogue, dropping unsurfaced actions
-src/session.rs         read the session for history, write it back with this turn
-src/console.rs         the [instruct:...] console tag vocabulary
+src/session.rs         read the session for history, assemble the updated document for the caller to save
+src/console.rs         the [multi_inquire:...] console tag vocabulary
 
 tests/dispatch.rs      the inquire pipeline, against a FakeHost
-tests/instruct.rs      the instruct pipeline, against a FakeHost that scripts concurrent children
+tests/multi.rs         the multi_inquire pipeline, against a FakeHost that scripts concurrent children
 wit/                   vendored copy of solx-core/solx-wasm/wit/custom-action.wit
 ```
 

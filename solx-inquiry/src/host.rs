@@ -68,7 +68,7 @@ impl Outcome {
 }
 
 /// Alias every top-level key of `params` under its opposite-case-convention
-/// spelling, so a caller need not know that `inquire`'s and `instruct`'s own
+/// spelling, so a caller need not know that `inquire`'s and `multi_inquire`'s own
 /// params are snake_case even though the wider solx ecosystem mixes that with
 /// camelCase elsewhere (entity/search params on the solx-core side).
 ///

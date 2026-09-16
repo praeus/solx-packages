@@ -1,13 +1,12 @@
-//! The `instruct` action: an instruction in, responses / memories / scripts
-//! out.
+//! The `multi_inquire` action: an instruction in, responses / memories /
+//! scripts / a session document out.
 //!
 //! ```text
 //! recall (skills + memories)      no llm
 //! intent                          1 detached llm call
-//!   direct? -> assemble, write the session, return
+//!   direct? -> assemble, return
 //! inquiry fan-out                 N <= 3 detached llm calls, in parallel
 //! assemble                        no llm
-//! session write
 //! ```
 //!
 //! `1 + N` model calls, four at the cap. There is no result-synthesis phase:
@@ -18,12 +17,11 @@
 //! be the one place in this pipeline where a model could contradict its own
 //! grounded output with nothing to check it against.
 //!
-//! `instruct` **saves nothing**. Memories come back as ready-to-save document
-//! payloads and scripts as validated, structured action steps for the caller
-//! to execute directly; deciding what to keep and what to run is the
-//! caller's, which is what keeps a pipeline that writes model output from
-//! also being the thing that acts on it. The one exception is the session
-//! document, which is this action's own record of what it did.
+//! `multi_inquire` **saves nothing at all**. Memories, scripts, and the
+//! session document itself all come back as ready-to-save/execute payloads
+//! for the caller — deciding what to keep, run, or persist is entirely the
+//! caller's, which is what keeps the thing that produces model output from
+//! also being the thing that acts on it or records it.
 
 use serde_json::{json, Value};
 
@@ -31,18 +29,18 @@ use crate::console;
 use crate::context;
 use crate::fanout::{self, Job};
 use crate::host::{truncate, Host, Outcome};
-use crate::instruct_params::{
-    self, InstructParams, INSTRUCT_AUTHOR, MEMORY_TEXT_CAP, MEMORY_TYPE_REF,
-};
 use crate::inquiry::{self, Prepared, Response};
 use crate::intent::{self, Mode};
+use crate::params::multi::{
+    self, MultiInquireParams, MEMORY_TEXT_CAP, MEMORY_TYPE_REF, MULTI_INQUIRE_AUTHOR,
+};
 use crate::recall;
 use crate::script::Script;
 use crate::search;
 use crate::session;
 
 pub fn run(host: &dyn Host, params: &Value) -> Outcome {
-    let p = match instruct_params::parse(params) {
+    let p = match multi::parse(params) {
         Ok(p) => p,
         Err(outcome) => return outcome,
     };
@@ -90,7 +88,6 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
     let mut responses: Vec<Response> = Vec::new();
     let mut scripts: Vec<Script> = Vec::new();
     let mut errors: Vec<Value> = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
     let mut hits: Vec<Value> = Vec::new();
 
     // A direct answer and a set of inquiries are not alternatives. A model that
@@ -273,15 +270,10 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         "errors": errors,
     });
 
-    if let Err(warning) = session::save(host, &p, &stored, turn) {
-        console::warn(
-            host,
-            &console::phase_tag(console::PHASE_RESULT),
-            &warning,
-            json!({ "session": p.session }),
-        );
-        warnings.push(warning);
-    }
+    // Never written by this action - see the module doc. `session::load`
+    // already validated `p.session` is a well-formed reference, so this
+    // cannot fail; the caller decides whether and when to persist it.
+    let session_document = session::build_document(&p, &stored, turn);
 
     console::print(
         host,
@@ -297,7 +289,6 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
             "memories": memories.len(),
             "scripts": scripts.len(),
             "errors": errors.len(),
-            "warnings": warnings,
         }),
     );
 
@@ -309,11 +300,11 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         "responses": responses.iter().map(Response::to_json).collect::<Vec<_>>(),
         "memories": memories,
         "scripts": scripts.iter().map(Script::to_json).collect::<Vec<_>>(),
+        "session_document": session_document,
         "next_prompt": intent.next_prompt,
         "hits": hits,
         "notes": notes,
         "errors": errors,
-        "warnings": warnings,
     }))
 }
 
@@ -365,7 +356,7 @@ fn mintable(r: &Response) -> bool {
 /// because `entity-save-document` is an upsert on `(path, name)` — so
 /// re-deriving the same memory overwrites itself instead of accumulating near
 /// duplicates every time the instruction is repeated.
-fn mint_memories(p: &InstructParams, responses: &[Response]) -> Vec<Value> {
+fn mint_memories(p: &MultiInquireParams, responses: &[Response]) -> Vec<Value> {
     let Some(memory_path) = p.memory_path.as_deref() else {
         return Vec::new();
     };
@@ -379,7 +370,7 @@ fn mint_memories(p: &InstructParams, responses: &[Response]) -> Vec<Value> {
                 "path": memory_path,
                 "name": name,
                 "typeRef": MEMORY_TYPE_REF,
-                "author": INSTRUCT_AUTHOR,
+                "author": MULTI_INQUIRE_AUTHOR,
                 "title": r.title.clone().unwrap_or_else(|| "Inquiry memory".to_string()),
                 "summary": text,
                 "contents": {
@@ -434,11 +425,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn params() -> InstructParams {
+    fn params() -> MultiInquireParams {
         params_with(Some("/notes/memories"))
     }
 
-    fn params_with(memory_path: Option<&str>) -> InstructParams {
+    fn params_with(memory_path: Option<&str>) -> MultiInquireParams {
         let mut raw = json!({
             "instruction": "what about auth?",
             "model": "m",
@@ -447,7 +438,7 @@ mod tests {
         if let Some(path) = memory_path {
             raw["memory_path"] = json!(path);
         }
-        instruct_params::parse(&raw).unwrap()
+        multi::parse(&raw).unwrap()
     }
 
     fn response(text: &str, memory: bool) -> Response {
@@ -469,7 +460,7 @@ mod tests {
         assert_eq!(memories[0]["summary"], json!("durable fact"));
         assert_eq!(memories[0]["contents"]["text"], json!("durable fact"));
         assert_eq!(memories[0]["path"], json!("/notes/memories"));
-        assert_eq!(memories[0]["author"], json!(INSTRUCT_AUTHOR));
+        assert_eq!(memories[0]["author"], json!(MULTI_INQUIRE_AUTHOR));
         assert_eq!(memories[0]["typeRef"], json!(MEMORY_TYPE_REF));
     }
 

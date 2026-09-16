@@ -1,21 +1,21 @@
-//! Parse and default an `instruct` call's params.
+//! Parse and default a `multi_inquire` call's params.
 //!
-//! Separate from [`crate::params`] rather than folded into it: the two actions
-//! genuinely disagree about what a field *means*. `inquire` takes one `scope`
-//! for the whole call; `instruct` has no call-wide scope at all, because each
-//! inquiry the intent phase proposes picks its own. Merging them would have
-//! meant one struct with a scope field that is meaningless for half its
-//! callers.
+//! Separate from [`crate::params`]'s own `inquire`-specific parsing rather
+//! than folded into it: the two actions genuinely disagree about what a
+//! field *means*. `inquire` takes one `scope` for the whole call;
+//! `multi_inquire` has no call-wide scope at all, because each inquiry the
+//! intent phase proposes picks its own. Merging them would have meant one
+//! struct with a scope field that is meaningless for half its callers.
 //!
 //! The connection-related fields are the exception and are *not* duplicated:
-//! `instruct` builds a [`Params`] to carry them, so
+//! `multi_inquire` builds a [`Params`] to carry them, so
 //! [`crate::params::apply_llm_overrides`] and [`crate::llm::call`] keep working
 //! unchanged for both actions.
 
 use serde_json::Value;
 
 use crate::host::{str_param, Outcome};
-use crate::params::{Params, Scope, DEFAULT_LLM_ACTION_REF, MAX_LLM_TIMEOUT};
+use super::{Params, Scope, DEFAULT_LLM_ACTION_REF, MAX_LLM_TIMEOUT};
 
 /// Where this package's own documents live. Skills are seeded by
 /// `install.solx` at a fixed location, so `skills_path` has a default worth
@@ -25,19 +25,20 @@ pub const DEFAULT_SKILLS_PATH: &str = "/solx-inquiry/skills";
 
 pub const SKILL_TYPE_REF: &str = "/packages/solx-inquiry/InquirySkill";
 
-/// Stamped as `author` on every document `instruct` writes - the session, and
-/// the memory payloads handed back for a caller to save.
+/// Stamped as `author` on every document payload `multi_inquire` produces -
+/// the session document, and the memory payloads handed back for a caller to
+/// save.
 ///
 /// Provenance for whoever reads the document later: it says a model produced
 /// this, and which action did. Nothing in this pipeline branches on it. What
 /// keeps model output from re-entering as evidence is the *declared* memory
-/// path (see [`InstructParams::memory_path`]), not an inference from a field a
-/// caller is free to change.
-pub const INSTRUCT_AUTHOR: &str = "/packages/solx-inquiry/instruct";
+/// path (see [`MultiInquireParams::memory_path`]), not an inference from a
+/// field a caller is free to change.
+pub const MULTI_INQUIRE_AUTHOR: &str = "/packages/solx-inquiry/multi_inquire";
 pub const MEMORY_TYPE_REF: &str = "/packages/solx-inquiry/InquiryMemory";
-pub const SESSION_TYPE_REF: &str = "/packages/solx-inquiry/InstructSession";
+pub const SESSION_TYPE_REF: &str = "/packages/solx-inquiry/MultiInquireSession";
 
-/// Hard ceiling on how many inquiries one `instruct` may fan out.
+/// Hard ceiling on how many inquiries one `multi_inquire` call may fan out.
 ///
 /// Not a tuning knob a caller can raise: each inquiry is a detached llm call
 /// whose console output is echoed into this action's own console, and the
@@ -123,17 +124,18 @@ pub const CONTEXT_BLOCK_CAP: usize = 8000;
 pub const HISTORY_BLOCK_CAP: usize = 4000;
 
 #[derive(Debug)]
-pub struct InstructParams {
+pub struct MultiInquireParams {
     pub instruction: String,
     pub model: String,
-    /// Full `/path/name` reference of the session document. Created on first
-    /// use; read for history, rewritten with this turn appended.
+    /// Full `/path/name` reference of the session document. Read for history;
+    /// the updated document is returned as `session_document` for the caller
+    /// to create/update - `multi_inquire` never writes it itself.
     pub session: String,
     pub max_inquiries: usize,
     pub max_terms: usize,
     pub max_results: usize,
     /// Restricts document inquiries only. Kept separate from
-    /// [`Self::action_path_prefix`] because an `instruct` call fans out
+    /// [`Self::action_path_prefix`] because a `multi_inquire` call fans out
     /// inquiries of mixed scope: an instruction that should search all
     /// documents but only a subset of actions (or vice versa) has no single
     /// prefix that expresses both.
@@ -168,36 +170,36 @@ pub struct InstructParams {
     pub action_prompt: Option<String>,
     /// Carries the connection overrides and `llm_action_ref` so the existing
     /// `params::apply_llm_overrides` / `llm::call` path is reused verbatim.
-    /// Its `inquiry`/`scope`/`max_*` fields are not read by `instruct`.
+    /// Its `inquiry`/`scope`/`max_*` fields are not read by `multi_inquire`.
     pub llm: Params,
 }
 
-impl InstructParams {
+impl MultiInquireParams {
     pub fn llm_action_ref(&self) -> &str {
         &self.llm.llm_action_ref
     }
 }
 
-pub fn parse(params: &Value) -> Result<InstructParams, Outcome> {
+pub fn parse(params: &Value) -> Result<MultiInquireParams, Outcome> {
     let params = &crate::host::normalize_params(params);
     let instruction = str_param(params, "instruction").ok_or_else(|| {
         Outcome::fail(
             "bad_params",
-            "instruct requires a non-empty instruction",
+            "multi_inquire requires a non-empty instruction",
             serde_json::json!({ "missing": ["instruction"] }),
         )
     })?;
     let model = str_param(params, "model").ok_or_else(|| {
         Outcome::fail(
             "bad_params",
-            "instruct requires a model",
+            "multi_inquire requires a model",
             serde_json::json!({ "missing": ["model"] }),
         )
     })?;
     let session = str_param(params, "session").ok_or_else(|| {
         Outcome::fail(
             "bad_params",
-            "instruct requires a session document reference",
+            "multi_inquire requires a session document reference",
             serde_json::json!({ "missing": ["session"] }),
         )
     })?;
@@ -219,7 +221,7 @@ pub fn parse(params: &Value) -> Result<InstructParams, Outcome> {
             .unwrap_or(default)
     };
 
-    Ok(InstructParams {
+    Ok(MultiInquireParams {
         instruction,
         model: model.clone(),
         session,
@@ -251,7 +253,7 @@ pub fn parse(params: &Value) -> Result<InstructParams, Outcome> {
         document_prompt: str_param(params, "document_prompt"),
         action_prompt: str_param(params, "action_prompt"),
         llm: Params {
-            // Placeholders: `instruct` never reads these back. Only the
+            // Placeholders: `multi_inquire` never reads these back. Only the
             // connection fields below are used, via `apply_llm_overrides`.
             inquiry: String::new(),
             model,

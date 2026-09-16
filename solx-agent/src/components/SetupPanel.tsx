@@ -22,7 +22,7 @@ const PRESETS: { label: string; entry: AllowEntry }[] = [
   { label: "All tools", entry: { path: "*", actions: null } },
   {
     label: "Read documents",
-    entry: { path: "/builtin/document", actions: ["search_documents", "entity_get_document"] },
+    entry: { path: "/builtin/document", actions: ["search-documents", "entity-get-document"] },
   },
   { label: "Write documents", entry: { path: "/builtin/document", actions: null } },
   { label: "Files", entry: { path: "/builtin/file", actions: null } },
@@ -31,7 +31,7 @@ const PRESETS: { label: string; entry: AllowEntry }[] = [
     label: "Read the catalogue",
     entry: {
       path: "/builtin/action",
-      actions: ["search_actions", "entity_get_action", "entity_list_actions"],
+      actions: ["search-actions", "entity-get-action", "entity-list-actions"],
     },
   },
   { label: "Build JS actions", entry: { path: "/packages/solx-quickjs", actions: null } },

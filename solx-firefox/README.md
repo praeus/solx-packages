@@ -31,7 +31,7 @@ as JSON on **stdin**, not via the `SOL_PARAMS` env var. There is no
 and `action_config.cwd` is set on the action itself.
 
 The setup/teardown orchestrators are `Script`-type actions (`.solx` files
-uploaded via `file_put`) rather than `Actions`-type (ActionScript JSON
+uploaded via `file-put`) rather than `Actions`-type (ActionScript JSON
 artifacts). This avoids the artifact signing requirement that `Actions`-type
 actions have in solx.
 

@@ -1,7 +1,7 @@
 //! Host-target tests for everything except the wit-bindgen shim.
 //!
 //! `FakeHost` replays canned `exec` responses in order and records every call,
-//! so the exact payload handed to `/builtin/web/http_request` can be asserted
+//! so the exact payload handed to `/builtin/web/http-request` can be asserted
 //! without a network or a wasm runtime.
 
 use std::cell::RefCell;
@@ -56,17 +56,17 @@ impl FakeHost {
         self
     }
 
-    /// Queue a `get_env` miss, which is a *success* returning a null value.
+    /// Queue a `get-env` miss, which is a *success* returning a null value.
     fn push_env_miss(&self) -> &Self {
         self.push_ok(json!({ "value": Value::Null }))
     }
 
-    /// Queue the `get_secret` "no key configured" rejection.
+    /// Queue the `get-secret` "no key configured" rejection.
     fn push_secret_unconfigured(&self) -> &Self {
         self.push_err("no key configured for secret OLLAMA_API_KEY")
     }
 
-    /// Queue a canned HTTP response in `http_request`'s output shape.
+    /// Queue a canned HTTP response in `http-request`'s output shape.
     fn push_http(&self, status: u64, body: &str) -> &Self {
         self.push_ok(json!({
             "status": status,
@@ -125,14 +125,14 @@ impl FakeHost {
     }
 
     /// The payload sent to whichever HTTP built-in the call actually used —
-    /// the one-shot `/builtin/web/http_request` for a blocking endpoint, or
+    /// the one-shot `/builtin/web/http-request` for a blocking endpoint, or
     /// `/builtin/web/stream/start` for a streaming one. Both take the same
     /// `{url, method, headers, timeout_secs, body?}` shape, so most request-
     /// shape assertions don't need to know which path was taken.
     fn http_payload(&self) -> Value {
-        self.call_named("/builtin/web/http_request")
+        self.call_named("/builtin/web/http-request")
             .or_else(|| self.call_named("/builtin/web/stream/start"))
-            .expect("no /builtin/web/http_request or /builtin/web/stream/start call was made")
+            .expect("no /builtin/web/http-request or /builtin/web/stream/start call was made")
     }
 
     /// The JSON request body actually sent to Ollama.
@@ -164,8 +164,8 @@ impl Host for FakeHost {
     fn log(&self, _msg: &str) {}
 }
 
-/// The common prelude for a plain unauthenticated local call: `get_env` for
-/// the base URL misses, `get_secret` has no key, `get_env` for the token
+/// The common prelude for a plain unauthenticated local call: `get-env` for
+/// the base URL misses, `get-secret` has no key, `get-env` for the token
 /// misses.
 fn queue_no_config(host: &FakeHost) {
     host.push_env_miss();
@@ -216,7 +216,7 @@ fn normalizes_base_urls() {
 #[test]
 fn base_url_precedence_params_over_env() {
     let host = FakeHost::new();
-    // No get_env call for the base url — params win before it is consulted.
+    // No get-env call for the base url — params win before it is consulted.
     host.push_secret_unconfigured();
     host.push_env_miss();
     host.push_http(200, r#"{"models":[]}"#);
@@ -233,7 +233,7 @@ fn base_url_precedence_params_over_env() {
             .calls
             .borrow()
             .iter()
-            .any(|(n, p)| n == "/builtin/env/get_env" && p["key"] == "OLLAMA_HOST"),
+            .any(|(n, p)| n == "/builtin/env/get-env" && p["key"] == "OLLAMA_HOST"),
         "params.base_url should short-circuit the OLLAMA_HOST lookup"
     );
 }
@@ -762,7 +762,7 @@ fn inline_api_key_wins_and_skips_secret_lookup() {
         host.http_payload()["headers"]["authorization"],
         json!("Bearer sk-inline")
     );
-    assert!(!host.call_names().contains(&"/builtin/secrets/get_secret".to_string()));
+    assert!(!host.call_names().contains(&"/builtin/secrets/get-secret".to_string()));
 }
 
 #[test]
@@ -798,7 +798,7 @@ fn unconfigured_convention_secret_is_silent() {
 fn configured_but_empty_convention_secret_is_also_silent() {
     let host = FakeHost::new();
     host.push_env_miss();
-    // Key configured, nothing stored: get_secret succeeds with a null value.
+    // Key configured, nothing stored: get-secret succeeds with a null value.
     host.push_ok(json!({ "value": Value::Null }));
     host.push_env_miss();
     host.push_http(200, r#"{"models":[]}"#);
@@ -821,7 +821,7 @@ fn explicit_auth_secret_name_failure_is_fatal() {
 
     assert!(!out.success);
     assert_eq!(kind(&out), "auth");
-    assert!(!host.call_names().contains(&"/builtin/web/http_request".to_string()));
+    assert!(!host.call_names().contains(&"/builtin/web/http-request".to_string()));
 }
 
 #[test]
@@ -883,7 +883,7 @@ fn set_api_key_writes_the_hardcoded_secret_name() {
     let out = run(&host, "set_api_key", json!({ "value": "sk-abc", "name": "EVIL" }));
 
     assert!(out.success, "{:?}", out.message);
-    let payload = host.call_named("/builtin/secrets/set_secret").unwrap();
+    let payload = host.call_named("/builtin/secrets/set-secret").unwrap();
     assert_eq!(payload["name"], json!(config::DEFAULT_SECRET));
     assert_eq!(payload["value"], json!("sk-abc"));
 }

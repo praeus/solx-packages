@@ -67,7 +67,7 @@ impl Response {
 ///
 /// `type_cache` is the caller's, not this function's: `instruct::run` builds
 /// one and passes the same one to every inquiry's `prepare`, so an action two
-/// inquiries both surface (a common helper like `search_documents` is a likely
+/// inquiries both surface (a common helper like `search-documents` is a likely
 /// one) fetches its schema once rather than once per inquiry that finds it.
 pub fn prepare(
     host: &dyn Host,
@@ -89,7 +89,7 @@ pub fn prepare(
             p.document_path_prefix.clone()
         },
         // A document type filter must not be applied to an action inquiry:
-        // `search_actions` ignores it anyway, and carrying it would only
+        // `search-actions` ignores it anyway, and carrying it would only
         // suggest it did something.
         type_ref: if inquiry.is_actions() { None } else { p.type_ref.clone() },
     };
@@ -514,15 +514,15 @@ mod tests {
     fn parses_scripts_and_renders_them() {
         let result = content(
             r#"{"scripts":[{"title":"Find auth","steps":[
-                {"action_ref":"/builtin/document/search_documents","params":{"q":"auth"},"capture":"hits"}
+                {"action_ref":"/builtin/document/search-documents","params":{"q":"auth"},"capture":"hits"}
             ]}]}"#,
         );
-        let catalogue = allowing(&["/builtin/document/search_documents"]);
+        let catalogue = allowing(&["/builtin/document/search-documents"]);
         let (scripts, notes) = parse_scripts(&result, &catalogue);
         assert_eq!(scripts.len(), 1);
         assert!(notes.is_empty());
         assert_eq!(scripts[0].steps.len(), 1);
-        assert_eq!(scripts[0].steps[0].action_ref, "/builtin/document/search_documents");
+        assert_eq!(scripts[0].steps[0].action_ref, "/builtin/document/search-documents");
         assert_eq!(scripts[0].steps[0].capture.as_deref(), Some("hits"));
     }
 

@@ -37,7 +37,7 @@ pub enum StreamKind {
 
 /// Headroom between the inner HTTP timeout ceiling and the outer wasm
 /// `action_config.timeout_secs`. Covers first-call component compilation
-/// (wasmtime compiles on a cache miss) plus the `get_env` / `get_secret`
+/// (wasmtime compiles on a cache miss) plus the `get-env` / `get-secret`
 /// round trips.
 pub const TIMEOUT_HEADROOM_SECS: u64 = 60;
 
@@ -55,7 +55,7 @@ pub struct Endpoint {
     /// `request::call_streaming`. `None` injects `"stream": false` (for
     /// endpoints with no streaming mode at all — `/api/tags` — sending the
     /// field there would just be noise) and keeps the existing single
-    /// blocking `http_request` call.
+    /// blocking `http-request` call.
     pub streaming: Option<StreamKind>,
     pub default_timeout: u64,
     pub max_timeout: u64,

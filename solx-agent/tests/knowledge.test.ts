@@ -75,7 +75,7 @@ describe("memory", () => {
     // does get one document of its own -- the name-collision check -- so the
     // claim is about the memory path, not the total.)
     const gets = f
-      .refsCalled("/builtin/document/entity_get_document")
+      .refsCalled("/builtin/document/entity-get-document")
       .filter((c) => String(c.params.path ?? "").startsWith("/agent/memories"));
     expect(gets.length).toBe(0);
     const seededTurn = s.messages.find(
@@ -216,14 +216,14 @@ describe("skills", () => {
 describe("tool_search", () => {
   test("widens what is visible, inside the grant", async () => {
     const { f, host } = seeded();
-    f.action("/builtin/document/entity_delete_document", { description: "delete a document" });
+    f.action("/builtin/document/entity-delete-document", { description: "delete a document" });
     const s = await createSession(host, "search", { model: "m", grant: DOCS_GRANT });
     const before = Object.keys(s.tools).length;
 
     f.replyCalls(["sys__tool_search", { q: "delete" }]);
     await step(host, s);
     expect(Object.keys(s.tools).length).toBeGreaterThan(before);
-    expect(Object.values(s.tools)).toContain("/builtin/document/entity_delete_document");
+    expect(Object.values(s.tools)).toContain("/builtin/document/entity-delete-document");
   });
 
   test("cannot reach past the grant, but says where the match was", async () => {
@@ -257,7 +257,7 @@ describe("tool_search", () => {
 
   test("stops at the catalogue cap", async () => {
     const { f, host } = seeded();
-    f.action("/builtin/document/entity_delete_document", { description: "document delete" });
+    f.action("/builtin/document/entity-delete-document", { description: "document delete" });
     const s = await createSession(host, "document", {
       model: "m",
       grant: DOCS_GRANT,

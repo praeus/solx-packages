@@ -128,7 +128,7 @@ impl FakeHost {
     /// long-lived host, then a plain blocking `exec` of the llm action ref
     /// itself.
     fn push_llm_call_fallback(&self, content: &str) -> &Self {
-        self.push_err(ACTION_START, "action_start requires a long-lived host (solx-server or solx-mcp).");
+        self.push_err(ACTION_START, "action-start requires a long-lived host (solx-server or solx-mcp).");
         self.push_ok(LLM_REF, json!({ "message": { "role": "assistant", "content": content }, "done": true }))
     }
 
@@ -212,11 +212,11 @@ fn full_pipeline_documents_scope_via_detached_llm_calls() {
     assert!(out.success, "{:?}", out.message);
     assert_eq!(out.output["terms"], json!(["authentication", "session token"]));
     assert_eq!(out.output["hits"][0]["path"], json!("/notes"));
-    // `contents` comes back inline from search_documents - no separate
-    // entity_get_document round trip needed.
+    // `contents` comes back inline from search-documents - no separate
+    // entity-get-document round trip needed.
     assert_eq!(out.output["hits"][0]["details"], json!({ "body": "session tokens are issued at login" }));
     assert_eq!(out.output["summary"], json!("Authentication uses session tokens, per /notes/auth."));
-    assert!(!host.call_names().contains(&"/builtin/document/entity_get_document".to_string()));
+    assert!(!host.call_names().contains(&"/builtin/document/entity-get-document".to_string()));
 
     assert_eq!(host.calls_named(ACTION_START).len(), 2, "one detached start per llm phase");
     assert_eq!(host.calls_named(DOCUMENT_SEARCH_REF).len(), 2);
@@ -360,7 +360,7 @@ fn cancellation_of_inquires_own_invocation_stops_the_child_and_aborts() {
 fn a_model_that_ignores_format_and_answers_with_a_plain_list_still_works() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", "- authentication\n- session token");
-    // One search_documents call per parsed term.
+    // One search-documents call per parsed term.
     host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_ok(DOCUMENT_SEARCH_REF, json!({ "items": [], "total": 0, "limit": 10, "offset": 0 }));
     host.push_llm_call_detached_quiet("inv-summary", "no results");
@@ -601,7 +601,7 @@ fn per_term_search_limit_stays_wide_even_when_max_results_is_small() {
 
 #[test]
 fn action_hits_keep_search_actions_relevance_order() {
-    // search_actions returns `items` already ordered by FTS5 rank (best
+    // search-actions returns `items` already ordered by FTS5 rank (best
     // match first) - solx-inquiry has no numeric score to read back, only
     // that ordering, so it must survive into the final result rather than
     // being scrambled by an unordered merge structure.
@@ -709,10 +709,10 @@ fn scope_both_searches_documents_and_actions_and_tags_source() {
         ACTION_SEARCH_REF,
         json!({ "items": [{ "id": "2", "path": "/packages/x", "name": "deploy", "caption": "Deploy", "description": "Deploys the thing", "category": "ops", "paramTypeRef": "/packages/x/DeployParams" }], "total": 1, "limit": 10, "offset": 0 }),
     );
-    // The document hit's contents come back inline from search_documents;
-    // the action hit triggers entity_get_type for its paramTypeRef's schema
+    // The document hit's contents come back inline from search-documents;
+    // the action hit triggers entity-get-type for its paramTypeRef's schema
     // - its caption/description/category were already in hand from
-    // search_actions.
+    // search-actions.
     host.push_ok(TYPE_GET_REF, json!({ "schema": { "type": "object", "required": ["target"] } }));
     host.push_llm_call_detached_quiet("inv-summary", "Use /packages/x/deploy.");
 
@@ -733,7 +733,7 @@ fn scope_both_searches_documents_and_actions_and_tags_source() {
         action_hit["details"],
         json!({ "category": "ops", "paramTypeRef": "/packages/x/DeployParams", "paramSchema": { "type": "object", "required": ["target"] } })
     );
-    assert!(!host.call_names().contains(&"/builtin/document/entity_get_document".to_string()));
+    assert!(!host.call_names().contains(&"/builtin/document/entity-get-document".to_string()));
     let type_calls = host.calls_named(TYPE_GET_REF);
     assert_eq!(type_calls.len(), 1);
     assert_eq!(type_calls[0], json!({ "path": "/packages/x", "name": "DeployParams" }));
@@ -779,7 +779,7 @@ fn two_actions_sharing_a_param_type_fetch_its_schema_once() {
 
 #[test]
 fn action_param_schema_fetch_is_best_effort() {
-    // Same contract as document enrichment: a dead/failing entity_get_type
+    // Same contract as document enrichment: a dead/failing entity-get-type
     // must not sink the inquiry - the action hit just keeps whatever it
     // already had (category/phrases/paramTypeRef), without paramSchema.
     let host = FakeHost::new();
@@ -932,7 +932,7 @@ fn no_hits_still_produces_a_summary_without_inventing_one() {
 fn hits_are_capped_at_max_results_after_merging() {
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["a"]}"#);
-    // Best FTS5 rank first (position 0), same convention as search_actions.
+    // Best FTS5 rank first (position 0), same convention as search-actions.
     let items: Vec<Value> = (0..5)
         .map(|i| json!({ "id": i.to_string(), "path": "/p", "name": format!("n{i}"), "typeRef": "x" }))
         .collect();
@@ -954,8 +954,8 @@ fn hits_are_capped_at_max_results_after_merging() {
 
 #[test]
 fn document_hits_keep_search_documents_relevance_order() {
-    // search_documents now returns `items` already ordered by FTS5 rank
-    // (best match first), mirroring search_actions - same treatment, same
+    // search-documents now returns `items` already ordered by FTS5 rank
+    // (best match first), mirroring search-actions - same treatment, same
     // guarantee, same test.
     let host = FakeHost::new();
     host.push_llm_call_detached_quiet("inv-terms", r#"{"terms": ["deploy"]}"#);

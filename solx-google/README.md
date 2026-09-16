@@ -15,8 +15,8 @@ encrypted and persisted to the scoped secret store.
 The package ships a one-shot `login-to-google` Script action that runs
 the entire OAuth 2.0 authorization-code choreography through the
 dispatcher: bind the loopback listener, open the system browser (via the
-new `/builtin/web/open_url` internal action), wait for the callback, exchange
-the code for tokens, persist the credentials via `/builtin/secrets/set_secret`
+new `/builtin/web/open-url` internal action), wait for the callback, exchange
+the code for tokens, persist the credentials via `/builtin/secrets/set-secret`
 (encrypted with the key configured in this action's own
 `action_config.secrets` map), and release the port. After it returns
 successfully, `get-google-doc` and `post-google-doc` work without any
@@ -36,7 +36,7 @@ browser on the Google consent screen. Sign in, approve the requested
 scopes, and the script continues.
 
 On subsequent runs you can omit the params entirely — the script reads
-them back via `/builtin/secrets/get_secret`:
+them back via `/builtin/secrets/get-secret`:
 
 ```sh
 solx exec /packages/solx-google/login-to-google
@@ -75,7 +75,7 @@ This:
    at `shared/solx-google-actions.wasm`.
 2. Generates a fresh random 32-byte encryption key (`solx random 32`).
 3. Posts 35 JSON-schema types under `/packages/solx-google/`.
-4. Uploads the login script content via `/builtin/file/file_put` at
+4. Uploads the login script content via `/builtin/file/file-put` at
    `shared/solx-google-login.solx` (the script body is inlined into
    `install.solx` — no separate template / build step required).
 5. Posts the `login-to-google` Script action pointing at the uploaded
@@ -126,7 +126,7 @@ mutations in the right order.
 
 `upload-documents-to-google-docs` is a batch action built on that same
 converter: given a `path_prefix` and a `count`, it lists Sol documents
-under that path via `/builtin/document/entity_list_documents` (sorted by
+under that path via `/builtin/document/entity-list-documents` (sorted by
 `updated_at`, `order: "asc"|"desc"`, default `desc`, skipping an optional
 `offset` first, default `0`, so successive runs can page through a
 folder), converts each
@@ -217,7 +217,7 @@ solx uninstall-package solx-google
 Deletes every action, type, and file `install.solx` registered (order
 doesn't matter — no cross-DB foreign keys). There's no built-in
 `delete_secret` primitive, so OAuth secrets aren't deleted directly:
-`set_secret`/`get_secret` are scoped to the calling action's own
+`set-secret`/`get-secret` are scoped to the calling action's own
 encryption key (declared in each OAuth action's `action_config.secrets`
 map), so once the owning action row is gone, its secrets are unreachable
 and the scoped store garbage-collects them — the `delete action` calls
@@ -228,7 +228,7 @@ above trigger that path, no separate step needed.
 | Old (`sol-google`) | New (`solx-google`) |
 |---|---|
 | `action_type: "Actions"` for login | `action_type: "script"` (solx has no `Actions` type) |
-| Built-in `open system browser` action | New `/builtin/web/open_url` internal action (added in solx-core) |
+| Built-in `open system browser` action | New `/builtin/web/open-url` internal action (added in solx-core) |
 | Login script as a 14-step ActionScript JSON file | Login script as a `script`-typed action pointing at `login.solx` |
 | WASM converters in `sol-google-actions.wasm` (Python + Rust dispatch) | Same converter logic, ported to Rust in `solx-google-actions` |
 | `bin_name: "shared::sol-google-actions.wasm"` | `bin_name: "solx-google-actions.wasm"` (file store convention, no `shared::` prefix) |

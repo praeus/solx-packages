@@ -123,7 +123,7 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         let mut prepared: Vec<Prepared> = Vec::new();
         // Shared across every inquiry in this run, not one per inquiry: two
         // inquiries can surface the same action (a common helper like
-        // `search_documents` is a likely one), and without this each would
+        // `search-documents` is a likely one), and without this each would
         // fetch its `paramSchema` separately. See `search::TypeCache`.
         let mut type_cache = search::TypeCache::default();
         for (index, one) in intent.inquiries.iter().enumerate() {
@@ -344,7 +344,7 @@ fn mintable(r: &Response) -> bool {
 }
 
 /// Turn every mintable response into a payload the caller can hand straight to
-/// `entity_save_document`.
+/// `entity-save-document`.
 ///
 /// Empty when no `memory_path` was given: memories are off, so there is
 /// nowhere to say they belong. The model's `memory` flag still rides on the
@@ -362,7 +362,7 @@ fn mintable(r: &Response) -> bool {
 /// makes recall a single search with no follow-up reads (see
 /// [`crate::recall`]). The name is a slug plus a short hash of the text:
 /// deterministic, because a wasm guest has no random source, and useful,
-/// because `entity_save_document` is an upsert on `(path, name)` — so
+/// because `entity-save-document` is an upsert on `(path, name)` — so
 /// re-deriving the same memory overwrites itself instead of accumulating near
 /// duplicates every time the instruction is repeated.
 fn mint_memories(p: &InstructParams, responses: &[Response]) -> Vec<Value> {

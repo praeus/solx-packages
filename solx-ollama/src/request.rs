@@ -2,8 +2,8 @@
 //!
 //! Two call shapes, chosen by `ep.streaming`:
 //!
-//! * [`call_blocking`] — the original path, through `/builtin/web/http_request`.
-//!   `http_request` treats a non-2xx as a *successful call that returned a
+//! * [`call_blocking`] — the original path, through `/builtin/web/http-request`.
+//!   `http-request` treats a non-2xx as a *successful call that returned a
 //!   status* — it only errors on transport failure. That split is preserved
 //!   here as two distinct failure kinds (`transport` vs `http_status`),
 //!   because they mean very different things to a caller: one says the
@@ -13,7 +13,7 @@
 //!   through `/builtin/web/stream/*` (`solx-actions`): starts the request,
 //!   then repeatedly polls, emitting each NDJSON chunk to the action's own
 //!   console and folding it into a running aggregate, checking
-//!   `/builtin/action/cancelled` between polls so a `action_stop` on a
+//!   `/builtin/action/cancelled` between polls so a `action-stop` on a
 //!   detached invocation closes the upstream connection promptly instead of
 //!   only being caught by the outer force-abort. Once the stream reports
 //!   `done`, the aggregate is handed to the same [`interpret`] the blocking
@@ -46,7 +46,7 @@ pub fn call(host: &dyn Host, ep: &Endpoint, params: &Value) -> Outcome {
 
 /// Everything both call shapes need: the resolved URL, the (possibly
 /// legacy-rewritten) path `interpret` should report errors against, and the
-/// JSON payload to hand to either `http_request` or `http_stream/start` —
+/// JSON payload to hand to either `http-request` or `http_stream/start` —
 /// both built-ins take the same `{url, method, headers, timeout_secs,
 /// body?, body_encoding?}` shape.
 struct PreparedRequest {
@@ -121,7 +121,7 @@ fn call_blocking(host: &dyn Host, ep: &Endpoint, params: &Value) -> Outcome {
         ep.method, prepared.url, prepared.timeout
     ));
 
-    let call = match host.exec("/builtin/web/http_request", &prepared.payload) {
+    let call = match host.exec("/builtin/web/http-request", &prepared.payload) {
         Ok(c) => c,
         Err(e) => {
             return Outcome::fail(
@@ -257,7 +257,7 @@ fn call_streaming(host: &dyn Host, ep: &Endpoint, kind: StreamKind, params: &Val
     }
 
     // Reuse the exact same status/body interpretation the blocking path
-    // uses, by handing it a synthetic `http_request`-shaped response built
+    // uses, by handing it a synthetic `http-request`-shaped response built
     // from the aggregated stream — this is what keeps the caller-facing
     // `Outcome` shape identical to the pre-streaming call.
     let synthetic = json!({
@@ -271,7 +271,7 @@ fn call_streaming(host: &dyn Host, ep: &Endpoint, kind: StreamKind, params: &Val
 /// Best-effort: a failure to check cancellation (host rejection, or a
 /// callee that returned `success: false`, e.g. because there is no action
 /// caller in some non-action test harness) is treated as "not cancelled"
-/// rather than aborting the stream — the outer `action_stop` force-abort
+/// rather than aborting the stream — the outer `action-stop` force-abort
 /// remains the backstop either way.
 fn is_cancelled(host: &dyn Host) -> bool {
     match host.exec("/builtin/action/cancelled", &json!({})) {

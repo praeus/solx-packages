@@ -23,7 +23,7 @@ Stand up `d:\Projects\solx-packages\solx-media\` as a sibling of `solx-omniparse
 - Config: env vars only (`OLLAMA_URL`, `MULTIMEDIA_MODEL`, `SUMMARIZER_MODEL`, `WHISPER_MODEL_PATH`, `WHISPER_MODELS_DIR`, `SOLX_SERVER_URL`, `SOLX_SERVER_TOKEN`, `SOL_LOG_DIR`, `SOLX_PACKAGES_DIR`)
 - Whisper: `install-whisper-model` action with `name` param (default `tiny.en`); env-var override
 - FFmpeg: `ffmpeg-sidecar` auto-download on first run
-- Persist: action POSTs to solx-server `entity_save_document` (no return-documents-then-caller-persists)
+- Persist: action POSTs to solx-server `entity-save-document` (no return-documents-then-caller-persists)
 - Result type: single flat `MediaDocument` JSON-Schema in `solx-types/seed.rs`
 - Location: `d:\Projects\solx-packages\solx-media` (sibling of `solx-omniparse`, NOT in `solx-core`)
 
@@ -71,7 +71,7 @@ One flat JSON-Schema type used as the `result_type_ref` for all 4 extraction mod
 
 ```json
 {
-  "description": "Result of a solx-media extraction. Persisted to solx-server via entity_save_document.",
+  "description": "Result of a solx-media extraction. Persisted to solx-server via entity-save-document.",
   "schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
@@ -305,7 +305,7 @@ pub fn render(template: &str, vars: &[(&str, &str)]) -> String { /* {{key}} repl
 
 11. **`persist.rs` -- save to solx-server** *(depends on step 1)*
     - `pub async fn save_document(server_url, token, doc) -> Result<(String, String), String>`.
-    - POST to `{server_url}/docs/save` with `Authorization: Bearer {token}` and a `Document` body shaped for `entity_save_document`.
+    - POST to `{server_url}/docs/save` with `Authorization: Bearer {token}` and a `Document` body shaped for `entity-save-document`.
     - Returns `(path, name)` on 200; surfaces the API error on non-2xx.
 
 12. **`main.rs` -- dispatch** *(depends on steps 4-11)*
@@ -357,7 +357,7 @@ pub fn render(template: &str, vars: &[(&str, &str)]) -> String { /* {{key}} repl
 - `d:\Projects\solx-packages\solx-omniparse\build.rs` -- SHA-256 helpers and nested-build scaffolding
 - `d:\Projects\solx-packages\solx-omniparse\src\main.rs` -- stdin-JSON, stderr-mirror, log-file pattern
 - `d:\Projects\solx-core\solx-types\src\seed.rs` -- pattern for adding `MediaDocument` (mirror `HtmlDocument` entry)
-- `d:\Projects\solx-core\solx-actions\src\internal\file.rs` -- `file_put` parameter shape (for `MaterializedMediaAsset` analog)
+- `d:\Projects\solx-core\solx-actions\src\internal\file.rs` -- `file-put` parameter shape (for `MaterializedMediaAsset` analog)
 
 ## Verification
 
@@ -396,7 +396,7 @@ These are intentionally **out of scope for v1** but will be needed soon after; d
 
 ### FU-1: `solx-media` return-documents-then-caller-persists mode
 
-Add a second action per kind (`solx-media-image-return`, `solx-media-audio-return`, `solx-media-video-return`, `solx-media-materialize-html-return`) whose `fn_name` passes a `--return` flag instead of persisting. Output mirrors v1's stdout JSON but `saved: []` and `document` is the full `MediaDocument` the caller can post to `entity_save_document` itself.
+Add a second action per kind (`solx-media-image-return`, `solx-media-audio-return`, `solx-media-video-return`, `solx-media-materialize-html-return`) whose `fn_name` passes a `--return` flag instead of persisting. Output mirrors v1's stdout JSON but `saved: []` and `document` is the full `MediaDocument` the caller can post to `entity-save-document` itself.
 
 Implementation:
 - Add a `--return` flag the binary reads alongside `argv[1]` (e.g. `argv[2] == "--return"` or `--mode=return`).
@@ -414,7 +414,7 @@ Goal: both `solx-omniparse` and `solx-media` can be invoked either way (action-p
 
 Extend `solx-media`'s action param shape to accept either:
 - `source_path` (local file path; v1 behavior), or
-- `rel_path` (a `files/...` pointer into the solx-server file store — caller does `file_put` first).
+- `rel_path` (a `files/...` pointer into the solx-server file store — caller does `file-put` first).
 
 Resolution order: if `rel_path` is present, read bytes from the file store via `GET /files/get` (or a local fast-path if the binary is on the same machine as the server); otherwise read `source_path` from disk. Same `MediaDocument` result and persist path.
 
@@ -429,7 +429,7 @@ These three followups are mutually independent; FU-1 and FU-2 can ship in parall
 
 ### Goal
 
-Add a second action per kind whose `fn_name` ends in `-return`. These actions skip the internal `POST /docs/save` and instead return the `MediaDocument` for the caller to persist (via `entity_save_document` or any other path). Same source code path, just a different dispatch branch.
+Add a second action per kind whose `fn_name` ends in `-return`. These actions skip the internal `POST /docs/save` and instead return the `MediaDocument` for the caller to persist (via `entity-save-document` or any other path). Same source code path, just a different dispatch branch.
 
 ### New actions
 
@@ -455,7 +455,7 @@ All four reuse the v1 source functions (`vision::run_image`, etc.) and the `Medi
     }
     ```
 
-    (Mirrors the v1 `document` sub-object plus `kind` for caller convenience. The full `document` IS the MediaDocument — caller passes it straight to `entity_save_document`.)
+    (Mirrors the v1 `document` sub-object plus `kind` for caller convenience. The full `document` IS the MediaDocument — caller passes it straight to `entity-save-document`.)
 
 - Exit code: 0 on success, non-zero on hard error (whisper failure, ffmpeg failure, malformed input). No "soft" exit because there's no persist to fail-soft on.
 
@@ -507,7 +507,7 @@ Workflow author who wants the document in a script without server-side persist:
 
 ```solx
 exec /packages/solx-media/solx-media-image-return --json '{"source_path":"C:/x.png"}' as $doc;
-exec /builtin/document/entity_save_document --json '{path:"/media", name:$doc.document_name, document:$doc.document}';
+exec /builtin/document/entity-save-document --json '{path:"/media", name:$doc.document_name, document:$doc.document}';
 ```
 
 ## Followup 2 — implementation plan: `solx-omniparse` write-docs mode (FU-2)
@@ -518,7 +518,7 @@ Add a `solx-omniparse-process-file-write` action that does what `solx-omniparse-
 
 ### Difference from v1
 
-- v1 (`solx-omniparse-process-file`): binary prints `OmniparseResult` JSON to stdout. The caller (script or other action) does `entity_save_document` if they want it persisted.
+- v1 (`solx-omniparse-process-file`): binary prints `OmniparseResult` JSON to stdout. The caller (script or other action) does `entity-save-document` if they want it persisted.
 - FU-2 (`solx-omniparse-process-file-write`): binary extracts, then in-process POSTs the result to `/docs/save`, then prints `{saved: [{path, name}], result: {...OmniparseResult...}}` to stdout.
 
 ### How

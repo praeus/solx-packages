@@ -20,7 +20,7 @@ separate caller-persists-manually variant isn't registered as an action.
 Saved documents land at `/media/{kind}/{document_name}`. If the save
 fails (e.g. solx-server unreachable), the call soft-fails: it still returns
 the full `document` on stdout with an empty `saved` list, so nothing is
-lost — the caller can persist it via `entity_save_document` themselves.
+lost — the caller can persist it via `entity-save-document` themselves.
 
 ## Install
 

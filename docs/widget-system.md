@@ -181,8 +181,8 @@ one or two one-off calls has no reason to reach for it — call
 A widget that drives more than one action per turn (an orchestrator, a
 multi-step tool) often wants one unified, time-ordered console rather than
 switching between each action's own. The natural-looking way to build that —
-have the widget's own console `console_copy` the others into itself — does
-not work: `console_copy`'s destination is always resolved from `ctx.caller`,
+have the widget's own console `console-copy` the others into itself — does
+not work: `console-copy`'s destination is always resolved from `ctx.caller`,
 the *currently executing action's* identity, and a widget's calls are
 external execs with no caller at all (same as the CLI or MCP). There is no
 id you can hand it that stands in for "the widget."
@@ -195,7 +195,7 @@ at all — persist the `(action_ref, invocation_id, cursor)` tuple as an
 ordinary document (the durable index; the console entries themselves are
 already persisted per `action_ref` regardless), and merge each tracked
 call's own entries client-side with `readMergedConsole`. This needs no new
-backend capability because `console_read`/`console_tail` are already
+backend capability because `console-read`/`console-tail` are already
 unrestricted by caller — reading was never the blocked half of this, only
 writing into another console was. See `solx-xprompt/src/console/index.ts`'s
 doc comment for the full rationale, and `tests/console.test.ts` there for the
@@ -254,7 +254,7 @@ widget package needs:
   job is `json '{"tag_name":...,"bin_name":...,"fields":...}'`.
 
   **Upload that descriptor script with `save file <path> --file
-  <local-file>`, not `exec /builtin/file/file_put --json '...'` with the
+  <local-file>`, not `exec /builtin/file/file-put --json '...'` with the
   script text embedded as a JSON string.** The latter needs the script's
   own `'...'` shell-quoted arguments re-escaped as `'` inside the outer
   JSON string (see `solx-firefox/install.solx` for that pattern done

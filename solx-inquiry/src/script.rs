@@ -306,14 +306,14 @@ mod tests {
     #[test]
     fn assembles_the_steps_that_survive_validation() {
         let steps = vec![
-            step("/builtin/document/search_documents", json!({ "q": "auth" }), Some("hits")),
+            step("/builtin/document/search-documents", json!({ "q": "auth" }), Some("hits")),
             step("/builtin/console/print", json!({ "message": "done" }), None),
         ];
         let catalogue =
-            allowing(&["/builtin/document/search_documents", "/builtin/console/print"]);
+            allowing(&["/builtin/document/search-documents", "/builtin/console/print"]);
         let script = assemble(None, None, &steps, &catalogue).unwrap();
         assert_eq!(script.steps.len(), 2);
-        assert_eq!(script.steps[0].action_ref, "/builtin/document/search_documents");
+        assert_eq!(script.steps[0].action_ref, "/builtin/document/search-documents");
         assert_eq!(script.steps[0].capture.as_deref(), Some("hits"));
         assert_eq!(script.steps[1].params, json!({ "message": "done" }));
     }
@@ -321,10 +321,10 @@ mod tests {
     #[test]
     fn a_step_naming_an_unsurfaced_action_is_dropped_with_a_note() {
         let steps = vec![
-            step("/builtin/document/search_documents", json!({}), None),
+            step("/builtin/document/search-documents", json!({}), None),
             step("/invented/action", json!({}), None),
         ];
-        let catalogue = allowing(&["/builtin/document/search_documents"]);
+        let catalogue = allowing(&["/builtin/document/search-documents"]);
         let script = assemble(None, None, &steps, &catalogue).unwrap();
         assert_eq!(script.steps.len(), 1);
         assert_eq!(script.notes.len(), 1);
@@ -446,17 +446,17 @@ mod tests {
         // action" must not be something they only discover by inspecting the
         // steps themselves.
         let steps = vec![
-            step("/builtin/document/search_documents", json!({ "q": "x" }), None),
-            step("/builtin/action/entity_delete_action", json!({ "name": "x" }), None),
+            step("/builtin/document/search-documents", json!({ "q": "x" }), None),
+            step("/builtin/action/entity-delete-action", json!({ "name": "x" }), None),
         ];
         let mut catalogue = allowing(&[
-            "/builtin/document/search_documents",
-            "/builtin/action/entity_delete_action",
+            "/builtin/document/search-documents",
+            "/builtin/action/entity-delete-action",
         ]);
-        catalogue.destructive = vec!["/builtin/action/entity_delete_action".to_string()];
+        catalogue.destructive = vec!["/builtin/action/entity-delete-action".to_string()];
         let script = assemble(None, None, &steps, &catalogue).unwrap();
 
-        assert_eq!(script.destructive, vec!["/builtin/action/entity_delete_action"]);
+        assert_eq!(script.destructive, vec!["/builtin/action/entity-delete-action"]);
         assert!(script.notes.iter().any(|n| n.contains("destructive")), "{:?}", script.notes);
         // Surfaced, not refused: deleting something can be exactly what was
         // asked for, and this module does not run anything.

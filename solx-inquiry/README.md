@@ -49,8 +49,8 @@ that package first, or point `llm_action_ref` at another action taking
 1. **Search terms.** The inquiry is sent to a chat action (by default
    `solx-ollama`'s `ollama-chat`) with a JSON-schema `format`, asking for a
    short list of search terms.
-2. **Search.** Each term is run against `/builtin/document/search_documents`
-   and/or `/builtin/action/search_actions` (per `scope`). Hits are
+2. **Search.** Each term is run against `/builtin/document/search-documents`
+   and/or `/builtin/action/search-actions` (per `scope`). Hits are
    normalized to one shape, deduplicated across terms (keeping the best
    score), and capped at `max_results`.
 3. **Summary.** The inquiry plus the merged hits go back to the chat action,
@@ -136,7 +136,7 @@ see [The inquiry fan-out](#the-inquiry-fan-out).
 
 Two things send a call down the plain blocking path instead:
 
-- **The host is not long-lived.** `action_start` refuses under a bare
+- **The host is not long-lived.** `action-start` refuses under a bare
   `solx exec` — the process exits the instant `exec` returns, which would
   kill a spawned task before anyone could poll it. Only `solx-server`/
   `solx-mcp` (or a CLI pointed at one via `server_url`) allow it. `inquire`
@@ -144,11 +144,11 @@ Two things send a call down the plain blocking path instead:
   works standalone — just without live console echo or cooperative
   cancellation, the same as before this existed.
 - **`llm_action_ref` doesn't parse as a `/path/name` reference** (no `/`, or
-  an empty path/name segment) — `action_start` takes a path/name pair, not a
+  an empty path/name segment) — `action-start` takes a path/name pair, not a
   joined ref, so a malformed override falls back rather than hard-failing.
 
 One consequence worth knowing: `inquire`'s own cancellation check only does
-anything if `inquire` *itself* was started via `action_start` (only then does
+anything if `inquire` *itself* was started via `action-start` (only then does
 its invocation have a row a `stop` call can flip) — a plain `solx exec
 inquire` degrades silently to "never cancelled," same as `solx-ollama`'s
 existing `/builtin/action/cancelled` check does today.
@@ -173,7 +173,7 @@ Merging happens through a `BTreeMap`, not a `HashMap`, so any hit that still
 ties on score sorts deterministically rather than by hash-randomized
 iteration order.
 
-Both `search_documents` and `search_actions` order their `items` by FTS5
+Both `search-documents` and `search-actions` order their `items` by FTS5
 rank server-side, but neither exposes that rank as a number on the row —
 only the array position carries it. So each term contributes its position's
 reciprocal rank (`1/(position+1)`: first place `1.0`, second `0.5`, third
@@ -200,7 +200,7 @@ confidence. The final sort still breaks an exact numeric tie by
 `matched_terms.len()`, but that is now only a tiebreak: corroboration is
 already the first key's doing.
 
-`search_documents`/`search_actions` AND every word *within* one `q` string
+`search-documents`/`search-actions` AND every word *within* one `q` string
 together (all of them must co-occur in the same result), so a multi-word
 search term is narrower, not broader. That's why the default prompt asks the
 model for single keywords rather than 2-4 word phrases — a phrasal term can
@@ -227,22 +227,22 @@ a single word could be added, and every one of those phrases matched nothing.
 actions, where constructing a genuinely correct call needs the parameter
 schema, not just a reference to where it lives.
 
-A document hit needs no enrichment step at all: `search_documents` returns
+A document hit needs no enrichment step at all: `search-documents` returns
 full `Document` rows, so `contents` is already sitting on the hit as
 `details` the moment it comes back from the search call — no second round
-trip. (This used to require a separate `entity_get_document` fetch, back
-when `search_documents` only returned a slim `title`/`summary` projection;
+trip. (This used to require a separate `entity-get-document` fetch, back
+when `search-documents` only returned a slim `title`/`summary` projection;
 solx-core's `DocManager::search` was changed to return full rows, mirroring
-what `search_actions` already did, specifically to remove that round trip.)
+what `search-actions` already did, specifically to remove that round trip.)
 
-An action hit is different: `search_actions` returns the full `Action` row
+An action hit is different: `search-actions` returns the full `Action` row
 too, but a `paramTypeRef`/`resultTypeRef` on it is only a *reference* to
 where a schema lives, not the schema itself. So after merging and capping,
 [`search::enrich_hits`](src/search.rs) fetches the JSON Schema for whichever
-of `paramTypeRef`/`resultTypeRef` are present (each its own `entity_get_type`
+of `paramTypeRef`/`resultTypeRef` are present (each its own `entity-get-type`
 call), folding them into `details.paramSchema`/`details.resultSchema`
 alongside the category/capabilities/phrases/paramTypeRef/resultTypeRef already
-on hand from `search_actions` (no extra call for those). `capabilities` is
+on hand from `search-actions` (no extra call for those). `capabilities` is
 where `solx:destructive` shows up — the one tag solx-core enforces rather than
 merely records, since it makes a call stop for a human decision. This is what makes
 `scope: "actions"` genuinely useful for a caller building a script or exec
@@ -381,16 +381,16 @@ returned payloads, everything else unchanged.
   ],
   "scripts": [
     { "title": "Search for auth notes",
-      "actions": ["/builtin/document/search_documents"], "destructive": [], "notes": [],
+      "actions": ["/builtin/document/search-documents"], "destructive": [], "notes": [],
       "steps": [
-        { "action_ref": "/builtin/document/search_documents", "params": { "q": "auth" }, "capture": "hits" }
+        { "action_ref": "/builtin/document/search-documents", "params": { "q": "auth" }, "capture": "hits" }
       ] }
   ],
   "hits": [ "..." ], "notes": [], "errors": [], "warnings": []
 }
 ```
 
-A returned memory is a complete `entity_save_document` payload — pipe it
+A returned memory is a complete `entity-save-document` payload — pipe it
 straight in. A returned script is a validated, ordered list of `{action_ref,
 params, capture}` steps; there is no `.solx` text anywhere in it. Executing
 one is the caller's job: call each `action_ref` with its `params` in order,
@@ -497,7 +497,7 @@ long-polled briefly instead.
 worse than running them one at a time. Only *every* inquiry failing fails the
 run.
 
-If `action_start` is refused for lack of a long-lived host (a bare `solx exec`
+If `action-start` is refused for lack of a long-lived host (a bare `solx exec`
 — see [Detached llm calls](#detached-llm-calls)), the inquiries run
 sequentially instead. Correct, just not concurrent, and without live console
 echo or cooperative cancellation. The fallback is restricted to the *first*
@@ -544,13 +544,13 @@ pick such an action only when the instruction actually asked for it. Deleting
 something can be exactly what was asked for, and this pipeline runs nothing;
 but a caller told to execute these steps should not have to inspect each one
 to discover one of them deletes an action. Not hypothetical: a live 4B run
-answered "list every installed action" by proposing `entity_delete_action`.
+answered "list every installed action" by proposing `entity-delete-action`.
 
 The check is honest about its own limit. `solx-config`'s
 `ToolPolicy::is_destructive` derives that verdict from three things — the
 `solx:destructive` capability, an `actionType` of `command` or `webhook`
 (unconditionally: shell and outbound HTTP), and a configured
-`tool_destructive` list. `search_actions` returns the first two on the row, so
+`tool_destructive` list. `search-actions` returns the first two on the row, so
 both are checked. **The third is invisible from inside a wasm guest**: it lives
 in `solx-config.json` and no built-in action exposes the policy. So
 `destructive[]` means "what could be seen from here", not "everything that
@@ -567,7 +567,7 @@ never `.solx` syntax, since nothing it writes passes through any.
 Both are ordinary documents, and both are recalled with **one call apiece**,
 once per run, before the fan-out — so three parallel inquiries share one lookup
 instead of repeating it three times. Neither needs a follow-up
-`entity_get_document`: both calls return full rows (so a skill's `contents` is
+`entity-get-document`: both calls return full rows (so a skill's `contents` is
 already on the hit) and a memory's text is written into its `summary` (so
 recall reads the row directly).
 
@@ -577,10 +577,10 @@ a skill only if that skill's text contained *every* word of it. Selection is
 by path prefix, type, and a skill's declared `scope`.
 
 That leaves *ordering* to decide which ones fit under the limit, and the two
-want different answers. Skills are read with `search_documents`, whose no-`q`
+want different answers. Skills are read with `search-documents`, whose no-`q`
 path orders by `path, name` — stable and predictable for operator-written
 guidance competing for one budget. **Memories are read with
-`entity_list_documents`, sorted `updated_at` descending**, because the same
+`entity-list-documents`, sorted `updated_at` descending**, because the same
 alphabetical order is actively wrong for them: a memory's name is a slug of
 its own text, so past `recall_limit` memories a session would surface the same
 arbitrary five forever and never see anything written since. `list` is the
@@ -634,7 +634,7 @@ pipeline branches on it.** Keeping model output out of evidence is the declared
 `memory_path`'s job, not an inference from a field a caller is free to change.
 The name is a readable slug plus a short FNV-1a hash of the text —
 deterministic, because a wasm guest has no random source, and useful, because
-`entity_save_document` upserts on `(path, name)`, so re-deriving the same
+`entity-save-document` upserts on `(path, name)`, so re-deriving the same
 memory overwrites itself instead of accumulating near-duplicates every time
 the instruction is repeated.
 
@@ -653,7 +653,7 @@ by contrast, is left out of action inquiries — see [Skills and
 memories](#skills-and-memories) — because a memory is a prior finding and a
 context document is not).
 
-Each is fetched with one `entity_get_document` call, once, up front —
+Each is fetched with one `entity-get-document` call, once, up front —
 before the intent call, alongside recall — capped at 10 documents. A document's
 text is read the same way a memory's is (`contents.text`, so a document minted
 by an earlier `instruct` run reads back cleanly), falling back to `summary`
@@ -780,7 +780,7 @@ layer on top rather than finding one built in.
 - **`scripts[]`** — validated, ordered `{action_ref, params, capture}` steps
   (see [Scripts](#scripts)), plus `destructive[]` naming which of them solx
   would stop a human for.
-- **`memories[]`** — ready-to-save `entity_save_document` payloads, present
+- **`memories[]`** — ready-to-save `entity-save-document` payloads, present
   only when `memory_path` was given and only for responses an inquiry
   produced and the model flagged durable.
 - **`responses[]`/`hits[]`** — the answer and its evidence, each response
@@ -802,7 +802,7 @@ loop:
 
     for memory in result.memories:
         # instruct never saves these itself
-        exec entity_save_document --json memory
+        exec entity-save-document --json memory
 
     for script in result.scripts:
         if script.destructive is non-empty:
@@ -871,10 +871,10 @@ for `instruct`:
 | `kind` | meaning |
 |---|---|
 | `bad_params` | `inquiry`/`model` missing or `scope` invalid; for `instruct`, `instruction`/`model`/`session` missing or `session` not a `/path/name` ref |
-| `dispatch_error` | the host rejected a nested call (e.g. `llm_action_ref` isn't installed, or `action_poll`/`action_start` itself failed) |
+| `dispatch_error` | the host rejected a nested call (e.g. `llm_action_ref` isn't installed, or `action-poll`/`action-start` itself failed) |
 | `llm_error` | the llm action ran but reported failure (bad model, auth, transport, ...); its own output is under `inner` |
 | `inquiry_error` | `instruct` only: *every* inquiry failed. Each entry in `errors` carries its own kind, since the causes can differ |
-| `search_error` | `search_documents`/`search_actions` reported failure; carries `term` and `inner` |
+| `search_error` | `search-documents`/`search-actions` reported failure; carries `term` and `inner` |
 | `bad_llm_output` | the model's response had no extractable search terms, or an empty summary. `instruct` does not raise this: unparseable intent output becomes a direct answer, and unparseable inquiry output becomes an uncited response or a note |
 | `cancelled` | the action's own invocation was stopped mid-call; every outstanding child chat invocation was stopped too. `instruct` carries what it had under `partial` |
 | `unknown_action` | the row's `fn_name` is neither `inquire` nor `instruct` |
@@ -883,7 +883,7 @@ Two failures `instruct` deliberately does **not** raise, because they are
 partial rather than total:
 
 - **One inquiry failing** (a failed search, a failed model call, a refused
-  `action_start`) lands in `errors[]` and the run continues.
+  `action-start`) lands in `errors[]` and the run continues.
 - **A session document that could not be written** lands in `warnings[]`. The
   results already exist by then.
 
@@ -901,7 +901,7 @@ src/guest.rs           wit-bindgen shim (wasm32 only)
 shared by both actions
 src/llm.rs             drive one chat call: detached start/poll/drain/cancel, or a blocking fallback
 src/prompts.rs         every default prompt and every structured-output schema
-src/search.rs          run search_documents/search_actions, normalize, merge, enrich
+src/search.rs          run search-documents/search-actions, normalize, merge, enrich
 src/terms.rs           generate search terms from a model, or derive them locally
 src/params.rs          parse/default an inquire call's params, and the shared llm overrides
 

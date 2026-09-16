@@ -41,7 +41,11 @@ interface ActionRow {
 export function encodeToolName(path: string, name: string): string {
   const segments = path === "/" ? [] : path.replace(/^\//, "").split("/");
   segments.push(name);
-  return "act__" + segments.join("__").replace(/[^A-Za-z0-9_]/g, "_");
+  // Hyphens are a legitimate, common character in action/package names (e.g.
+  // "ollama-chat", every renamed builtin) and solx-mcp's own Rust encoder
+  // does no sanitization at all -- only characters that would actually
+  // break a tool name need stripping here.
+  return "act__" + segments.join("__").replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
 function flattenNullUnions(node: unknown): void {

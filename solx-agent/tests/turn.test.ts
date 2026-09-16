@@ -11,7 +11,7 @@ const SESSION_TYPE = "/packages/solx-agent/AgentSession";
 
 function seeded() {
   const { fake: f, host } = fake();
-  withDocActions(f).action("/builtin/document/set_field_at_path", {
+  withDocActions(f).action("/builtin/document/set-field-at-path", {
     description: "set one document field",
   });
   return { f, host };
@@ -35,7 +35,7 @@ function withShell(): { f: FakeHost; host: Host; grant: { path: string; actions?
 
 describe("creating a session", () => {
   test("writes a session document with a typeRef", async () => {
-    // Regression: entity_save_document requires typeRef on create and ignores
+    // Regression: entity-save-document requires typeRef on create and ignores
     // an unknown type_ref, so the snake_case spelling failed outright.
     const { f, host } = seeded();
     const s = await session(host);
@@ -53,7 +53,7 @@ describe("creating a session", () => {
       model: "m",
       grant: DOCS_GRANT,
     });
-    expect(Object.values(s.tools)).toContain("/builtin/document/search_documents");
+    expect(Object.values(s.tools)).toContain("/builtin/document/search-documents");
   });
 
   test("refuses a grant that reaches nothing at all", async () => {
@@ -78,24 +78,24 @@ describe("the loop", () => {
   test("a tool call is dispatched and answered with exactly one tool turn", async () => {
     const { f, host } = seeded();
     const s = await session(host);
-    f.replyCalls(["act__builtin__document__search_documents", { q: "x" }]);
+    f.replyCalls(["act__builtin__document__search-documents", { q: "x" }]);
 
     const out = await step(host, s);
     expect(out.status).toBe("running");
     expect(s.messages.filter((m) => m.role === "tool").length).toBe(1);
     expect(s.calls[0].outcome).toBe("ok");
-    expect(s.calls[0].ref).toBe("/builtin/document/search_documents");
+    expect(s.calls[0].ref).toBe("/builtin/document/search-documents");
   });
 
   test("a name absent from the session map names nothing", async () => {
     const { f, host } = seeded();
     const s = await session(host);
-    f.replyCalls(["act__builtin__secrets__get_secret", {}]);
+    f.replyCalls(["act__builtin__secrets__get-secret", {}]);
 
     await step(host, s);
     expect(s.calls[0].outcome).toBe("refused");
     const refusal = s.messages.at(-1)!.content;
-    expect(refusal).toContain("act__builtin__secrets__get_secret");
+    expect(refusal).toContain("act__builtin__secrets__get-secret");
     // The refusal has to point somewhere. A bare "unknown tool" reads as
     // "try a different spelling", and a model that heard the name elsewhere
     // will burn the turn permuting it.
@@ -112,13 +112,13 @@ describe("the loop", () => {
   });
 
   test("three iterations where every call fails end the session blocked", async () => {
-    // Deliberately not search_documents: the fake answers that one itself, so
+    // Deliberately not search-documents: the fake answers that one itself, so
     // a failure injected on the row would never be reached.
     const { f, host } = seeded();
-    f.actions_.get("/builtin/document/set_field_at_path")!.failWith = "boom";
+    f.actions_.get("/builtin/document/set-field-at-path")!.failWith = "boom";
     const s = await session(host);
     for (let i = 0; i < 3; i++) {
-      f.replyCalls(["act__builtin__document__set_field_at_path", { a: 1 }]);
+      f.replyCalls(["act__builtin__document__set-field-at-path", { a: 1 }]);
     }
     let out;
     for (let i = 0; i < 3; i++) out = await step(host, s);
@@ -128,7 +128,7 @@ describe("the loop", () => {
   test("the iteration budget is per turn, and the counter stays monotonic", async () => {
     const { f, host } = seeded();
     const s = await session(host, { max_iterations: 1 });
-    f.replyCalls(["act__builtin__document__search_documents", { q: "x" }]);
+    f.replyCalls(["act__builtin__document__search-documents", { q: "x" }]);
     await step(host, s);
     const out = await step(host, s);
     expect(out.status).toBe("exhausted");
@@ -202,23 +202,23 @@ describe("approval", () => {
 describe("the gate re-runs at dispatch", () => {
   test("a tampered dispatch table buys nothing", async () => {
     const { f, host } = seeded();
-    f.action("/builtin/secrets/get_secret", { description: "document secrets" });
+    f.action("/builtin/secrets/get-secret", { description: "document secrets" });
     const s = await session(host);
 
     // Point a listed name at something the grant never permitted.
-    s.tools["act__builtin__document__search_documents"] = "/builtin/secrets/get_secret";
-    f.replyCalls(["act__builtin__document__search_documents", {}]);
+    s.tools["act__builtin__document__search-documents"] = "/builtin/secrets/get-secret";
+    f.replyCalls(["act__builtin__document__search-documents", {}]);
 
     await step(host, s);
     expect(s.calls[0].outcome).toBe("refused");
-    expect(f.refsCalled("/builtin/secrets/get_secret").length).toBe(0);
+    expect(f.refsCalled("/builtin/secrets/get-secret").length).toBe(0);
   });
 
   test("the model cannot rewrite its own session through a document action", async () => {
     const { f, host } = seeded();
     const s = await session(host);
     f.replyCalls([
-      "act__builtin__document__entity_save_document",
+      "act__builtin__document__entity-save-document",
       { path: "/agent/sessions", name: s.id, contents: { status: "idle" } },
     ]);
 
@@ -231,8 +231,8 @@ describe("the gate re-runs at dispatch", () => {
     const { f, host } = seeded();
     const s = await session(host);
     // Listed in the map, but gone from the registry by the time it is called.
-    f.actions_.delete("/builtin/document/search_documents");
-    f.replyCalls(["act__builtin__document__search_documents", {}]);
+    f.actions_.delete("/builtin/document/search-documents");
+    f.replyCalls(["act__builtin__document__search-documents", {}]);
 
     await step(host, s);
     expect(s.calls[0].outcome).toBe("refused");

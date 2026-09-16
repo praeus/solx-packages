@@ -91,7 +91,7 @@ pub const MEMORY_BLOCK_CAP: usize = 6000;
 pub const SESSION_TURN_CAP: usize = 50;
 
 /// Hard ceiling on how many documents a caller may name in
-/// `context_documents`. Each one is a separate `entity_get_document` call,
+/// `context_documents`. Each one is a separate `entity-get-document` call,
 /// made once up front before the intent call - generous enough for a caller
 /// grounding an instruction in a handful of specific documents, bounded so
 /// that is not an unbounded number of host calls.

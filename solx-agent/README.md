@@ -59,7 +59,7 @@ solx get doc /agent/sessions/wandering-heron
 ```
 
 Ids are an adjective and a noun, because they are read aloud and pasted into
-things. 16,120 pairs is not enough on its own: `entity_save_document` is an
+things. 16,120 pairs is not enough on its own: `entity-save-document` is an
 upsert keyed on `(path, name)`, so a collision would not fail — it would
 silently write over a running transcript. So a name is checked before it is
 taken, and the check **fails closed**.
@@ -94,7 +94,7 @@ solx save doc /agent/skills/documents \
   "title": "Working with documents",
   "contents": {
     "tools": ["/builtin/document/*"],
-    "instructions": "Names are unique per path and entity_save_document is an upsert, so a save with an existing name replaces that document. Search first."
+    "instructions": "Names are unique per path and entity-save-document is an upsert, so a save with an existing name replaces that document. Search first."
   }
 }'
 ```
@@ -157,16 +157,16 @@ What is left is what is specific to *this* caller:
 1. **Default deny.** An absent or empty grant is an error, not an empty
    catalogue. There is no `"*"` shorthand.
 2. **Structural denies, not overridable.** `/builtin/secrets/*`,
-   `/builtin/env/set_env`, this package itself, and, by exact name rather than
+   `/builtin/env/set-env`, this package itself, and, by exact name rather than
    by glob, `/builtin/action/{start,stop,poll,cancelled}` plus
-   `/builtin/action/{entity_save_action,entity_delete_action}`. The async four
+   `/builtin/action/{entity-save-action,entity-delete-action}`. The async four
    are denied because the widget drives them itself. The two writers are
    denied because a `script` or `wasm` row registered under an already-granted
    path escapes the grant entirely: a guest's `action-exec` import reaches
    anything, and a `.solx` composes anything. Command and webhook rows are a
    separate matter, already refused host-side by solx-core's
    `guard_executable_action`. What this leaves reachable is the read half,
-   `search_actions` / `entity_get_action` / `entity_list_actions`, which is the
+   `search-actions` / `entity-get-action` / `entity-list-actions`, which is the
    point: the registry *is* the tool catalogue, so that is how a model looks up
    a tool it was not handed and reads its parameter schema.
 3. **A glob reaches Command, Webhook and `/builtin/web/*` rows too, the same

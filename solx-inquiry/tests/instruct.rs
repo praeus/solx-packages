@@ -394,7 +394,7 @@ const THREE_INQUIRIES: &str = r#"{"mode":"inquire","inquiries":[
 fn push_three_inquiry_searches(host: &FakeHost) {
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/notes", "name": "auth", "typeRef": "x", "contents": { "body": "session tokens" } }])));
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "2", "path": "/notes", "name": "sessions", "typeRef": "x", "contents": { "body": "sessions expire" } }])));
-    host.push_ok(ACTION_SEARCH_REF, doc_hits(json!([{ "id": "3", "path": "/builtin/document", "name": "search_documents", "caption": "Search" }])));
+    host.push_ok(ACTION_SEARCH_REF, doc_hits(json!([{ "id": "3", "path": "/builtin/document", "name": "search-documents", "caption": "Search" }])));
 }
 
 #[test]
@@ -413,7 +413,7 @@ fn every_inquiry_is_started_before_any_of_them_is_polled() {
     host.push_start("inv-2");
     host.push_done("inv-0", r#"{"responses":[{"text":"auth uses tokens"}]}"#);
     host.push_done("inv-1", r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
-    host.push_done("inv-2", r#"{"scripts":[{"steps":[{"action_ref":"/builtin/document/search_documents","params":{"q":"auth"}}]}]}"#);
+    host.push_done("inv-2", r#"{"scripts":[{"steps":[{"action_ref":"/builtin/document/search-documents","params":{"q":"auth"}}]}]}"#);
     host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
     let out = run(&host, base_params());
@@ -451,7 +451,7 @@ fn document_inquiries_produce_responses_and_an_action_inquiry_produces_a_script(
     host.push_done("inv-1", r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
     host.push_done(
         "inv-2",
-        r#"{"scripts":[{"title":"Find auth","steps":[{"action_ref":"/builtin/document/search_documents","params":{"q":"auth"},"capture":"hits"}]}]}"#,
+        r#"{"scripts":[{"title":"Find auth","steps":[{"action_ref":"/builtin/document/search-documents","params":{"q":"auth"},"capture":"hits"}]}]}"#,
     );
     host.push_ok(DOCUMENT_SAVE_REF, json!({ "id": "1" }));
 
@@ -469,12 +469,12 @@ fn document_inquiries_produce_responses_and_an_action_inquiry_produces_a_script(
     assert_eq!(
         scripts[0]["steps"],
         json!([{
-            "action_ref": "/builtin/document/search_documents",
+            "action_ref": "/builtin/document/search-documents",
             "params": { "q": "auth" },
             "capture": "hits",
         }])
     );
-    assert_eq!(scripts[0]["actions"], json!(["/builtin/document/search_documents"]));
+    assert_eq!(scripts[0]["actions"], json!(["/builtin/document/search-documents"]));
 }
 
 #[test]
@@ -521,7 +521,7 @@ fn a_failing_console_tail_still_paces_the_fan_out() {
     // never make another wait), which leaves the tail as the only thing in the
     // loop that can afford to sleep. A tail that errors returns instantly and
     // keeps doing so, so treating that like a quiet console would spin the
-    // loop at full speed until the action timeout - hammering `action_poll`
+    // loop at full speed until the action timeout - hammering `action-poll`
     // for up to 8400s. It has to fall back to waiting on a child instead.
     let host = FakeHost::new();
     push_empty_context(&host);
@@ -652,10 +652,10 @@ fn a_host_that_cannot_detach_runs_the_inquiries_sequentially_and_still_answers()
     push_empty_context(&host);
     // The intent call falls back first (llm::call's own fallback), then the
     // fan-out's start is refused too and it runs every job blocking.
-    host.push_err(ACTION_START, "action_start requires a long-lived host (solx-server or solx-mcp).");
+    host.push_err(ACTION_START, "action-start requires a long-lived host (solx-server or solx-mcp).");
     host.push_blocking(THREE_INQUIRIES);
     push_three_inquiry_searches(&host);
-    host.push_err(ACTION_START, "action_start requires a long-lived host (solx-server or solx-mcp).");
+    host.push_err(ACTION_START, "action-start requires a long-lived host (solx-server or solx-mcp).");
     host.push_blocking(r#"{"responses":[{"text":"auth uses tokens"}]}"#);
     host.push_blocking(r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
     host.push_blocking(r#"{"scripts":[]}"#);
@@ -721,12 +721,12 @@ fn two_inquiries_sharing_an_action_fetch_its_param_schema_once() {
     );
     host.push_ok(
         ACTION_SEARCH_REF,
-        doc_hits(json!([{ "id": "1", "path": "/builtin/document", "name": "search_documents",
+        doc_hits(json!([{ "id": "1", "path": "/builtin/document", "name": "search-documents",
                          "caption": "Search", "paramTypeRef": "/builtin/types/SearchParams" }])),
     );
     host.push_ok(
         ACTION_SEARCH_REF,
-        doc_hits(json!([{ "id": "1", "path": "/builtin/document", "name": "search_documents",
+        doc_hits(json!([{ "id": "1", "path": "/builtin/document", "name": "search-documents",
                          "caption": "Search", "paramTypeRef": "/builtin/types/SearchParams" }])),
     );
     host.push_ok(TYPE_GET_REF, json!({ "schema": { "type": "object", "properties": { "q": { "type": "string" } } } }));
@@ -940,7 +940,7 @@ fn seeded_skills_and_stored_memories_reach_the_prompts() {
         ]}"#,
     );
     host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "4", "path": "/n", "name": "a", "typeRef": "x" }])));
-    host.push_ok(ACTION_SEARCH_REF, doc_hits(json!([{ "id": "5", "path": "/builtin/document", "name": "search_documents", "caption": "Search" }])));
+    host.push_ok(ACTION_SEARCH_REF, doc_hits(json!([{ "id": "5", "path": "/builtin/document", "name": "search-documents", "caption": "Search" }])));
     host.push_start("inv-0");
     host.push_start("inv-1");
     host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
@@ -1139,7 +1139,7 @@ fn an_action_inquiry_carries_the_parameter_schema_into_its_prompt() {
     );
     host.push_ok(
         ACTION_SEARCH_REF,
-        doc_hits(json!([{ "id": "1", "path": "/builtin/document", "name": "search_documents",
+        doc_hits(json!([{ "id": "1", "path": "/builtin/document", "name": "search-documents",
                          "caption": "Search", "paramTypeRef": "/builtin/types/SearchDocumentsParams" }])),
     );
     host.push_ok(TYPE_GET_REF, json!({ "schema": { "type": "object", "properties": { "q": { "type": "string" } } } }));

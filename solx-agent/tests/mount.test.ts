@@ -70,7 +70,7 @@ describe.skipIf(!built)("the built bundle", () => {
   test("reaches its injected client", () => {
     // Models and history are both fetched through the client on mount.
     expect(calls).toContain("/packages/solx-ollama/ollama-list-models");
-    expect(calls).toContain("/builtin/document/search_documents");
+    expect(calls).toContain("/builtin/document/search-documents");
   });
 
   test("offers the composer, with no session open", () => {

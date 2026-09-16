@@ -2,8 +2,8 @@
  * The gate: what this session may call, decided fresh at every dispatch.
  *
  * Layered, and split across two languages on purpose. **Exclusions are
- * enforced in Rust and never reach this file** -- `search_actions` and
- * `entity_get_action` are called with `excludeHidden: true`, so a hidden
+ * enforced in Rust and never reach this file** -- `search-actions` and
+ * `entity-get-action` are called with `excludeHidden: true`, so a hidden
  * action is already gone before anything here sees it. Hidden-ness resolves
  * in `solx-config` as config rules union the row's own `solx:hidden`
  * capability, the same `ToolPolicy` solx-mcp uses. Nothing here knows the
@@ -100,7 +100,7 @@ export function globMatches(pattern: string, text: string): boolean {
  * Whether a grant path is a pattern rather than a literal path.
  *
  * Matters because the two are resolved in different places: a literal path
- * is pushed down to `search_actions`' `pathPrefix` (a SQL prefix match), but
+ * is pushed down to `search-actions`' `pathPrefix` (a SQL prefix match), but
  * a pattern means nothing to that filter -- `*` would be read as a path
  * literally named `/*` and match nothing at all. `resolveCatalogue` searches
  * unscoped for these and lets `permitted` do the narrowing here instead.

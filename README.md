@@ -24,8 +24,8 @@ actions database.
 solx-core denies shell commands and outbound HTTP by default: a command's
 `fn_name` must be a registered key, and **any** outbound URL must match an
 allowed prefix — a `webhook` action's, and any URL handed to
-`/builtin/web/http_request`, `/builtin/web/stream/start` or
-`/builtin/web/open_url`. A package declares what it needs in
+`/builtin/web/http-request`, `/builtin/web/stream/start` or
+`/builtin/web/open-url`. A package declares what it needs in
 `solx-package.json`, in the same shape `solx-config.json` uses:
 
 ```json

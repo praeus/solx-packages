@@ -247,7 +247,7 @@ pub(super) async fn try_ffmpeg_whisper_transcribe(
             }
             _ => {}
         }
-        // Cooperative cancellation: a detached `action_stop` sets the flag
+        // Cooperative cancellation: a detached `action-stop` sets the flag
         // the loopback `/cancelled` route reports. Dropping `child` here
         // kills the ffmpeg sidecar process.
         if solx_package_log::cancelled().await {

@@ -44,7 +44,7 @@ every time.
   and a widget component reads it with `useSolxWidgetClient()`:
   ```ts
   const client = useSolxWidgetClient(); // undefined if the host didn't supply one
-  const { result } = await client?.actions.exec("/builtin/document", "search_documents", { q: text });
+  const { result } = await client?.actions.exec("/builtin/document", "search-documents", { q: text });
   ```
   This is an ergonomic, discoverable API, not a security boundary — a
   widget bundle runs in the same JS realm as its host (shadow root, not an

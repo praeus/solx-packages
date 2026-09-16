@@ -4,13 +4,13 @@
  * live widget session built up.
  *
  * See `../../../docs/widget-system.md` ("hostFromClient: a convenience
- * wrapper...") for why this exists at all: `console_copy` requires an
+ * wrapper...") for why this exists at all: `console-copy` requires an
  * action caller, and a widget's own calls are external execs with no
  * caller, so there is no server-side operation that can merge several
  * actions' consoles into one on the widget's behalf. The workaround is to
  * track *which* (action_ref, invocation_id) pairs belong to one widget
  * session as an ordinary document, and merge their consoles client-side —
- * `console_read`/`console_tail` are unrestricted by caller, so reading is
+ * `console-read`/`console-tail` are unrestricted by caller, so reading is
  * never the blocked half of this.
  */
 

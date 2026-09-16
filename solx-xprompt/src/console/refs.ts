@@ -1,5 +1,5 @@
-export const SAVE_DOC = "/builtin/document/entity_save_document";
-export const GET_DOC = "/builtin/document/entity_get_document";
+export const SAVE_DOC = "/builtin/document/entity-save-document";
+export const GET_DOC = "/builtin/document/entity-get-document";
 
 /** Every document this package owns lives under one root, mirroring solx-agent's `/agent`. */
 export const XPROMPT_ROOT = "/xprompt";

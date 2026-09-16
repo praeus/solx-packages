@@ -10,9 +10,9 @@ use serde_json::{json, Value};
 use crate::host::{join_within_budget, truncate, Host, Outcome};
 use crate::params::{Params, Scope};
 
-pub const DOCUMENT_SEARCH_REF: &str = "/builtin/document/search_documents";
-pub const ACTION_SEARCH_REF: &str = "/builtin/action/search_actions";
-pub const TYPE_GET_REF: &str = "/builtin/type/entity_get_type";
+pub const DOCUMENT_SEARCH_REF: &str = "/builtin/document/search-documents";
+pub const ACTION_SEARCH_REF: &str = "/builtin/action/search-actions";
+pub const TYPE_GET_REF: &str = "/builtin/type/entity-get-type";
 
 /// Longest serialized `details` blob folded into one hit's context line.
 /// Keeps a rich document body (or an action's full descriptive fields, now
@@ -26,7 +26,7 @@ const MAX_DETAILS_CHARS: usize = 1500;
 /// Longest `summary` folded into one hit's context line. Unlike `details`,
 /// `summary` is meant to be a one-liner by convention (a document's short
 /// dek, an action's `description`) rather than by any cap on what
-/// `search_documents`/`search_actions` may return in that field — nothing
+/// `search-documents`/`search-actions` may return in that field — nothing
 /// stops a document from having an unusually long one. Applied for the same
 /// reason `details` already is: one hit's field should not be able to
 /// dominate the prompt on its own.
@@ -97,13 +97,13 @@ pub struct Hit {
     /// set and unbounded above, not a 0..1 confidence.
     pub score: f32,
     pub matched_terms: Vec<String>,
-    /// The document's `typeRef`, straight off the `search_documents` row.
+    /// The document's `typeRef`, straight off the `search-documents` row.
     /// `None` for an action hit. Not surfaced in [`Hit::to_json`] - it exists
     /// so `instruct` can tell its own document kinds apart from evidence, and
     /// adding a field to `inquire`'s documented result shape for that would be
     /// a change nothing asked for.
     pub type_ref: Option<String>,
-    /// A document's full `contents` (returned inline by `search_documents`,
+    /// A document's full `contents` (returned inline by `search-documents`,
     /// no separate fetch needed), or an action's category/phrases/
     /// paramTypeRef/resultTypeRef plus (once enriched — see [`enrich_hits`])
     /// the JSON Schema for each type reference under
@@ -167,15 +167,15 @@ pub fn context_block(hits: &[Hit]) -> String {
 /// A type's JSON Schema, keyed by its `/path/name` reference, cached for the
 /// lifetime of one [`TypeCache`] value.
 ///
-/// `entity_get_type` is fetched per action hit per type-ref field
+/// `entity-get-type` is fetched per action hit per type-ref field
 /// (`paramTypeRef`/`resultTypeRef`), and nothing before this cache stopped the
 /// same reference from being fetched twice: two actions can share a param
 /// type, and `instruct` calls [`run_search_with`] once per inquiry — up to
 /// three times in one run — so an action two inquiries both surface (a common
-/// helper like `search_documents` is a likely one) paid for its schema twice
+/// helper like `search-documents` is a likely one) paid for its schema twice
 /// over. `None` is cached too, so a reference that is absent or fails to
 /// resolve is not retried for the rest of whatever scope this cache is built
-/// for, rather than hitting `entity_get_type` again for every hit that names
+/// for, rather than hitting `entity-get-type` again for every hit that names
 /// it.
 ///
 /// Scoped by the caller, not global: [`run_search`] builds a fresh one per
@@ -251,8 +251,8 @@ pub fn run_search_with(
 /// them into `details` as `paramSchema`/`resultSchema` — a bare reference
 /// string isn't enough to construct a genuinely correct call or parse its
 /// result, only to name where each shape lives. Document hits need no such
-/// step: `search_documents` already returns full `contents` inline (see
-/// `search_documents` below). Every fetch is independent and best-effort: a
+/// step: `search-documents` already returns full `contents` inline (see
+/// `search-documents` below). Every fetch is independent and best-effort: a
 /// failure (deleted meanwhile, transient error) just leaves that piece of
 /// `details` missing rather than failing the whole inquiry over what is
 /// strictly additional context.
@@ -299,7 +299,7 @@ fn fetch_type_schema_into(
     }
 }
 
-/// The actual `entity_get_type` round trip, uncached — [`TypeCache`] is the
+/// The actual `entity-get-type` round trip, uncached — [`TypeCache`] is the
 /// only caller. Best-effort: a missing or failed fetch (deleted meanwhile, a
 /// transient error) is logged and returns `None` rather than failing the
 /// whole inquiry over what is strictly additional context.
@@ -310,13 +310,13 @@ fn fetch_type_schema(host: &dyn Host, type_ref: &str) -> Option<Value> {
         Ok(c) if c.success => c,
         Ok(c) => {
             host.log(&format!(
-                "solx-inquiry: entity_get_type {type_ref} failed: {}",
+                "solx-inquiry: entity-get-type {type_ref} failed: {}",
                 c.message.unwrap_or_default()
             ));
             return None;
         }
         Err(e) => {
-            host.log(&format!("solx-inquiry: entity_get_type {type_ref} failed: {e}"));
+            host.log(&format!("solx-inquiry: entity-get-type {type_ref} failed: {e}"));
             return None;
         }
     };
@@ -370,7 +370,7 @@ fn search_documents(host: &dyn Host, spec: &SearchSpec, term: &str) -> Result<Ve
         payload["typeRef"] = json!(type_ref);
     }
 
-    host.log(&format!("solx-inquiry: search_documents q={term:?}"));
+    host.log(&format!("solx-inquiry: search-documents q={term:?}"));
     let call = host
         .exec(DOCUMENT_SEARCH_REF, &payload)
         .map_err(|e| search_dispatch_failure(DOCUMENT_SEARCH_REF, term, e))?;
@@ -378,9 +378,9 @@ fn search_documents(host: &dyn Host, spec: &SearchSpec, term: &str) -> Result<Ve
         return Err(search_failure(DOCUMENT_SEARCH_REF, term, call.message, call.result));
     }
 
-    // `search_documents` returns full `Document` rows (`items`), already
-    // ordered by FTS5 rank server-side, same as `search_actions` — no
-    // separate `entity_get_document` round trip needed to read a hit's
+    // `search-documents` returns full `Document` rows (`items`), already
+    // ordered by FTS5 rank server-side, same as `search-actions` — no
+    // separate `entity-get-document` round trip needed to read a hit's
     // `contents`, and (like actions) no numeric score on the row either, so
     // score is this hit's reciprocal rank by position.
     let items = call
@@ -414,7 +414,7 @@ fn search_actions(host: &dyn Host, spec: &SearchSpec, term: &str) -> Result<Vec<
         payload["pathPrefix"] = json!(prefix);
     }
 
-    host.log(&format!("solx-inquiry: search_actions q={term:?}"));
+    host.log(&format!("solx-inquiry: search-actions q={term:?}"));
     let call = host
         .exec(ACTION_SEARCH_REF, &payload)
         .map_err(|e| search_dispatch_failure(ACTION_SEARCH_REF, term, e))?;
@@ -428,7 +428,7 @@ fn search_actions(host: &dyn Host, spec: &SearchSpec, term: &str) -> Result<Vec<
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    // Ordered by FTS5 rank server-side, same as `search_documents` (see
+    // Ordered by FTS5 rank server-side, same as `search-documents` (see
     // `reciprocal_rank`'s doc comment for why score comes from position).
     Ok(items
         .iter()
@@ -451,7 +451,7 @@ fn search_actions(host: &dyn Host, spec: &SearchSpec, term: &str) -> Result<Vec<
 
 /// Turn a 0-based result position into one term's contribution: first place
 /// contributes 1.0, second 0.5, third 0.33, ... Used for both
-/// `search_documents` and `search_actions` now that neither exposes a numeric
+/// `search-documents` and `search-actions` now that neither exposes a numeric
 /// relevance score on the row — both only guarantee the array is already
 /// ordered best-match-first server-side (FTS5 `rank`). Position alone isn't
 /// enough once hits from *different* search terms have to be merged into one
@@ -471,7 +471,7 @@ pub const DESTRUCTIVE_CAPABILITY: &str = "solx:destructive";
 /// `solx-config`'s `ToolPolicy::is_destructive` derives that from three
 /// things: the `solx:destructive` tag, an `actionType` of `command` or
 /// `webhook` (unconditionally - those are shell and outbound HTTP), and a
-/// configured `tool_destructive` list. `search_actions` returns the first two
+/// configured `tool_destructive` list. `search-actions` returns the first two
 /// on the row, so both are checked here.
 ///
 /// **The third is invisible from inside a guest.** It lives in
@@ -480,7 +480,7 @@ pub const DESTRUCTIVE_CAPABILITY: &str = "solx:destructive";
 /// check. That is why a script's `destructive` list is documented as "what
 /// could be seen", not "everything that will stop" - and why the built-ins
 /// are a live example of the gap: they are seeded with empty `capabilities`
-/// and are `internal`, so `entity_delete_action` does not trip either of the
+/// and are `internal`, so `entity-delete-action` does not trip either of the
 /// two checks available here.
 pub fn is_destructive(hit: &Hit) -> bool {
     if hit.source != "action" {
@@ -500,7 +500,7 @@ pub fn is_destructive(hit: &Hit) -> bool {
     tagged || executable
 }
 
-/// An action's descriptive fields, already present on the `search_actions`
+/// An action's descriptive fields, already present on the `search-actions`
 /// row — no extra call needed, unlike a document's `contents`. `None` when all
 /// of them are absent, so a bare action carries no empty `{}` noise into the
 /// prompt.

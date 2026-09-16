@@ -24,8 +24,8 @@ use crate::instruct_params::{
     InstructParams, HISTORY_BLOCK_CAP, INSTRUCT_AUTHOR, SESSION_TURN_CAP, SESSION_TYPE_REF,
 };
 
-pub const DOCUMENT_GET_REF: &str = "/builtin/document/entity_get_document";
-pub const DOCUMENT_SAVE_REF: &str = "/builtin/document/entity_save_document";
+pub const DOCUMENT_GET_REF: &str = "/builtin/document/entity-get-document";
+pub const DOCUMENT_SAVE_REF: &str = "/builtin/document/entity-save-document";
 
 const TITLE_CAP: usize = 80;
 const SUMMARY_CAP: usize = 500;
@@ -78,7 +78,7 @@ pub fn load(host: &dyn Host, p: &InstructParams) -> Session {
 
 /// `solx-surface`'s `SolxError::NotFound` renders as `not found: <what>`, and
 /// the WIT boundary flattens it to that string with no code to switch on -
-/// the same constraint `llm.rs` works around for `action_start`.
+/// the same constraint `llm.rs` works around for `action-start`.
 fn is_not_found(message: &str) -> bool {
     message.contains("not found")
 }

@@ -65,7 +65,7 @@ describe("merged console", () => {
     const host = hostFromClient(client);
 
     const chat = await startTrackedCall(client, host, "session-1", "/packages/solx-ollama", "ollama-chat", {});
-    const search = await startTrackedCall(client, host, "session-1", "/builtin/document", "search_documents", {});
+    const search = await startTrackedCall(client, host, "session-1", "/builtin/document", "search-documents", {});
 
     pushEntry(chat.action_ref, chat.invocation_id, "chat: thinking");
     pushEntry(search.action_ref, search.invocation_id, "search: querying");

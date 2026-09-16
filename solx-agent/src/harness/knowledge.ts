@@ -287,7 +287,7 @@ export interface ResolvedSkill {
  * are -- so the search is now a plain listing of the skills path and the
  * glob check below decides everything.
  *
- * The cost is one `entity_get_document` per candidate, because a search hit
+ * The cost is one `entity-get-document` per candidate, because a search hit
  * carries no `contents` and the globs live in `contents.tools`. `alreadySeen`
  * is checked *before* the get, so only the first turn of a session pays it.
  * That is the reason to keep the skills path small.

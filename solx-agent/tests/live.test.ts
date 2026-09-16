@@ -49,7 +49,7 @@ describe.skipIf(!TOKEN)("live", () => {
       const s = await createSession(host, "search documents", {
         model: MODEL,
         grant: [
-          { path: "/builtin/document", actions: ["search_documents", "entity_get_document"] },
+          { path: "/builtin/document", actions: ["search-documents", "entity-get-document"] },
         ],
         max_iterations: 4,
       });

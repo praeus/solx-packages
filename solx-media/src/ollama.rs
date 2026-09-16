@@ -47,7 +47,7 @@ pub async fn generate_with_image(
 /// (the final line has `done: true` and an empty `response`). We read the
 /// body incrementally with [`reqwest::Response::chunk`], split on newlines,
 /// and concatenate the `response` fragments. Between chunks we poll
-/// [`solx_package_log::cancelled`] so a detached `action_stop` aborts the
+/// [`solx_package_log::cancelled`] so a detached `action-stop` aborts the
 /// generation instead of waiting for the whole response.
 async fn generate_streaming(
     client: &reqwest::Client,

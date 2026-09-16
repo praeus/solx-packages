@@ -11,14 +11,14 @@
  * so every fake below mirrors a behaviour that was read out of solx-core
  * rather than assumed:
  *
- *   - `entity_save_document` requires `typeRef` on create -- camelCase,
+ *   - `entity-save-document` requires `typeRef` on create -- camelCase,
  *     because `DocumentInput` carries `#[serde(rename_all = "camelCase")]`
  *     (solx-surface/src/entities.rs). It was snake_case before commit
  *     `3974d0b`, so a stale binary will disagree; check the source, not a
  *     running server.
- *   - `search_documents` hits carry no contents, only {path,name,title,summary}
- *   - `search_actions` takes camelCase `pathPrefix`/`excludeHidden`
- *   - `entity_get_action` reports a hidden action as not-found
+ *   - `search-documents` hits carry no contents, only {path,name,title,summary}
+ *   - `search-actions` takes camelCase `pathPrefix`/`excludeHidden`
+ *   - `entity-get-action` reports a hidden action as not-found
  *   - a missing document reports `not found: ...`, which `sessionNameTaken`
  *     matches on
  *   - action params are schema-validated, so an explicit `null` for an
@@ -173,7 +173,7 @@ export class FakeHost implements ExecClient {
       case "/builtin/console/print":
         return ok({});
 
-      case "/builtin/action/search_actions": {
+      case "/builtin/action/search-actions": {
         // camelCase, exactly as ActionSearchQuery deserializes it. A caller
         // sending pathPrefix as path_prefix would silently scan everything;
         // this fake reproduces that by simply not seeing the wrong key.
@@ -185,7 +185,7 @@ export class FakeHost implements ExecClient {
         return ok({ items, total: items.length, limit: (p.limit as number) ?? 50, offset: 0 });
       }
 
-      case "/builtin/action/entity_get_action": {
+      case "/builtin/action/entity-get-action": {
         const a = this.actions_.get((p.path === "/" ? "" : p.path) + "/" + p.name);
         if (!a) return fail("action not found");
         if (p.excludeHidden && a.capabilities.includes("solx:hidden")) {
@@ -194,17 +194,17 @@ export class FakeHost implements ExecClient {
         return ok(a);
       }
 
-      case "/builtin/type/entity_get_type": {
+      case "/builtin/type/entity-get-type": {
         const t = this.types.get((p.path === "/" ? "" : p.path) + "/" + p.name);
         return t ? ok(t) : fail("type not found");
       }
 
-      case "/builtin/document/entity_get_document": {
+      case "/builtin/document/entity-get-document": {
         const d = this.docs.get((p.path === "/" ? "" : p.path) + "/" + p.name);
         return d ? ok(d) : fail("not found: document " + p.path + "/" + p.name);
       }
 
-      case "/builtin/document/entity_save_document": {
+      case "/builtin/document/entity-save-document": {
         const key = (p.path === "/" ? "" : p.path) + "/" + p.name;
         const existing = this.docs.get(key);
         // solx-docs::save -- typeRef is required on create, inherited on
@@ -228,7 +228,7 @@ export class FakeHost implements ExecClient {
         return ok(this.docs.get(key));
       }
 
-      case "/builtin/document/search_documents": {
+      case "/builtin/document/search-documents": {
         // Hits are shallow: no contents. That is what makes the memory design
         // (text in `summary`) cheap and the skill design (a get per hit) not.
         const hits = [...this.docs.values()]
@@ -277,9 +277,9 @@ export const DOCS_GRANT = [{ path: "/builtin/document" }];
 /** Seed a host with a handful of ordinary, permitted document actions. */
 export function withDocActions(f: FakeHost): FakeHost {
   return f
-    .action("/builtin/document/search_documents", { description: "search documents" })
-    .action("/builtin/document/entity_get_document", { description: "get a document" })
-    .action("/builtin/document/entity_save_document", {
+    .action("/builtin/document/search-documents", { description: "search documents" })
+    .action("/builtin/document/entity-get-document", { description: "get a document" })
+    .action("/builtin/document/entity-save-document", {
       description: "save a document",
       capabilities: ["solx:destructive"],
     });

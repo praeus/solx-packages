@@ -15,7 +15,7 @@
 //!    swallowed.
 //!
 //! [`cancelled`] is a fourth, separate call: a best-effort GET against
-//! `SOLX_CONSOLE_URL`'s sibling `SOLX_CONTROL_URL`, asking "has `action_stop`
+//! `SOLX_CONSOLE_URL`'s sibling `SOLX_CONTROL_URL`, asking "has `action-stop`
 //! been called for this invocation?" — see solx-core's
 //! `docs/async-actions-plan.md` §5c. A package that wants to support
 //! cooperative cancellation calls it periodically in its own progress loop
@@ -150,7 +150,7 @@ const CANCELLED_CACHE_TTL: Duration = Duration::from_millis(500);
 
 static CANCELLED_CACHE: OnceLock<Mutex<Option<(Instant, bool)>>> = OnceLock::new();
 
-/// Ask solx-core whether `action_stop` has been called for this invocation.
+/// Ask solx-core whether `action-stop` has been called for this invocation.
 /// Call this periodically from a Command action's own progress loop and
 /// return early once it answers `true` — see the module doc for the whole
 /// cooperative-cancellation contract.

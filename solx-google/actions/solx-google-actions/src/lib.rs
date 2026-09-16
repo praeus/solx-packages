@@ -321,7 +321,7 @@ fn upload_documents_to_google_docs(params: &str) -> Result<ActionResult, String>
     let parent_folder_id = input.get("parent_folder_id").and_then(Value::as_str);
 
     let list_result = exec_action_json(
-        "/builtin/document/entity_list_documents",
+        "/builtin/document/entity-list-documents",
         &json!({
             "pathPrefix": path_prefix,
             "limit": count,
@@ -542,11 +542,11 @@ fn resolve_sol_document(input: &Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| "provide sol_document or sol_document_name".to_string())?;
 
-    // Recursive call into /builtin/document/entity_get_document. The solx-core
+    // Recursive call into /builtin/document/entity-get-document. The solx-core
     // custom-action WIT world exposes `action-exec.exec` as a synchronous
     // import (no `.await`); see the WIT for details.
     let payload = json!({ "name": name });
-    exec_action_json("/builtin/document/entity_get_document", &payload)
+    exec_action_json("/builtin/document/entity-get-document", &payload)
 }
 
 fn exec_action_json(action_name: &str, payload: &Value) -> Result<Value, String> {

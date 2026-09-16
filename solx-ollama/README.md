@@ -12,7 +12,7 @@ irreversible operation this package avoids surfacing at all.
 All outbound HTTP goes through solx-actions' HTTP built-ins — the guest has
 no sockets of its own, because the host stubs WASI. `chat` and `pull_model`
 stream through `/builtin/web/stream/*`; `list_models` is a single blocking
-`/builtin/web/http_request` call. See "Streaming" below.
+`/builtin/web/http-request` call. See "Streaming" below.
 
 ## Build and install
 
@@ -137,7 +137,7 @@ model.
 Resolved in order:
 
 1. `base_url` param on the call.
-2. `/builtin/env/get_env` for `OLLAMA_HOST`.
+2. `/builtin/env/get-env` for `OLLAMA_HOST`.
 3. `http://localhost:11434`.
 
 The env route needs an `env_mappings` entry in `solx-config.json`, since the
@@ -165,12 +165,12 @@ For Ollama Cloud or a reverse-proxied server. Sent as
 
 1. `api_key` param — convenient, but it lands in shell history and the exec
    log. Prefer one of the others.
-2. `auth_secret_name` param — an explicit `get_secret` lookup. **Failure here
+2. `auth_secret_name` param — an explicit `get-secret` lookup. **Failure here
    is fatal**: you named a secret, so falling back to an unauthenticated
    request would send it in the clear.
 3. The `OLLAMA_API_KEY` secret — the convention. Best-effort and silent, which
    is what lets a plain local Ollama work with no configuration at all.
-4. `OLLAMA_API_KEY` via `get_env`.
+4. `OLLAMA_API_KEY` via `get-env`.
 
 To store the token:
 
@@ -178,7 +178,7 @@ To store the token:
 solx exec /packages/solx-ollama/ollama-set-api-key --json '{"value":"<token>"}'
 ```
 
-That action exists to break a chicken-and-egg problem: `/builtin/secrets/set_secret`
+That action exists to break a chicken-and-egg problem: `/builtin/secrets/set-secret`
 encrypts using a key taken from the *calling* action's `action_config.secrets`,
 so only an action that already holds the key can write the secret. The secret
 name is hardcoded, so this action cannot overwrite an unrelated one.
@@ -246,7 +246,7 @@ src/lib.rs       dispatch on fn_name, plus set_api_key
 src/host.rs      the Host trait — the seam that keeps everything host-testable
 src/endpoint.rs  the endpoint table: fn_name -> method, path, params, timeouts
 src/config.rs    base-url normalization and auth resolution
-src/request.rs   marshal to /builtin/web/http_request or /builtin/web/stream/*, interpret the response
+src/request.rs   marshal to /builtin/web/http-request or /builtin/web/stream/*, interpret the response
 src/guest.rs     wit-bindgen shim (wasm32 only)
 wit/             vendored copy of solx-core/solx-wasm/wit/custom-action.wit
 ```

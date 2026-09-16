@@ -12,12 +12,12 @@
 
 export const CHAT = "/packages/solx-ollama/ollama-chat";
 export const LIST_MODELS = "/packages/solx-ollama/ollama-list-models";
-export const SEARCH_ACTIONS = "/builtin/action/search_actions";
-export const GET_ACTION = "/builtin/action/entity_get_action";
-export const GET_TYPE = "/builtin/type/entity_get_type";
-export const SAVE_DOC = "/builtin/document/entity_save_document";
-export const GET_DOC = "/builtin/document/entity_get_document";
-export const SEARCH_DOCS = "/builtin/document/search_documents";
+export const SEARCH_ACTIONS = "/builtin/action/search-actions";
+export const GET_ACTION = "/builtin/action/entity-get-action";
+export const GET_TYPE = "/builtin/type/entity-get-type";
+export const SAVE_DOC = "/builtin/document/entity-save-document";
+export const GET_DOC = "/builtin/document/entity-get-document";
+export const SEARCH_DOCS = "/builtin/document/search-documents";
 
 /**
  * Every document this package owns lives under one root. Grouping by owner
@@ -76,7 +76,7 @@ export const SKILL_TOTAL_CAP = 8000;
  * `/builtin/action` is denied by exact name rather than by glob, because the
  * read half of that path is exactly what a model needs to understand the
  * system it is working in: the action registry *is* the tool catalogue, so
- * `search_actions` / `entity_get_action` / `entity_list_actions` let it look
+ * `search-actions` / `entity-get-action` / `entity-list-actions` let it look
  * up a tool it was not handed and read that tool's parameter schema. Those
  * three stay reachable when granted; the six below never are.
  */
@@ -93,16 +93,16 @@ export const HARD_DENY = [
   "/builtin/action/cancelled",
   // Self-modification. Note this is *not* about command and webhook rows:
   // solx-core's `guard_executable_action` already refuses those through
-  // `entity_save_action` for every caller that is an action, an MCP tool
+  // `entity-save-action` for every caller that is an action, an MCP tool
   // call, or a script. The reason they are denied here is that a `script` or
   // `wasm` row registered under an already-granted path is a full gate
   // bypass -- a guest's `action-exec` import reaches anything, and a .solx
   // script composes anything, neither of them filtered by this session's
   // grant.
-  "/builtin/action/entity_save_action",
-  "/builtin/action/entity_delete_action",
+  "/builtin/action/entity-save-action",
+  "/builtin/action/entity-delete-action",
   // Persists through to solx-config.json.
-  "/builtin/env/set_env",
+  "/builtin/env/set-env",
   // No recursive self-invocation.
   "/packages/solx-agent/*",
 ];
@@ -110,16 +110,16 @@ export const HARD_DENY = [
 /**
  * Document writers, mapped to the param naming their *entity* path.
  *
- * The trap: `set_field_at_path` takes the entity path as `doc_path`, while
+ * The trap: `set-field-at-path` takes the entity path as `doc_path`, while
  * its `path` is a JSON pointer into contents. Reading the wrong key here
  * would silently disable the check for exactly the call that can rewrite one
  * field of a session document.
  */
 export const DOC_WRITERS: Record<string, string> = {
-  "/builtin/document/entity_save_document": "path",
-  "/builtin/document/entity_delete_document": "path",
-  "/builtin/document/set_field": "path",
-  "/builtin/document/set_field_at_path": "doc_path",
+  "/builtin/document/entity-save-document": "path",
+  "/builtin/document/entity-delete-document": "path",
+  "/builtin/document/set-field": "path",
+  "/builtin/document/set-field-at-path": "doc_path",
 };
 
 /**

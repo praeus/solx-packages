@@ -2,8 +2,8 @@
 //!
 //! A guest cannot read its own `action_config` — the host never exposes it,
 //! only the secret *keys* inside it, and then only indirectly through
-//! `get_secret`. So the only ambient configuration channels available here
-//! are `/builtin/env/get_env` and `/builtin/secrets/get_secret`.
+//! `get-secret`. So the only ambient configuration channels available here
+//! are `/builtin/env/get-env` and `/builtin/secrets/get-secret`.
 
 use serde_json::{json, Value};
 
@@ -18,7 +18,7 @@ pub const DEFAULT_SECRET: &str = "OLLAMA_API_KEY";
 
 // ── base url ─────────────────────────────────────────────────────────────────
 
-/// `params.base_url` → `get_env("OLLAMA_HOST")` → [`DEFAULT_BASE_URL`].
+/// `params.base_url` → `get-env("OLLAMA_HOST")` → [`DEFAULT_BASE_URL`].
 pub fn resolve_base_url(host: &dyn Host, params: &Value) -> String {
     let raw = str_param(params, "base_url")
         .or_else(|| env_lookup(host, HOST_ENV_KEY))
@@ -89,7 +89,7 @@ pub fn normalize_base_url(raw: &str) -> String {
 /// `Some` only for a non-empty string value. A missing key returns
 /// `{"value": null}` rather than failing, so this must filter.
 pub fn env_lookup(host: &dyn Host, key: &str) -> Option<String> {
-    let call = host.exec("/builtin/env/get_env", &json!({ "key": key })).ok()?;
+    let call = host.exec("/builtin/env/get-env", &json!({ "key": key })).ok()?;
     if !call.success {
         return None;
     }
@@ -109,9 +109,9 @@ pub fn env_lookup(host: &dyn Host, key: &str) -> Option<String> {
 /// 2. `params.auth_secret_name` — explicit. **Fatal on failure**: the caller
 ///    named a secret, so silently falling through would send the request
 ///    unauthenticated.
-/// 3. `get_secret("OLLAMA_API_KEY")` — the convention. Best-effort and
+/// 3. `get-secret("OLLAMA_API_KEY")` — the convention. Best-effort and
 ///    silent, which is what makes the zero-config local case work.
-/// 4. `get_env("OLLAMA_API_KEY")` — for operators who prefer `env_mappings`
+/// 4. `get-env("OLLAMA_API_KEY")` — for operators who prefer `env_mappings`
 ///    over the keyring.
 pub fn resolve_auth(host: &dyn Host, params: &Value) -> Result<Option<String>, String> {
     if let Some(k) = str_param(params, "api_key") {
@@ -143,11 +143,11 @@ pub fn resolve_auth(host: &dyn Host, params: &Value) -> Result<Option<String>, S
 
 /// `Ok(None)` = no usable value. `Err` = no key configured for this name.
 pub fn read_secret(host: &dyn Host, name: &str) -> Result<Option<String>, String> {
-    let call = host.exec("/builtin/secrets/get_secret", &json!({ "name": name }))?;
+    let call = host.exec("/builtin/secrets/get-secret", &json!({ "name": name }))?;
     if !call.success {
         return Err(call
             .message
-            .unwrap_or_else(|| "get_secret failed".to_string()));
+            .unwrap_or_else(|| "get-secret failed".to_string()));
     }
     Ok(call
         .result

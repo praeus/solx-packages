@@ -203,7 +203,7 @@ pub fn join_within_budget(lines: &[String], budget: usize) -> String {
 /// Split a joined `/path/name` reference (e.g.
 /// `/packages/solx-ollama/ollama-chat`, or a `paramTypeRef` like
 /// `/packages/solx-ollama/ChatParams`) into its path and name — several
-/// built-ins (`action_start`, `entity_get_type`, ...) take that pair
+/// built-ins (`action-start`, `entity-get-type`, ...) take that pair
 /// separately rather than the single joined reference `exec` takes.
 pub fn split_ref(reference: &str) -> Option<(&str, &str)> {
     let idx = reference.rfind('/')?;

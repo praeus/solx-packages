@@ -12,7 +12,7 @@ import type { Host } from "../src/harness/host";
 
 function seeded() {
   const { fake: f, host } = fake();
-  withDocActions(f).action("/builtin/document/set_field_at_path", {
+  withDocActions(f).action("/builtin/document/set-field-at-path", {
     description: "set one document field",
   });
   return { f, host };
@@ -61,10 +61,10 @@ describe("adding a turn", () => {
 
   test("clears a failure streak, so a blocked session can be redirected", async () => {
     const { f, host } = seeded();
-    f.actions_.get("/builtin/document/set_field_at_path")!.failWith = "boom";
+    f.actions_.get("/builtin/document/set-field-at-path")!.failWith = "boom";
     const s = await session(host);
     for (let i = 0; i < 3; i++) {
-      f.replyCalls(["act__builtin__document__set_field_at_path", { a: 1 }]);
+      f.replyCalls(["act__builtin__document__set-field-at-path", { a: 1 }]);
     }
     for (let i = 0; i < 3; i++) await step(host, s);
     expect(s.status).toBe("blocked");
@@ -81,7 +81,7 @@ describe("adding a turn", () => {
       grant: DOCS_GRANT,
       max_iterations: 1,
     });
-    f.replyCalls(["act__builtin__document__search_documents", { q: "x" }]);
+    f.replyCalls(["act__builtin__document__search-documents", { q: "x" }]);
     await step(host, s);
     expect((await step(host, s)).status).toBe("exhausted");
 
@@ -132,7 +132,7 @@ describe("the catalogue follows the conversation", () => {
 
     await addTurn(host, s, "xyzzy nothing matches this");
     expect(Object.keys(s.tools).length).toBeGreaterThan(0);
-    expect(Object.values(s.tools)).toContain("/builtin/document/search_documents");
+    expect(Object.values(s.tools)).toContain("/builtin/document/search-documents");
   });
 
   test("the fallback is a re-resolve, so a revoked path cannot linger", async () => {
@@ -223,7 +223,7 @@ describe("previewTools", () => {
     const before = f.docs.size;
     const preview = await previewTools(host, DOCS_GRANT, "document", 10);
     expect(preview.tools.length).toBeGreaterThan(0);
-    expect(Object.values(preview.refs)).toContain("/builtin/document/search_documents");
+    expect(Object.values(preview.refs)).toContain("/builtin/document/search-documents");
     expect(f.docs.size, "no session was created").toBe(before);
   });
 

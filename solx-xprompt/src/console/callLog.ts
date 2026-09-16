@@ -11,7 +11,7 @@ export async function loadCallLog(host: Host, logId: string): Promise<CallLog> {
 }
 
 /**
- * Read-modify-write, not a real append: `entity_save_document` is a whole-
+ * Read-modify-write, not a real append: `entity-save-document` is a whole-
  * document upsert, and there is no atomic array-append action to reach for
  * instead. Fine for one widget session appending its own calls one at a
  * time (the same assumption solx-agent's session document makes); a second

@@ -131,7 +131,7 @@ refused.
 
 None of that belongs in a skill, because a skill loads only when one of its
 globs matches a tool already in the catalogue. That conditionality is exactly
-right for "here is how `set_field_at_path` differs from `set_field`" and
+right for "here is how `set-field-at-path` differs from `set-field`" and
 exactly wrong for "here is what a reference looks like" — the second is needed
 to make the *first* call, before anything has matched.
 
@@ -158,7 +158,7 @@ records its result, and again at flush. Resumption then falls out of the shape
 null is exactly what it knows how to finish, so `step` checks for one before
 asking the model anything new.
 
-The cost is one `entity_save_document` per tool call instead of per iteration.
+The cost is one `entity-save-document` per tool call instead of per iteration.
 That is affordable only because the session type does not declare `messages`
 or `calls`, so FTS never walks the transcript — the two decisions are load
 bearing together.
@@ -220,7 +220,7 @@ confident liar, and `grep -A` starting at the `struct` line hides the
 attribute above it.
 
 - **The skills search.** `resolveSkills` passed the turn's user message to
-  `search_documents` as `q`. solx-docs turns each whitespace-separated term
+  `search-documents` as `q`. solx-docs turns each whitespace-separated term
   into `"term"*` and **ANDs** them, so a skill loaded only if its text
   contained every word of the message — which for any real sentence means
   never. Every skill test here happened to send the single word `"document"`,

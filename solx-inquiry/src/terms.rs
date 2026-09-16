@@ -70,7 +70,7 @@ const STOPWORDS: &[&str] = &[
 /// worse, serialize the fan-out those calls were parallelized to avoid.
 ///
 /// Single words only, for the reason [`DEFAULT_INQUIRY_PROMPT`] spells out:
-/// `search_documents`/`search_actions` AND every word within one `q`, so a
+/// `search-documents`/`search-actions` AND every word within one `q`, so a
 /// multi-word term is narrower, not broader.
 ///
 /// [`DEFAULT_INQUIRY_PROMPT`]: crate::prompts::DEFAULT_INQUIRY_PROMPT

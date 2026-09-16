@@ -8,7 +8,7 @@
 //! are filtered by scope and memories are the model's own past output, but a
 //! context document is the caller handing this run a fact to work from.
 //!
-//! Fetched with the same `entity_get_document` [`crate::session`] uses for
+//! Fetched with the same `entity-get-document` [`crate::session`] uses for
 //! the session document, and best-effort in the same way - a document that
 //! does not exist is not this pipeline's problem to fail over. The
 //! difference is that the caller named this document specifically, so unlike

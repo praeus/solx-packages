@@ -29,7 +29,7 @@ export async function loadSession(host: Host, id: string): Promise<Session> {
  * "Agent session <id>" says nothing about what any of them was for, and FTS
  * could not find one by what it was about.
  *
- * No timestamp is written here: `entity_save_document` already stamps the
+ * No timestamp is written here: `entity-save-document` already stamps the
  * document's own `updatedAt` on every write, which is what `solx list
  * document --sort-by created_at` reads. A second, locally-computed copy could
  * only drift from it.
@@ -89,7 +89,7 @@ async function sessionNameTaken(host: Host, name: string): Promise<boolean> {
 }
 
 /**
- * The existence check is not decoration. `entity_save_document` is an upsert
+ * The existence check is not decoration. `entity-save-document` is an upsert
  * keyed on `(path, name)`, so a name collision does not fail -- it silently
  * writes over whatever was there, which for a live session means losing a
  * running transcript. 16,120 pairs is a birthday problem well within reach of

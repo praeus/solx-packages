@@ -5,7 +5,7 @@
 //! actions. [`dispatch`] is the entry point; `guest.rs` is a thin wit-bindgen
 //! shim around it.
 //!
-//! All outbound HTTP goes through `/builtin/web/http_request` — the guest has no
+//! All outbound HTTP goes through `/builtin/web/http-request` — the guest has no
 //! sockets of its own (WASI is stubbed by the host).
 
 pub mod config;
@@ -62,7 +62,7 @@ pub fn dispatch(host: &dyn Host, fn_name: Option<&str>, params_json: &str) -> Ou
 
 /// Store the bearer token under [`config::DEFAULT_SECRET`].
 ///
-/// This exists to break a chicken-and-egg problem: `/builtin/secrets/set_secret`
+/// This exists to break a chicken-and-egg problem: `/builtin/secrets/set-secret`
 /// encrypts with a key drawn from the *calling* action's
 /// `action_config.secrets`, so only an action that already carries the key can
 /// write the secret. The name is hardcoded, so this action can never overwrite
@@ -77,14 +77,14 @@ fn set_api_key(host: &dyn Host, params: &Value) -> Outcome {
     };
 
     let payload = json!({ "name": config::DEFAULT_SECRET, "value": value });
-    match host.exec("/builtin/secrets/set_secret", &payload) {
+    match host.exec("/builtin/secrets/set-secret", &payload) {
         Ok(c) if c.success => Outcome::ok(json!({
             "set": true,
             "name": config::DEFAULT_SECRET,
         })),
         Ok(c) => Outcome::fail(
             "auth",
-            c.message.unwrap_or_else(|| "set_secret failed".to_string()),
+            c.message.unwrap_or_else(|| "set-secret failed".to_string()),
             json!({ "name": config::DEFAULT_SECRET }),
         ),
         Err(e) => Outcome::fail("auth", e, json!({ "name": config::DEFAULT_SECRET })),

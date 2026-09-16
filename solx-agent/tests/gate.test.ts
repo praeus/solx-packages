@@ -42,7 +42,7 @@ describe("the grant", () => {
   });
 
   test("a glob reaches /builtin/web too, gated only by hard denies and solx-core's own allowed_base_urls", () => {
-    const web = { path: "/builtin/web", name: "http_request", actionType: "internal" };
+    const web = { path: "/builtin/web", name: "http-request", actionType: "internal" };
     expect(permitted(web, [{ path: "/builtin/web" }])).toBe(true);
     expect(permitted(web, [{ path: "/builtin/*" }])).toBe(true);
 
@@ -59,30 +59,30 @@ describe("the grant", () => {
       {
         path: "*",
         actions: [
-          "get_secret",
-          "entity_save_action",
-          "entity_delete_action",
+          "get-secret",
+          "entity-save-action",
+          "entity-delete-action",
           "start",
           "stop",
           "poll",
           "cancelled",
-          "set_env",
+          "set-env",
           "agent-widget",
         ],
       },
     ];
     for (const [path, name] of [
-      ["/builtin/secrets", "get_secret"],
+      ["/builtin/secrets", "get-secret"],
       // A script or wasm row registered under an already-granted path would
       // run outside this session's grant entirely.
-      ["/builtin/action", "entity_save_action"],
-      ["/builtin/action", "entity_delete_action"],
+      ["/builtin/action", "entity-save-action"],
+      ["/builtin/action", "entity-delete-action"],
       // The widget itself drives these, so the model must never reach them.
       ["/builtin/action", "start"],
       ["/builtin/action", "stop"],
       ["/builtin/action", "poll"],
       ["/builtin/action", "cancelled"],
-      ["/builtin/env", "set_env"],
+      ["/builtin/env", "set-env"],
       ["/packages/solx-agent", "agent-widget"],
     ]) {
       expect(permitted({ path, name, actionType: "internal" }, wideOpen), path + "/" + name).toBe(
@@ -101,17 +101,17 @@ describe("the grant", () => {
     const grant = [
       {
         path: "/builtin/action",
-        actions: ["search_actions", "entity_get_action", "entity_list_actions"],
+        actions: ["search-actions", "entity-get-action", "entity-list-actions"],
       },
     ];
-    for (const name of ["search_actions", "entity_get_action", "entity_list_actions"]) {
+    for (const name of ["search-actions", "entity-get-action", "entity-list-actions"]) {
       expect(
         permitted({ path: "/builtin/action", name, actionType: "internal" }, grant),
         name,
       ).toBe(true);
     }
     // Same grant, and still refused: these are denied by name, not by absence.
-    for (const name of ["entity_save_action", "start"]) {
+    for (const name of ["entity-save-action", "start"]) {
       expect(
         permitted({ path: "/builtin/action", name, actionType: "internal" }, grant),
         name,
@@ -121,15 +121,15 @@ describe("the grant", () => {
 });
 
 describe("reserved document paths", () => {
-  const SAVE = "/builtin/document/entity_save_document";
-  const AT_PATH = "/builtin/document/set_field_at_path";
+  const SAVE = "/builtin/document/entity-save-document";
+  const AT_PATH = "/builtin/document/set-field-at-path";
 
   test("are refused by whichever param names them", () => {
     expect(reservedDocWrite(SKILLS, SAVE, { path: "/agent/sessions" })).toMatch(/agent-owned/);
     expect(reservedDocWrite(SKILLS, SAVE, { path: "/agent/memories/x" })).toMatch(/agent-owned/);
     expect(reservedDocWrite(SKILLS, SAVE, { path: "/elsewhere" })).toBeNull();
 
-    // The trap: set_field_at_path names the entity as `doc_path`; its `path`
+    // The trap: set-field-at-path names the entity as `doc_path`; its `path`
     // is a JSON pointer into contents. Reading the wrong key would disable
     // the check for exactly the call that rewrites one field of a session.
     expect(
@@ -151,7 +151,7 @@ describe("reserved document paths", () => {
   });
 
   test("a non-writer action is not gated by this check at all", () => {
-    expect(reservedDocWrite(SKILLS, "/builtin/document/search_documents", { path: "/agent" })).toBeNull();
+    expect(reservedDocWrite(SKILLS, "/builtin/document/search-documents", { path: "/agent" })).toBeNull();
   });
 });
 

@@ -2,9 +2,9 @@
 //! become.
 //!
 //! Both are ordinary documents, so both are found with one call apiece and
-//! nothing else: `search_documents` for skills, `entity_list_documents` for
+//! nothing else: `search-documents` for skills, `entity-list-documents` for
 //! memories, which have to be ordered by recency rather than by name (see
-//! [`recall_memories`]). Neither needs a follow-up `entity_get_document`, for
+//! [`recall_memories`]). Neither needs a follow-up `entity-get-document`, for
 //! two different reasons: both calls return full `Document` rows (so a skill's
 //! `contents` is already on the hit), and a memory's text is written into its
 //! `summary` as well as its contents (so recall reads the row directly). Both
@@ -35,7 +35,7 @@ use crate::search::DOCUMENT_SEARCH_REF;
 /// is stable and deliberate for operator-written guidance under one budget);
 /// memories are *listed*, because only `list` can sort them by recency. See
 /// [`recall_memories`].
-pub const DOCUMENT_LIST_REF: &str = "/builtin/document/entity_list_documents";
+pub const DOCUMENT_LIST_REF: &str = "/builtin/document/entity-list-documents";
 
 /// Which inquiry kind a skill rides along with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,11 +151,11 @@ fn recall_skills(host: &dyn Host, p: &InstructParams) -> Vec<Skill> {
 /// memories are off, so there is nowhere to read them from.
 ///
 /// Listed rather than searched, and sorted **most recently updated first**.
-/// `search_documents` with no `q` falls through to `ORDER BY path, name`, and a
+/// `search-documents` with no `q` falls through to `ORDER BY path, name`, and a
 /// memory's name is a slug of its own text — so recall was alphabetical, which
 /// means that past `recall_limit` memories a session would surface the same
 /// arbitrary five forever and never see anything written since. `list` is the
-/// same single call and exposes the sort - `entity_list_documents` takes
+/// same single call and exposes the sort - `entity-list-documents` takes
 /// `ListOptions`, whose `sortBy` whitelist includes `updated_at` - so recency
 /// costs nothing.
 ///
@@ -365,9 +365,9 @@ mod tests {
 
     #[test]
     fn globs_match_across_slashes() {
-        assert!(glob_matches("/builtin/*", "/builtin/document/search_documents"));
-        assert!(glob_matches("/builtin/document/*", "/builtin/document/search_documents"));
-        assert!(!glob_matches("/builtin/file/*", "/builtin/document/search_documents"));
+        assert!(glob_matches("/builtin/*", "/builtin/document/search-documents"));
+        assert!(glob_matches("/builtin/document/*", "/builtin/document/search-documents"));
+        assert!(!glob_matches("/builtin/file/*", "/builtin/document/search-documents"));
         assert!(glob_matches("/packages/solx-media/transcode", "/packages/solx-media/transcode"));
         assert!(!glob_matches("/packages/solx-media/transcode", "/packages/solx-media/transcoder"));
         assert!(glob_matches("*", "/anything/at/all"));
@@ -389,9 +389,9 @@ mod tests {
     #[test]
     fn a_tools_glob_narrows_an_action_skill_to_inquiries_that_found_a_match() {
         let skills = vec![skill("files", SkillScope::Actions, &["/builtin/file/*"], 10)];
-        let refs = vec!["/builtin/document/search_documents".to_string()];
+        let refs = vec!["/builtin/document/search-documents".to_string()];
         assert!(skills_for(&skills, true, &refs).is_empty());
-        let refs = vec!["/builtin/file/file_put".to_string()];
+        let refs = vec!["/builtin/file/file-put".to_string()];
         assert_eq!(skills_for(&skills, true, &refs).len(), 1);
     }
 

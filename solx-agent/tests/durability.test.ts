@@ -20,7 +20,7 @@ import type { Session } from "../src/harness/types";
 
 function seeded() {
   const { fake: f, host } = fake();
-  withDocActions(f).action("/builtin/document/set_field_at_path", { description: "document field" });
+  withDocActions(f).action("/builtin/document/set-field-at-path", { description: "document field" });
   return { f, host };
 }
 
@@ -37,7 +37,7 @@ describe("session names", () => {
 
   test("a collision does not overwrite the session already holding it", async () => {
     const { f, host } = seeded();
-    // entity_save_document is an upsert keyed on (path, name), so a collision
+    // entity-save-document is an upsert keyed on (path, name), so a collision
     // would not fail -- it would silently write over a running transcript.
     const taken = await newSessionId(host);
     f.doc("/agent/sessions/" + taken, { contents: { id: taken, status: "running" } });
@@ -54,7 +54,7 @@ describe("session names", () => {
     // Anything other than a definite not-found must count as taken: the next
     // thing that happens is a write.
     vi.spyOn(f, "exec").mockImplementation((ref, p) => {
-      if (ref === "/builtin/document/entity_get_document" && broke < 4) {
+      if (ref === "/builtin/document/entity-get-document" && broke < 4) {
         broke++;
         return { success: false, message: "database is locked", result: null };
       }
@@ -82,7 +82,7 @@ describe("persistence within a turn", () => {
   test("the model reply and its pending calls are stored before any dispatch", async () => {
     const { f, host } = seeded();
     const s = await session(host);
-    f.replyCalls(["act__builtin__document__set_field_at_path", { a: 1 }]);
+    f.replyCalls(["act__builtin__document__set-field-at-path", { a: 1 }]);
 
     // Order matters: the session must be written between the chat call and
     // the first dispatch, or a tab closed mid-dispatch loses the record of
@@ -90,9 +90,9 @@ describe("persistence within a turn", () => {
     await step(host, s);
     const order = f.callNames();
     const chat = order.indexOf("/packages/solx-ollama/ollama-chat");
-    const dispatch = order.indexOf("/builtin/document/set_field_at_path");
+    const dispatch = order.indexOf("/builtin/document/set-field-at-path");
     const saveBetween = order.findIndex(
-      (r, i) => i > chat && i < dispatch && r === "/builtin/document/entity_save_document",
+      (r, i) => i > chat && i < dispatch && r === "/builtin/document/entity-save-document",
     );
     expect(saveBetween, "a save lands between the chat and the dispatch").toBeGreaterThan(-1);
   });
@@ -101,17 +101,17 @@ describe("persistence within a turn", () => {
     const { f, host } = seeded();
     const s = await session(host);
     f.replyCalls(
-      ["act__builtin__document__set_field_at_path", { a: 1 }],
-      ["act__builtin__document__set_field_at_path", { a: 2 }],
+      ["act__builtin__document__set-field-at-path", { a: 1 }],
+      ["act__builtin__document__set-field-at-path", { a: 2 }],
     );
     await step(host, s);
 
     const order = f.callNames();
-    const first = order.indexOf("/builtin/document/set_field_at_path");
-    const second = order.indexOf("/builtin/document/set_field_at_path", first + 1);
+    const first = order.indexOf("/builtin/document/set-field-at-path");
+    const second = order.indexOf("/builtin/document/set-field-at-path", first + 1);
     const between = order
       .slice(first + 1, second)
-      .filter((r) => r === "/builtin/document/entity_save_document");
+      .filter((r) => r === "/builtin/document/entity-save-document");
     expect(between.length, "the first result is stored before the second call runs").toBe(1);
   });
 
@@ -119,8 +119,8 @@ describe("persistence within a turn", () => {
     const { f, host } = seeded();
     const s = await session(host);
     f.replyCalls(
-      ["act__builtin__document__set_field_at_path", { a: 1 }],
-      ["act__builtin__document__set_field_at_path", { a: 2 }],
+      ["act__builtin__document__set-field-at-path", { a: 1 }],
+      ["act__builtin__document__set-field-at-path", { a: 2 }],
     );
 
     // A closed tab does not throw -- the page simply stops. So rather than
@@ -131,7 +131,7 @@ describe("persistence within a turn", () => {
     const realExec = f.exec.bind(f);
     vi.spyOn(f, "exec").mockImplementation((ref, p) => {
       const out = realExec(ref, p);
-      if (ref === "/builtin/document/entity_save_document" && p.path === "/agent/sessions") {
+      if (ref === "/builtin/document/entity-save-document" && p.path === "/agent/sessions") {
         snapshots.push(JSON.parse(JSON.stringify(p.contents)) as Session);
       }
       return out;
@@ -146,11 +146,11 @@ describe("persistence within a turn", () => {
     );
     expect(half, "the document held a half-finished turn at some point").toBeTruthy();
 
-    const before = f.refsCalled("/builtin/document/set_field_at_path").length;
+    const before = f.refsCalled("/builtin/document/set-field-at-path").length;
     const out = await step(host, half!);
 
     // Finishing it dispatches only what was still outstanding.
-    expect(f.refsCalled("/builtin/document/set_field_at_path").length).toBe(before + 1);
+    expect(f.refsCalled("/builtin/document/set-field-at-path").length).toBe(before + 1);
     expect(out.status).toBe("running");
     // And the flush still produced exactly one tool turn per call, which is
     // the invariant the transcript renderer depends on.
@@ -161,7 +161,7 @@ describe("persistence within a turn", () => {
   test("a reload sees the same thread, because the document is the record", async () => {
     const { f, host } = seeded();
     const s = await session(host);
-    f.replyCalls(["act__builtin__document__search_documents", { q: "x" }]);
+    f.replyCalls(["act__builtin__document__search-documents", { q: "x" }]);
     await step(host, s);
     f.replyText("here it is");
     await step(host, s);

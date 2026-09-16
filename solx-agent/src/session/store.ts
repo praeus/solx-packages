@@ -37,7 +37,7 @@ solx is a database of actions. Every tool you can call is a row in it, and
 every call has the same shape: exec(path, name, params). Documents, actions
 and types share one directory-style namespace, so a thing is identified by
 its path and its name together and its full reference is the two joined --
-for example /builtin/document/search_documents.
+for example /builtin/document/search-documents.
 
 Four kinds of thing are stored, each with its own family of builtin actions:
 documents (/builtin/document), actions (/builtin/action), types

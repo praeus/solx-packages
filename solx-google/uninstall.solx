@@ -58,8 +58,8 @@ delete action /packages/solx-google/_internal/oauth-token-exchange --if-exists;
 # "files/actions/shared/<binName>"). A bare "shared/..." here silently
 # deleted nothing.
 
-exec /builtin/file/file_delete --json '{"rel_path":"files/actions/shared/solx-google-login.solx"}';
-exec /builtin/file/file_delete --json '{"rel_path":"files/actions/shared/solx-google-actions.wasm"}';
+exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-google-login.solx"}';
+exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-google-actions.wasm"}';
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -109,7 +109,7 @@ delete type /packages/solx-google/GmailMessageToSolDocResult --if-exists;
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 #
-# `set_secret`/`get_secret` are scoped to the calling action's own encryption
+# `set-secret`/`get-secret` are scoped to the calling action's own encryption
 # key (declared in each OAuth action's `action_config.secrets` map), so once
 # the owning action row is gone above, its secrets are unreachable and the
 # scoped store garbage-collects them. There is no `delete_secret` primitive,

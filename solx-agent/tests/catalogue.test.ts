@@ -6,7 +6,7 @@ import { DOCS_GRANT, fake, withDocActions } from "./fakeHost";
 
 function seeded() {
   const { fake: f, host } = fake();
-  withDocActions(f).action("/builtin/document/set_field_at_path", {
+  withDocActions(f).action("/builtin/document/set-field-at-path", {
     description: "set one document field",
   });
   return { f, host };
@@ -19,7 +19,7 @@ describe("resolveCatalogue", () => {
     // unfiltered catalogue with no error anywhere.
     const { f, host } = seeded();
     await resolveCatalogue(host, "documents", DOCS_GRANT, 10, null);
-    const [search] = f.refsCalled("/builtin/action/search_actions");
+    const [search] = f.refsCalled("/builtin/action/search-actions");
     expect(Object.keys(search.params).sort()).toEqual([
       "excludeHidden",
       "limit",
@@ -38,7 +38,7 @@ describe("resolveCatalogue", () => {
     });
     const cat = await resolveCatalogue(host, "document", DOCS_GRANT, 10, null);
     expect(Object.values(cat.map)).not.toContain("/builtin/document/secret_doc_thing");
-    expect(Object.values(cat.map)).toContain("/builtin/document/search_documents");
+    expect(Object.values(cat.map)).toContain("/builtin/document/search-documents");
   });
 
   test("the cap truncates and reports what it dropped", async () => {
@@ -70,8 +70,8 @@ describe("resolveCatalogue", () => {
     f.action("/tools/build", { description: "build a thing" });
     const cat = await resolveCatalogue(host, null, [{ path: "*" }], 10, null);
     expect(Object.values(cat.map)).toContain("/tools/build");
-    expect(Object.values(cat.map)).toContain("/builtin/document/search_documents");
-    const [search] = f.refsCalled("/builtin/action/search_actions");
+    expect(Object.values(cat.map)).toContain("/builtin/document/search-documents");
+    const [search] = f.refsCalled("/builtin/action/search-actions");
     expect("pathPrefix" in search.params).toBe(false);
   });
 
@@ -81,25 +81,25 @@ describe("resolveCatalogue", () => {
     const { f, host } = seeded();
     f.action("/tools/build", { description: "build a thing" });
     const cat = await resolveCatalogue(host, null, [{ path: "/builtin/*" }], 10, null);
-    expect(Object.values(cat.map)).toContain("/builtin/document/search_documents");
+    expect(Object.values(cat.map)).toContain("/builtin/document/search-documents");
     expect(Object.values(cat.map)).not.toContain("/tools/build");
   });
 
   test("known refs are not re-offered", async () => {
     const { host } = seeded();
-    const known = { "/builtin/document/search_documents": true };
+    const known = { "/builtin/document/search-documents": true };
     const cat = await resolveCatalogue(host, "document", DOCS_GRANT, 10, known);
-    expect(Object.values(cat.map)).not.toContain("/builtin/document/search_documents");
+    expect(Object.values(cat.map)).not.toContain("/builtin/document/search-documents");
   });
 
   test("a tool name is readable, and resolved through the map rather than parsed", async () => {
-    expect(encodeToolName("/builtin/document", "search_documents")).toBe(
-      "act__builtin__document__search_documents",
+    expect(encodeToolName("/builtin/document", "search-documents")).toBe(
+      "act__builtin__document__search-documents",
     );
     const { host } = seeded();
     const cat = await resolveCatalogue(host, "document", DOCS_GRANT, 10, null);
-    expect(cat.map["act__builtin__document__search_documents"]).toBe(
-      "/builtin/document/search_documents",
+    expect(cat.map["act__builtin__document__search-documents"]).toBe(
+      "/builtin/document/search-documents",
     );
   });
 });

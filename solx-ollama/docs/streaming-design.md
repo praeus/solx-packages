@@ -1,7 +1,7 @@
 # Phase 2 — streaming via pollable host-side streams
 
-**Status: implemented.** `http_stream_start`/`http_stream_poll`/
-`http_stream_close` now exist in `solx-actions/src/internal/http_stream.rs`,
+**Status: implemented.** `http-stream-start`/`http-stream-poll`/
+`http-stream-close` now exist in `solx-actions/src/internal/http_stream.rs`,
 and `generate`/`chat`/`pull_model`/`push_model`/`create_model` in this
 package drive them from `src/request.rs`. See the README's "Streaming"
 section for the user-facing summary. The rest of this document is the
@@ -23,7 +23,7 @@ read from Ollama.
 
 Three things rule out doing it inside the guest:
 
-- `/builtin/web/http_request` awaits the entire response body before returning.
+- `/builtin/web/http-request` awaits the entire response body before returning.
 - WASI is stubbed by the host (`WasiCtxBuilder::new().build()` in
   `wasm_host.rs`), so the guest has no sockets of its own.
 - Decisively: **a guest has no state across invocations.** `wasm_host.rs`
@@ -40,15 +40,15 @@ The stream has to live in the host process.
 problem (a process-static registry keyed by a minted id, with a start/await/stop
 triad) for the OAuth loopback listener.
 
-- **`http_stream_start`** — same params as `http_request`, but spawns a task
+- **`http-stream-start`** — same params as `http-request`, but spawns a task
   that holds the `reqwest::Response`, reads `bytes_stream()`, splits on
   newlines, and appends parsed JSON lines to a registry buffer. Returns
   `{stream_id, status}` as soon as response headers arrive, without waiting
   for the body.
-- **`http_stream_poll`** — `{stream_id, cursor, wait_secs?}` →
+- **`http-stream-poll`** — `{stream_id, cursor, wait_secs?}` →
   `{chunks, next_cursor, done, dropped, status, error}`. `wait_secs` is an
   optional long-poll: block until at least one new chunk exists, or timeout.
-- **`http_stream_close`** — abort the task, drop the buffer.
+- **`http-stream-close`** — abort the task, drop the buffer.
 
 ## Cursor-based, not a destructive drain
 
@@ -89,12 +89,12 @@ replay for reconnects.
   buffered-bytes cap; on overflow, drop the oldest chunks and report a
   `dropped` count so a late-attaching reader knows it missed data. `oauth.rs`
   has the same leak shape today but a human closes the loop by calling
-  `oauth_stop`; nothing does that for an abandoned generation.
+  `oauth-stop`; nothing does that for an abandoned generation.
 - **Caller attribution.** `InternalCtx.caller` should own the stream, so one
   action can't poll or close a stream started by another.
   **As implemented, this was dropped in favor of the same unrestricted,
-  bearer-capability model `oauth_await`/`oauth_stop` and
-  `console_read`/`tail`/`clear` already use**: access is gated purely on
+  bearer-capability model `oauth-await`/`oauth-stop` and
+  `console-read`/`tail`/`clear` already use**: access is gated purely on
   knowing the unguessable `stream_id`, no caller check. Caller-scoping would
   have broken this doc's own script-loop example above, where
   `ollama-chat-poll` (a different action_ref, and a different invocation)
@@ -110,8 +110,8 @@ the endpoint table already knows which endpoints stream. Adding Phase 2 is
 additive on the `solx-ollama` side:
 
 - a `streaming: bool` (or a second table) on `Endpoint`,
-- a second code path in `request.rs` that targets `http_stream_start` instead
-  of `http_request`,
+- a second code path in `request.rs` that targets `http-stream-start` instead
+  of `http-request`,
 - paired `-start` / `-poll` / `-close` action rows in `install.solx`.
 
 No rewrite of the blocking path — the 13 existing actions keep working

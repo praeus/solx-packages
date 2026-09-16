@@ -2,7 +2,7 @@
 //!
 //! [`crate::llm::call`] starts one detached invocation and long-polls it to
 //! completion. That shape cannot be reused N times for N inquiries: each
-//! `action_poll` would block on its own child, so three calls would finish in
+//! `action-poll` would block on its own child, so three calls would finish in
 //! the sum of their durations rather than the longest of them, and the whole
 //! point of fanning out would be lost.
 //!
@@ -18,7 +18,7 @@
 //!    the same `llm_action_ref`, and a console is keyed by `action_ref` alone.
 //!    This is also the loop's pacing, because `tail` waits when there is
 //!    nothing to read.
-//! 3. **A non-blocking poll of each outstanding child** (`action_poll` with no
+//! 3. **A non-blocking poll of each outstanding child** (`action-poll` with no
 //!    `wait_secs` returns immediately), so no child's completion is held up
 //!    behind another's.
 //!
@@ -75,7 +75,7 @@ pub fn run(host: &dyn Host, p: &Params, jobs: Vec<Job>) -> Result<JobResults, Ou
     }
 
     // A malformed `llm_action_ref` cannot be started detached at all
-    // (`action_start` takes a path/name pair, not a joined ref), the same
+    // (`action-start` takes a path/name pair, not a joined ref), the same
     // fallback `llm::call` makes for the same reason.
     let Some((path, name)) = split_ref(&p.llm_action_ref) else {
         return Ok(run_sequentially(host, p, &jobs));
@@ -111,7 +111,7 @@ pub fn run(host: &dyn Host, p: &Params, jobs: Vec<Job>) -> Result<JobResults, Ou
             }
             results[index] = Err(Outcome::fail(
                 "dispatch_error",
-                format!("action_start failed ({}): {message}", job.label),
+                format!("action-start failed ({}): {message}", job.label),
                 json!({ "stage": job.label, "action_ref": p.llm_action_ref }),
             ));
             continue;
@@ -120,7 +120,7 @@ pub fn run(host: &dyn Host, p: &Params, jobs: Vec<Job>) -> Result<JobResults, Ou
         let Some(invocation_id) = started.get("invocation_id").and_then(Value::as_str) else {
             results[index] = Err(Outcome::fail(
                 "dispatch_error",
-                format!("action_start returned no invocation_id ({})", job.label),
+                format!("action-start returned no invocation_id ({})", job.label),
                 json!({ "stage": job.label }),
             ));
             continue;
@@ -208,14 +208,14 @@ fn poll_once(host: &dyn Host, job: &Pending) -> Option<Result<Value, Outcome>> {
         Ok(c) => {
             return Some(Err(Outcome::fail(
                 "dispatch_error",
-                format!("action_poll failed ({}): {}", job.label, c.message.unwrap_or_default()),
+                format!("action-poll failed ({}): {}", job.label, c.message.unwrap_or_default()),
                 json!({ "stage": job.label, "invocation_id": job.invocation_id }),
             )))
         }
         Err(e) => {
             return Some(Err(Outcome::fail(
                 "dispatch_error",
-                format!("action_poll failed ({}): {e}", job.label),
+                format!("action-poll failed ({}): {e}", job.label),
                 json!({ "stage": job.label, "invocation_id": job.invocation_id }),
             )))
         }

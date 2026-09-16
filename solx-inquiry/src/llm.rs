@@ -5,7 +5,7 @@
 //! [`call`] tries `/builtin/action/start` first. Two things can send it down
 //! the plain blocking `exec` path instead:
 //!
-//! * **The host isn't long-lived.** `action_start` refuses under a bare
+//! * **The host isn't long-lived.** `action-start` refuses under a bare
 //!   `solx exec` (the process exits the instant `exec` returns, which would
 //!   kill a spawned task before anyone could poll it) — only `solx-server`/
 //!   `solx-mcp`, or a CLI proxied to one, allow it. Detecting this by message
@@ -44,13 +44,13 @@ use serde_json::{json, Value};
 use crate::host::{split_ref, Host, Outcome};
 use crate::params::Params;
 
-/// How long each `action_poll` long-polls before this loop wakes up to
+/// How long each `action-poll` long-polls before this loop wakes up to
 /// re-check `inquire`'s own cancellation and drain console output. Mirrors
 /// `solx-ollama`'s own `POLL_WAIT_SECS` for its HTTP-stream loop.
 pub const POLL_WAIT_SECS: u64 = 5;
 
 /// Substring of `solx-actions`' refusal message
-/// (`"action_start requires a long-lived host ..."`) used to distinguish
+/// (`"action-start requires a long-lived host ..."`) used to distinguish
 /// "this host can't detach calls" from a genuine dispatch failure.
 pub const LONG_LIVED_HOST_MARKER: &str = "long-lived host";
 
@@ -109,7 +109,7 @@ fn fall_back_or_fail(
     }
     Err(Outcome::fail(
         "dispatch_error",
-        format!("action_start failed ({stage}): {message}"),
+        format!("action-start failed ({stage}): {message}"),
         json!({ "stage": stage, "action_ref": p.llm_action_ref }),
     ))
 }
@@ -117,7 +117,7 @@ fn fall_back_or_fail(
 /// The plain, single blocking `exec` path — used when the host can't detach
 /// calls, or `llm_action_ref` doesn't parse as a `/path/name` reference.
 ///
-/// Public because `fanout` needs it directly: once *one* `action_start` has
+/// Public because `fanout` needs it directly: once *one* `action-start` has
 /// been refused for lack of a long-lived host, every subsequent inquiry would
 /// be refused for the same reason, so re-trying the detached path per inquiry
 /// would only buy one wasted `exec` each.
@@ -138,7 +138,7 @@ fn poll_to_completion(host: &dyn Host, start_result: &Value, stage: &str) -> Res
         .ok_or_else(|| {
             Outcome::fail(
                 "dispatch_error",
-                "action_start returned no invocation_id",
+                "action-start returned no invocation_id",
                 json!({ "stage": stage }),
             )
         })?
@@ -172,14 +172,14 @@ fn poll_to_completion(host: &dyn Host, start_result: &Value, stage: &str) -> Res
             .map_err(|e| {
                 Outcome::fail(
                     "dispatch_error",
-                    format!("action_poll failed ({stage}): {e}"),
+                    format!("action-poll failed ({stage}): {e}"),
                     json!({ "stage": stage, "invocation_id": invocation_id }),
                 )
             })?;
         if !poll.success {
             return Err(Outcome::fail(
                 "dispatch_error",
-                format!("action_poll failed ({stage}): {}", poll.message.unwrap_or_default()),
+                format!("action-poll failed ({stage}): {}", poll.message.unwrap_or_default()),
                 json!({ "stage": stage, "invocation_id": invocation_id }),
             ));
         }
@@ -262,7 +262,7 @@ pub struct EchoResult {
 /// guess which ids to bother with.
 ///
 /// `wait_secs` decides whether this call is also the caller's *pacing*.
-/// `inquire`'s single-call loop passes `None`, because its `action_poll`
+/// `inquire`'s single-call loop passes `None`, because its `action-poll`
 /// already long-polls. A fan-out passes `Some`, because polling N children
 /// has to be non-blocking (one child must never make another wait), which
 /// leaves the tail as the only thing in the loop that can afford to sleep.
@@ -314,7 +314,7 @@ pub fn drain_console(
 /// Best-effort, same as `solx-ollama`'s own `is_cancelled`: a failure to
 /// check (no caller context, host rejection) reads as "not cancelled" —
 /// this only ever does anything when `inquire` itself was started via
-/// `action_start`, and must not spuriously abort a plain synchronous run.
+/// `action-start`, and must not spuriously abort a plain synchronous run.
 pub fn own_invocation_cancelled(host: &dyn Host) -> bool {
     match host.exec(ACTION_CANCELLED_REF, &json!({})) {
         Ok(c) if c.success => c.result.get("cancelled").and_then(Value::as_bool).unwrap_or(false),

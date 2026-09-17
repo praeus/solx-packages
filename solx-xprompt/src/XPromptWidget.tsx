@@ -3,7 +3,8 @@ import { useSolxWidgetClient } from "../../solx-widgets/src/wrap/SolxWidgetConte
 import { hostFromClient, type Host } from "../../solx-widgets/src/wrap/host";
 import { dispatch } from "./dispatch";
 import { LIST_MODELS, XPROMPT_SESSION_PATH } from "./refs";
-import type { InquireHit, OllamaModel, Turn } from "./types";
+import { listSessions, loadSessionTranscript, randomSessionName, saveSessionDocument } from "./session";
+import type { InquireHit, OllamaModel, Turn, XPromptSessionSummary } from "./types";
 import { Composer } from "./components/Composer";
 import { TurnBlock } from "./components/TurnBlock";
 import { ConsolePanel } from "./components/ConsolePanel";
@@ -17,7 +18,7 @@ export interface XPromptWidgetFields {
 
 const LS_MODEL = "solx-xprompt.model";
 const LS_TRANSCRIPT = "solx-xprompt.transcript";
-const LS_SESSION_ID = "solx-xprompt.sessionId";
+const LS_SESSION_NAME = "solx-xprompt.sessionName";
 
 type Tab = "chat" | "console";
 
@@ -27,14 +28,18 @@ type Tab = "chat" | "console";
  * instruction needs — with the merged console of that turn's own phases one
  * tab away.
  *
- * Every turn is tracked under one `sessionId`, generated once and kept in
- * localStorage alongside the transcript so a reload keeps the same Console
- * history. The transcript itself is still local-only, not a solx-inquiry
- * session document: multi_inquire's `session` param is passed a validly
- * shaped, per-widget ref so the call is well-formed, but nothing here saves
- * `session_document` back, so multi_inquire's own cross-turn history/memory
- * features are inert today — the widget's visible transcript is what
- * carries continuity for the user. See the README roadmap for persisting it.
+ * Every turn runs under one named session (`session.ts`): a solx-names name,
+ * generated once and kept in localStorage so a reload stays on the same
+ * session. After each successful turn the `session_document` multi_inquire
+ * returned is saved back to `/xprompt/sessions/<name>` — that's what lets
+ * the *next* turn's intent phase actually see prior history instead of
+ * always looking like a first message — and the same name doubles as the
+ * merged-console `logId`, so the call log lands at
+ * `/xprompt/call-logs/<name>`, right alongside the session document it
+ * belongs to. The session picker below reads other sessions back by
+ * reconstructing a transcript from their saved `turns[]` (see
+ * `loadSessionTranscript`); the widget's own localStorage transcript is
+ * only ever the *current* session's fast local cache.
  */
 export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefined }) {
   const client = useSolxWidgetClient();
@@ -53,15 +58,23 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
     }
   });
   const [transcript, setTranscript] = useState<Turn[]>(() => loadTranscript());
-  const [sessionId] = useState<string>(() => loadOrCreateSessionId());
+  const [sessionName, setSessionName] = useState<string>(() => {
+    try {
+      return localStorage.getItem(LS_SESSION_NAME) || "";
+    } catch {
+      return "";
+    }
+  });
+  const [sessions, setSessions] = useState<XPromptSessionSummary[]>([]);
   const [tab, setTab] = useState<Tab>("chat");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sessionRef = useMemo(() => `${XPROMPT_SESSION_PATH}/${sessionId}`, [sessionId]);
+  const sessionRef = useMemo(() => `${XPROMPT_SESSION_PATH}/${sessionName}`, [sessionName]);
 
-  // Bumped on every send/stop. A new turn abandons any earlier one that
-  // might still be settling — same pattern as solx-agent's genRef.
+  // Bumped on every send/stop/session-switch. A new turn (or a switch away
+  // from the session it belongs to) abandons any earlier one that might
+  // still be settling — same pattern as solx-agent's genRef.
   const genRef = useRef(0);
   // The in-flight turn's invocation id, so Stop can cancel it for real via
   // client.invocations.stop rather than just abandoning the UI's wait.
@@ -83,6 +96,35 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
       /* best-effort */
     }
   }, [transcript]);
+
+  // A brand-new widget instance (first ever open, or localStorage cleared)
+  // has no session name yet — mint one. Nothing is saved until the first
+  // turn completes, matching the call log's own lazy-create behaviour.
+  useEffect(() => {
+    if (!host || sessionName) return;
+    let cancelled = false;
+    void randomSessionName(host).then((name) => {
+      if (cancelled) return;
+      setSessionName(name);
+      try {
+        localStorage.setItem(LS_SESSION_NAME, name);
+      } catch {
+        /* best-effort */
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [host, sessionName]);
+
+  const refreshSessions = useCallback(() => {
+    if (!host) return;
+    void listSessions(host).then(setSessions);
+  }, [host]);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
 
   // Pull the model list once the client is up. A failure here means
   // ollama isn't installed or reachable — show a banner, don't crash.
@@ -128,7 +170,7 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
 
   const send = useCallback(
     (message: string) => {
-      if (!host || !client || !model) return;
+      if (!host || !client || !model || !sessionName) return;
       const myGen = ++genRef.current;
       const at = new Date().toISOString();
       setTranscript((prev) => [...prev, { kind: "user", text: message, at }]);
@@ -136,7 +178,7 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
       setError(null);
       void (async () => {
         try {
-          const handle = await dispatch(client, host, sessionId, message, model, sessionRef);
+          const handle = await dispatch(client, host, sessionName, message, model, sessionRef);
           if (genRef.current !== myGen) return;
           invocationIdRef.current = handle.invocationId;
           const result = await handle.result;
@@ -145,6 +187,20 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
             ...prev,
             { kind: "answer", model, result, at: new Date().toISOString() },
           ]);
+          // Never saved by multi_inquire itself — persisting it here is what
+          // gives the *next* turn's intent phase this one's history to read.
+          if (result.session_document) {
+            try {
+              await saveSessionDocument(host, result.session_document);
+              refreshSessions();
+            } catch (err) {
+              // The turn itself still succeeded — a failed save shouldn't
+              // turn a good answer into an error turn, just get surfaced.
+              if (genRef.current === myGen) {
+                setError("Session not saved: " + (err instanceof Error ? err.message : String(err)));
+              }
+            }
+          }
         } catch (err) {
           if (genRef.current !== myGen) return;
           setError(err instanceof Error ? err.message : String(err));
@@ -160,7 +216,7 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
         }
       })();
     },
-    [host, client, model, sessionId, sessionRef],
+    [host, client, model, sessionName, sessionRef, refreshSessions],
   );
 
   const stop = useCallback(() => {
@@ -181,6 +237,56 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
     setError(null);
   }, []);
 
+  // Start a new, unrelated session: a fresh name, an empty transcript. The
+  // old session's document (if it ever got one) is untouched — switching
+  // away doesn't delete or rename anything.
+  const newSession = useCallback(() => {
+    if (!host) return;
+    genRef.current++;
+    setBusy(false);
+    invocationIdRef.current = null;
+    setTranscript([]);
+    setError(null);
+    void randomSessionName(host).then((name) => {
+      setSessionName(name);
+      try {
+        localStorage.setItem(LS_SESSION_NAME, name);
+        localStorage.setItem(LS_TRANSCRIPT, "[]");
+      } catch {
+        /* best-effort */
+      }
+    });
+  }, [host]);
+
+  // Switch to an existing session from the picker: abandon whatever this
+  // widget instance was doing, load that session's saved turns back as a
+  // transcript (see loadSessionTranscript's caveats — no hits, no per-turn
+  // model/timestamp), and make it the one new turns are sent under.
+  const selectSession = useCallback(
+    (name: string) => {
+      if (!host || !name || name === sessionName) return;
+      genRef.current++;
+      setBusy(false);
+      invocationIdRef.current = null;
+      setError(null);
+      setSessionName(name);
+      try {
+        localStorage.setItem(LS_SESSION_NAME, name);
+      } catch {
+        /* best-effort */
+      }
+      void loadSessionTranscript(host, name).then((turns) => {
+        setTranscript(turns);
+        try {
+          localStorage.setItem(LS_TRANSCRIPT, JSON.stringify(turns));
+        } catch {
+          /* best-effort */
+        }
+      });
+    },
+    [host, sessionName],
+  );
+
   if (!client || !host) {
     return (
       <div className="muted" style={{ padding: 10 }}>
@@ -190,6 +296,7 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
   }
 
   const noModels = models.length === 0;
+  const sessionReady = !!sessionName;
 
   return (
     <div
@@ -201,6 +308,34 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
         <span className="muted" style={{ fontSize: 11 }}>
           ExecPrompt - ask anything, multi_inquire decides whether to look things up
         </span>
+      </div>
+
+      <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <label className="muted" style={{ fontSize: 11 }}>Session</label>
+        <select
+          value={sessionName}
+          onChange={(e) => selectSession(e.target.value)}
+          disabled={busy || !sessionReady}
+          style={{ flex: "1 1 200px", minWidth: 160 }}
+        >
+          {!sessionReady && <option value="">(starting…)</option>}
+          {sessionReady && !sessions.some((s) => s.name === sessionName) && (
+            <option value={sessionName}>{sessionName} (new)</option>
+          )}
+          {sessions.map((s) => (
+            <option key={s.name} value={s.name}>
+              {s.title || s.name}
+            </option>
+          ))}
+        </select>
+        <button
+          disabled={busy || !host}
+          onClick={newSession}
+          title="Start a new session"
+          style={{ fontSize: 11 }}
+        >
+          New session
+        </button>
       </div>
 
       <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -245,7 +380,7 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
       </div>
 
       {tab === "console" ? (
-        <ConsolePanel host={host} client={client} logId={sessionId} />
+        <ConsolePanel host={host} client={client} logId={sessionName || "(starting…)"} />
       ) : (
         <>
           <div
@@ -280,14 +415,16 @@ export function XPromptWidget({ fields }: { fields: XPromptWidgetFields | undefi
           </div>
 
           <Composer
-            disabled={busy || !model || noModels}
+            disabled={busy || !model || noModels || !sessionReady}
             running={busy}
             placeholder={
-              !model
-                ? "Pick a model first"
-                : noModels
-                  ? "No models available - install solx-ollama"
-                  : "Ask anything"
+              !sessionReady
+                ? "Starting a session…"
+                : !model
+                  ? "Pick a model first"
+                  : noModels
+                    ? "No models available - install solx-ollama"
+                    : "Ask anything"
             }
             onSend={send}
             onStop={stop}
@@ -313,29 +450,6 @@ function loadTranscript(): Turn[] {
   } catch {
     return [];
   }
-}
-
-function loadOrCreateSessionId(): string {
-  try {
-    const existing = localStorage.getItem(LS_SESSION_ID);
-    if (existing) return existing;
-  } catch {
-    /* localStorage is best-effort */
-  }
-  const id = newSessionId();
-  try {
-    localStorage.setItem(LS_SESSION_ID, id);
-  } catch {
-    /* best-effort */
-  }
-  return id;
-}
-
-function newSessionId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
 function humanSize(bytes: number): string {

@@ -10,7 +10,7 @@ import { dispatch, isRunnableActionHit } from "../src/dispatch";
 import type { InquireHit } from "../src/types";
 import { createFakeClient } from "./fakeClient";
 
-const MULTI_INQUIRE_REF = "/packages/solx-inquiry/multi_inquire";
+const MULTI_INQUIRE_REF = "/packages/solx-inquiry/multi-inquire";
 
 describe("dispatch", () => {
   it("starts a tracked multi_inquire call with the instruction, model, and session", async () => {
@@ -52,7 +52,7 @@ describe("dispatch", () => {
       { path: "/xprompt/call-logs", name: "session-2" },
     );
     expect(r.contents?.calls).toHaveLength(1);
-    expect(r.contents?.calls?.[0]).toMatchObject({ actionRef: MULTI_INQUIRE_REF, name: "multi_inquire" });
+    expect(r.contents?.calls?.[0]).toMatchObject({ actionRef: MULTI_INQUIRE_REF, name: "multi-inquire" });
   });
 
   it("surfaces an inquire-mode result with hits and scripts intact", async () => {

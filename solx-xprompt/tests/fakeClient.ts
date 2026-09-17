@@ -21,6 +21,7 @@ interface DocRecord {
   title?: string;
   summary?: string;
   contents: unknown;
+  updatedAt: string;
 }
 
 export interface FakeClient {
@@ -40,8 +41,11 @@ export function createFakeClient(): FakeClient {
   const consoles = new Map<string, WidgetConsoleEntry[]>();
   const invocations = new Map<string, WidgetInvocation>();
   const responses = new Map<string, { result?: unknown; error?: string }>();
+  const pollCounts = new Map<string, number>();
   let invCounter = 0;
   let entryClock = 0;
+  let docClock = 0;
+  let nameCounter = 0;
 
   const docKey = (path: string, name: string) => path + " " + name;
 
@@ -53,6 +57,7 @@ export function createFakeClient(): FakeClient {
 
         if (ref === "/builtin/document/entity-save-document") {
           const key = docKey(p.path as string, p.name as string);
+          docClock += 1;
           docs.set(key, {
             path: p.path as string,
             name: p.name as string,
@@ -60,6 +65,7 @@ export function createFakeClient(): FakeClient {
             title: p.title as string | undefined,
             summary: p.summary as string | undefined,
             contents: p.contents,
+            updatedAt: new Date(docClock).toISOString(),
           });
           return { action: ref, result: { path: p.path, name: p.name }, success: true };
         }
@@ -70,6 +76,21 @@ export function createFakeClient(): FakeClient {
             return { action: ref, result: null, success: false, message: "not found: " + p.path + "/" + p.name };
           }
           return { action: ref, result: doc, success: true };
+        }
+
+        if (ref === "/builtin/document/entity-list-documents") {
+          const prefix = (p.path_prefix as string | undefined) ?? "";
+          const items = [...docs.values()]
+            .filter((d) => !prefix || d.path === prefix || d.path.startsWith(prefix + "/"))
+            .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+          return { action: ref, result: { items, total: items.length }, success: true };
+        }
+
+        if (ref === "/packages/solx-names/random-name") {
+          nameCounter += 1;
+          const withId = p.with_id === true;
+          const name = "fake-name-" + nameCounter + (withId ? "-" + nameCounter.toString(16).padStart(8, "0") : "");
+          return { action: ref, result: { name }, success: true };
         }
 
         return { action: ref, result: null, success: false, message: "unknown action in fake client: " + ref };
@@ -99,10 +120,26 @@ export function createFakeClient(): FakeClient {
         if (!inv) return null;
         if (inv.status !== "running") return inv;
         const outcome = responses.get(inv.action_ref);
-        if (!outcome) return inv; // still "running" — nothing registered yet
+        if (!outcome) {
+          // Unlike the real long-poll, this fake resolves immediately, so a
+          // caller's poll-until-terminal loop spins hot with no `respondTo`
+          // registered for this action ref — fail loud instead of hanging
+          // the whole test run.
+          const count = (pollCounts.get(invocationId) ?? 0) + 1;
+          pollCounts.set(invocationId, count);
+          if (count > 50) {
+            throw new Error(
+              `fakeClient: invocations.poll on ${inv.action_ref} (${invocationId}) never settled — ` +
+                "call respondTo() with this exact action ref before awaiting the result.",
+            );
+          }
+          return inv; // still "running" — nothing registered yet
+        }
         const settled: WidgetInvocation = {
           ...inv,
-          status: outcome.error ? "failed" : "succeeded",
+          // Must be one of isTerminalStatus's recognized values (see
+          // solx-widgets/src/shared/widgetClient.ts) — "ok", not "succeeded".
+          status: outcome.error ? "failed" : "ok",
           result: outcome.result ?? null,
           error: outcome.error ?? null,
         };

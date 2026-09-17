@@ -17,12 +17,13 @@ happen.
 
 **Scaffold.** The wiring is in place and the widget mounts cleanly in
 solx-web; a turn runs end to end against `multi_inquire`, tracked and
-cancellable. Anything richer — streaming the answer token-by-token, a
-real params form on the "Run" button, an explicit `mode` field on the
-composer, durable session documents so multi_inquire's own cross-turn
-history/memory features do something — is not yet built. The shape of
-this package is settled; the missing pieces are UI affordances, not
-architecture.
+cancellable, under a named, persisted session — so multi_inquire's own
+cross-turn history (`session::history_block`) sees real prior turns, not
+an empty one every time. Anything richer — streaming the answer
+token-by-token, a real params form on the "Run" button, a `memory_path`
+so `result.memories[]` isn't always empty, running a proposed script —
+is not yet built. The shape of this package is settled; the missing
+pieces are UI affordances, not architecture.
 
 ## One action, one document type
 
@@ -32,12 +33,17 @@ with no action caller (see `solx-packages/docs/widget-system.md`),
 which means the merged-console mechanism can't use the server's
 `console-copy` — it tracks its calls in an `XPromptCallLog` document
 instead, the same workaround the agent harness documents under
-`src/console/`.
+`src/console/`. Session documents (`/xprompt/sessions/<name>`) are the
+other kind of document this widget writes, but they're not this
+package's own type — `session.ts` saves whatever `session_document`
+multi_inquire hands back, typed as solx-inquiry's own
+`/packages/solx-inquiry/MultiInquireSession`.
 
 | entity | ref | shape | purpose |
 |---|---|---|---|
 | action | `/packages/solx-xprompt/xprompt-widget` | `script` (returns `WidgetDescriptor`) | the widget solx-web mounts |
-| type | `/packages/solx-xprompt/XPromptCallLog` | `{calls: CallRecord[]}` | durable index of a widget session's tracked calls |
+| type | `/packages/solx-xprompt/XPromptCallLog` | `{calls: CallRecord[]}` | durable index of one session's tracked calls, at `/xprompt/call-logs/<name>` |
+| *(reused)* | `/packages/solx-inquiry/MultiInquireSession` | `{turns: [...], turnCount, lastInstruction}` | a session's saved turns, at `/xprompt/sessions/<name>` — solx-inquiry's type, not this package's |
 
 There is no `save file widgets/solx-xprompt.js` step in `install.solx`'s
 *output* — the bundle is uploaded by `install-package` from the local
@@ -79,14 +85,17 @@ button that asks the user for a params JSON blob (the call site is
 already-validated action plans — render read-only for now; nothing in
 this widget executes one yet (see the roadmap).
 
-multi_inquire requires a `session` document reference to be well-formed,
-so the widget generates one per browser (`/xprompt/sessions/<id>`,
-persisted in localStorage) and passes it on every turn — but never saves
-`session_document` back. That keeps the call valid without this package
-taking on document persistence it doesn't need yet: the widget's own
-visible transcript is what gives the user continuity, and multi_inquire's
-own cross-turn history/memory features stay inert until something
-persists that document (see "Session picking" below).
+Every turn runs under a named session (`src/session.ts`): a solx-names
+name (e.g. `capable-tiger-9f2c1a06`), generated once per new session and
+kept in localStorage so a reload stays on it. After each successful turn
+the `session_document` multi_inquire returned is saved back to
+`/xprompt/sessions/<name>` — that's what gives the *next* turn's intent
+phase real history to read, rather than always looking like a first
+message. The same name doubles as the merged-console `logId`, so the
+call log lands at `/xprompt/call-logs/<name>` — the same root name as
+the session document it belongs to, without the two mechanisms knowing
+anything about each other. See "Session picking" below for what this
+does and doesn't cover yet.
 
 ## Install
 
@@ -94,14 +103,15 @@ persists that document (see "Session picking" below).
 npm install                # or `bun install`
 npm run build              # tsc --noEmit && vite build → dist/solx-xprompt.js
 npm run typecheck          # optional; the build typechecks too
-npm run test               # vitest — 13 cases across dispatch + console
+npm run test               # vitest — 20 cases across dispatch + console + session
 solx install-package ./solx-xprompt
 ```
 
-`solx-inquiry` must also be installed for turns to work (it depends on
-`solx-ollama` — or another chat action — itself). If it's missing, the
-widget still mounts but a turn will surface that absence as an error
-turn rather than failing the whole bundle.
+`solx-inquiry` (which depends on `solx-ollama` — or another chat action
+— itself) and `solx-names` must also be installed for turns to work. If
+either is missing, the widget still mounts but a turn (or starting a new
+session) will surface that absence as an error rather than failing the
+whole bundle.
 
 To use it, exec `/packages/solx-xprompt/xprompt-widget` from
 solx-web's action runner and the bundle mounts in the Widget tab.
@@ -111,11 +121,15 @@ solx-web's action runner and the bundle mounts in the Widget tab.
 ```
 src/
   main.ts                       defineReactWidget("solx-xprompt-widget", XPromptWidget)
-  XPromptWidget.tsx             the React component — model picker, tabs, thread, composer
+  XPromptWidget.tsx             the React component — session + model pickers, tabs,
+                                thread, composer
   theme.ts                      design tokens, re-declared inside the shadow root
   refs.ts                       action references
-  types.ts                      Turn / InquireHit / MultiInquireResult / OllamaModel
+  types.ts                      Turn / InquireHit / MultiInquireResult / OllamaModel /
+                                StoredMultiInquireTurn / XPromptSessionDocument
   dispatch.ts                   dispatch, isRunnableActionHit
+  session.ts                    naming (solx-names), listing, saving, and reading a
+                                session back as a transcript
   components/
     Composer.tsx                Enter-to-send textarea, mirror of solx-agent's
     TurnBlock.tsx                one rendered turn; answer turns have a Run column
@@ -131,9 +145,12 @@ src/
 tests/
   dispatch.test.ts              6 cases — call shape, tracked-call logging, result/error
                                 propagation, isRunnableActionHit
+  session.test.ts               7 cases — naming, save/load round-trip, listing
   console.test.ts               7 cases from the scaffold (untouched)
   fakeClient.ts                 WidgetClient-shaped fake, including a `respondTo` hook
-                                dispatch.test.ts uses to script invocation outcomes
+                                dispatch.test.ts uses to script invocation outcomes,
+                                and entity-list-documents / random-name support for
+                                session.test.ts
 
 dist/
   solx-xprompt.js               the build artifact install.solx uploads; ~386 KB
@@ -218,8 +235,7 @@ above) — what's not built yet is acting on everything it hands back:
 - **Memories.** `result.memories[]` are ready-to-save document
   payloads; the widget could surface them as "the model wants to save
   this — accept / decline / edit" cards. Currently the widget never
-  passes a `memory_path`, so this is always empty — see "Session
-  picking" below.
+  passes a `memory_path`, so this is always empty.
 - **Citations as chips.** `result.responses[i].citations[]` is the
   list of document paths each response was grounded in. `TurnBlock.tsx`
   currently renders them as one plain "cites: ..." line per response;
@@ -244,23 +260,29 @@ includes it as context. The list itself is just one document under
 
 ### Session picking
 
-The widget already generates one `sessionId` per browser (localStorage,
-see `LS_SESSION_ID` in `XPromptWidget.tsx`) and uses it both as the
-merged-console `logId` and as the last segment of the `session` ref every
-`multi_inquire` call gets — so the Console tab's history already survives
-a reload. What's still missing:
+Done: `src/session.ts` names a session with solx-names
+(`capable-tiger-9f2c1a06`), saves the `session_document` multi_inquire
+returns after every turn, lists existing sessions from
+`/xprompt/sessions` in a picker (`XPromptWidget.tsx`'s "Session" row),
+and reconstructs a transcript from a picked session's saved `turns[]`.
+"New session" mints a fresh name and an empty transcript without
+touching the old one. What's still missing:
 
-- **Actually saving `session_document`.** `multi_inquire` returns it on
-  every successful turn but never writes it — the widget doesn't either
-  today, so multi_inquire's own cross-turn history (what `intent::decide`
-  reads back for orientation) is always empty. Wiring in one
-  `entity-save-document` call per turn is what would make it real.
-- **A `memory_path`.** Passing one turns memories on; without it,
-  `result.memories[]` is always empty (see above).
-- A **session picker** at the top of the widget (an `/xprompt/sessions`
-  list, the same shape `solx-agent`'s header uses) once sessions are
-  actually named and saved, rather than one generated id per browser.
-- A **fork** action — given an existing session id, open a new one
+- **Hits and hindsight aren't part of session history.**
+  `StoredMultiInquireTurn` mirrors exactly what solx-inquiry's
+  `session::build_document` writes — no `hits[]`, no per-turn `model`,
+  no timestamp (solx-inquiry frames history as "orientation, not
+  evidence" and stores accordingly). A turn reloaded from a past session
+  shows its text and direct/researched mode but not its suggested
+  actions, cited documents, or when it happened.
+- **A `memory_path`.** Passing one turns memories on for the current
+  session; without it, `result.memories[]` is always empty (see "Act on
+  more of what multi_inquire already returns" above).
+- **A named title, not just the first instruction truncated.**
+  `session_document.title` comes straight from solx-inquiry's own
+  default (`truncate(first instruction, 80)`); a rename affordance would
+  need its own `entity-save-document` call overwriting just `title`.
+- A **fork** action — given an existing session name, open a new one
   seeded with the prior session's transcript. Useful when an
   investigation reaches a fork in the road.
 
@@ -308,10 +330,6 @@ would be next:
 - **Running a proposed script.** `result.scripts[]` renders read-only
   today (`TurnBlock.tsx`'s `ScriptRow`) — see "Act on more of what
   multi_inquire already returns" above.
-- **Session persistence.** `multi_inquire`'s `session_document` and
-  `memories[]` are never saved (see "Session picking" above), so its
-  own cross-turn history and memory features are always inert; the
-  transcript itself is localStorage only, scoped to one browser. A
-  durable session document (like solx-agent's `/agent/sessions/<id>`)
-  would let multiple clients see the same thread, survive a browser
-  reset, and give multi_inquire real history to read back.
+- **Memories and session forking.** See "Session picking" above —
+  session naming and persistence are done; `memory_path` and a fork
+  action aren't.

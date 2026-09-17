@@ -296,10 +296,17 @@ function promptForParams(hit: InquireHit): Record<string, unknown> | null {
   return {};
 }
 
+/**
+ * Blank for a turn reloaded from session history: solx-inquiry stores no
+ * per-turn timestamp (see `StoredMultiInquireTurn`), so `at` is `""` there
+ * rather than an invalid date rendered as "Invalid Date".
+ */
 function formatTime(iso: string): string {
+  if (!iso) return "";
   try {
-    return new Date(iso).toLocaleTimeString();
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
   } catch {
-    return iso;
+    return "";
   }
 }

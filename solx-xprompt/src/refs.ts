@@ -13,13 +13,16 @@
 export const LIST_MODELS = "/packages/solx-ollama/ollama-list-models";
 
 export const INQUIRY_PATH = "/packages/solx-inquiry";
-export const MULTI_INQUIRE_FN = "multi_inquire";
+export const MULTI_INQUIRE_FN = "multi-inquire";
 
-/** Where this widget's multi_inquire session documents would live, if a turn's session ref is ever persisted. */
+export const RANDOM_NAME = "/packages/solx-names/random-name";
+
+/** Where this widget's session documents live — multi_inquire's own `session` ref, persisted here after every turn. */
 export const XPROMPT_SESSION_PATH = "/xprompt/sessions";
 
 export const SAVE_DOC = "/builtin/document/entity-save-document";
 export const GET_DOC = "/builtin/document/entity-get-document";
+export const LIST_DOCS = "/builtin/document/entity-list-documents";
 
 export const SEARCH_ACTIONS = "/builtin/action/search-actions";
 export const SEARCH_DOCS = "/builtin/document/search-documents";

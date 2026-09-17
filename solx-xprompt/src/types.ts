@@ -62,7 +62,7 @@ export interface ScriptStep {
 }
 
 export interface MultiInquireScript {
-  title: string;
+  title?: string | null;
   actions: string[];
   destructive: string[];
   notes: string[];
@@ -81,6 +81,54 @@ export interface MultiInquireResult {
   hits: InquireHit[];
   notes: string[];
   errors: unknown[];
+  /**
+   * The updated session document multi_inquire assembled from this turn —
+   * never saved by multi_inquire itself, so the caller decides whether and
+   * when to persist it. See `session.ts`'s `saveSessionDocument`.
+   */
+  session_document?: XPromptSessionDocument | null;
+}
+
+/**
+ * One turn as stored inside a session document's `contents.turns[]` —
+ * mirrors solx-inquiry's own `multi::run` turn shape (see `session.rs`).
+ * Deliberately narrower than `MultiInquireResult`: no `hits` (session
+ * history is orientation, not evidence — solx-inquiry never stores them)
+ * and no per-turn timestamp or model (neither is written by multi_inquire).
+ */
+export interface StoredMultiInquireTurn {
+  instruction: string;
+  mode: "direct" | "inquire";
+  inquiries: MultiInquireIntentInquiry[];
+  responses: MultiInquireResponse[];
+  scripts: MultiInquireScript[];
+  memories: unknown[];
+  next_prompt?: string | null;
+  notes: string[];
+  errors: unknown[];
+}
+
+/** The document `multi_inquire` returns as `session_document` (see solx-inquiry's `session.rs`). */
+export interface XPromptSessionDocument {
+  path: string;
+  name: string;
+  typeRef: string;
+  author?: string;
+  title?: string;
+  summary?: string;
+  contents: {
+    turns: StoredMultiInquireTurn[];
+    turnCount: number;
+    lastInstruction: string;
+  };
+}
+
+/** One row in the session picker — enough to label a dropdown option. */
+export interface XPromptSessionSummary {
+  name: string;
+  title?: string;
+  summary?: string;
+  updatedAt?: string;
 }
 
 /** One turn in the chat transcript. Rendered as a card in the thread. */

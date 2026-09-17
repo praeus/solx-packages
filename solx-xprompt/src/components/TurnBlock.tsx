@@ -1,15 +1,17 @@
 import { useState } from "react";
 import type { Host } from "../../../solx-widgets/src/wrap/host";
 import { isRunnableActionHit } from "../dispatch";
-import type { InquireHit, Turn } from "../types";
+import type { InquireHit, MultiInquireScript, Turn } from "../types";
 
 /**
- * One rendered turn. User turns and chat turns are simple text. Inquire
- * turns render the summary plus a list of action hits, each with a "Run"
- * button that dispatches `actions.exec` with the hit's params.
+ * One rendered turn. User turns are simple text. Answer turns render every
+ * response multi_inquire produced, plus action hits (each with a "Run"
+ * button), cited documents, and any proposed action plans — read-only for
+ * now, see MultiInquireScript's rendering below.
  *
- * Error turns surface the message in the danger chip so the user can see
- * what went wrong and try again.
+ * Run turns and error turns both surface in a chip, but only error turns use
+ * the danger styling — a successful "Run" is not a failure and must not look
+ * like one.
  */
 export function TurnBlock({
   turn,
@@ -41,25 +43,14 @@ export function TurnBlock({
     );
   }
 
-  if (turn.kind === "chat") {
+  if (turn.kind === "run") {
     return (
       <div className="col" style={{ gap: 4 }}>
         <div
-          className="col"
-          style={{
-            gap: 4,
-            background: "var(--bg-raised)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "6px 10px",
-            maxWidth: "85%",
-          }}
+          className={"chip " + (turn.status === "ok" ? "ok" : "danger")}
+          style={{ alignSelf: "flex-start", padding: "6px 10px" }}
         >
-          <div className="row" style={{ gap: 6, alignItems: "baseline" }}>
-            <strong style={{ fontSize: 12 }}>Assistant</strong>
-            <span className="faint" style={{ fontSize: 11 }}>{turn.model}</span>
-          </div>
-          <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{turn.text || "(no content)"}</span>
+          {turn.message}
         </div>
         <span className="faint" style={{ fontSize: 11 }}>{formatTime(turn.at)}</span>
       </div>
@@ -80,9 +71,14 @@ export function TurnBlock({
     );
   }
 
-  // turn.kind === "inquire"
-  const actionHits = turn.result.hits.filter(isRunnableActionHit);
-  const docHits = turn.result.hits.filter((h) => h.source === "document");
+  // turn.kind === "answer"
+  const { result } = turn;
+  const mode = result.intent.mode;
+  const actionHits = result.hits.filter(isRunnableActionHit);
+  const docHits = result.hits.filter((h) => h.source === "document");
+  const citedResponses = result.responses.filter((r) => r.citations.length > 0);
+  const text = result.responses.map((r) => r.text).join("\n\n") || "(no response)";
+
   return (
     <div className="col" style={{ gap: 6 }}>
       <div
@@ -95,15 +91,25 @@ export function TurnBlock({
           padding: "8px 10px",
         }}
       >
-        <div className="row" style={{ gap: 6, alignItems: "baseline" }}>
-          <strong style={{ fontSize: 12 }}>Research</strong>
-          <span className="faint" style={{ fontSize: 11 }}>
-            {turn.model} · {turn.result.scope} · {turn.result.terms.join(", ") || "no terms"}
+        <div className="row" style={{ gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+          <strong style={{ fontSize: 12 }}>Assistant</strong>
+          <span className="faint" style={{ fontSize: 11 }}>{turn.model}</span>
+          <span className={"chip" + (mode === "inquire" ? " accent" : "")} style={{ fontSize: 10 }}>
+            {mode === "inquire" ? "researched" : "direct"}
           </span>
         </div>
-        <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {turn.result.summary || "(no summary)"}
-        </span>
+        <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{text}</span>
+
+        {citedResponses.length > 0 && (
+          <div className="col" style={{ gap: 2, marginTop: 2 }}>
+            {citedResponses.map((r, i) => (
+              <span key={i} className="faint" style={{ fontSize: 11 }}>
+                cites: {r.citations.join(", ")}
+              </span>
+            ))}
+          </div>
+        )}
+
         {actionHits.length > 0 && (
           <div className="col" style={{ gap: 4, marginTop: 4 }}>
             <span className="muted" style={{ fontSize: 11 }}>
@@ -119,6 +125,7 @@ export function TurnBlock({
             ))}
           </div>
         )}
+
         {docHits.length > 0 && (
           <div className="col" style={{ gap: 2, marginTop: 4 }}>
             <span className="muted" style={{ fontSize: 11 }}>
@@ -135,6 +142,27 @@ export function TurnBlock({
                 · …and {docHits.length - 5} more
               </span>
             )}
+          </div>
+        )}
+
+        {result.scripts.length > 0 && (
+          <div className="col" style={{ gap: 4, marginTop: 4 }}>
+            <span className="muted" style={{ fontSize: 11 }}>
+              Proposed action plan{result.scripts.length > 1 ? "s" : ""} ({result.scripts.length}) — not run automatically
+            </span>
+            {result.scripts.map((script, i) => (
+              <ScriptRow key={i} script={script} />
+            ))}
+          </div>
+        )}
+
+        {result.notes.length > 0 && (
+          <div className="col" style={{ gap: 2, marginTop: 4 }}>
+            {result.notes.map((note, i) => (
+              <span key={i} className="faint" style={{ fontSize: 11 }}>
+                note: {note}
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -159,7 +187,7 @@ function ActionHitRow({
     if (!host) return;
     setBusy(true);
     try {
-      // inquire returns paramSchema when available, but not always a
+      // multi_inquire returns paramSchema when available, but not always a
       // populated params object — leave the user to fill in a params JSON
       // blob if there's no obvious default. The action will validate on
       // exec regardless.
@@ -209,9 +237,41 @@ function ActionHitRow({
 }
 
 /**
- * Ask the user for parameters as a JSON blob. inquiry surfaces the schema
- * but doesn't always supply default values; rather than guess, surface a
- * tiny editor and let the user paste in whatever the action expects.
+ * A `multi_inquire` script, rendered read-only: title, whether it carries
+ * anything destructive, and its steps behind a details toggle. Nothing here
+ * executes a step — see the roadmap's "Auto-run non-destructive actions"
+ * item for what a "Run plan" affordance would need.
+ */
+function ScriptRow({ script }: { script: MultiInquireScript }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="col" style={{ gap: 2 }}>
+      <div className="row" style={{ gap: 6 }}>
+        <span style={{ fontSize: 12 }}>{script.title}</span>
+        {script.destructive.length > 0 && (
+          <span className="chip warn" style={{ fontSize: 10 }}>destructive</span>
+        )}
+        <span className="faint" style={{ fontSize: 10 }}>{script.steps.length} step(s)</span>
+      </div>
+      {open && (
+        <pre style={{ fontSize: 11 }}>{JSON.stringify(script.steps, null, 2)}</pre>
+      )}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{ alignSelf: "flex-start", fontSize: 10, padding: "0 4px", background: "transparent", border: "none", color: "var(--text-faint)" }}
+      >
+        {open ? "hide steps" : "show steps"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Ask the user for parameters as a JSON blob. multi_inquire surfaces the
+ * schema but doesn't always supply default values; rather than guess,
+ * surface a tiny editor and let the user paste in whatever the action
+ * expects.
  *
  * Returns `null` if the user cancels.
  */

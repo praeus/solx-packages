@@ -1,109 +1,97 @@
 /**
- * One prompt in, one of two paths out:
+ * One instruction in, one multi_inquire turn out.
  *
- *   - chat:      user → ollama-chat                 → text reply
- *   - inquire:   user → inquire (scope: both)        → summary + hits
+ * multi_inquire's own intent phase decides whether an instruction can be
+ * answered directly or needs up to three inquiries fanned out (see
+ * solx-inquiry's intent.rs) — one LLM call, schema-constrained, with real
+ * context (skills, memories, session history). That is the "chat vs.
+ * research" decision, made once and made well; there is no keyword-heuristic
+ * routing layer here to duplicate or contradict it.
  *
- * Routing is heuristic — research triggers in the prompt send it to
- * inquire, anything else to chat. A `/research foo` slash-prefix is an
- * explicit opt-in to inquire, regardless of trigger words, so a user can
- * force research without rephrasing.
+ * Runs detached via `client.invocations.start` (through this widget's own
+ * `startTrackedCall`, see `src/console/`) rather than a blocking `host.call`.
+ * That is what gives a turn an `invocation_id` the Composer's Stop button can
+ * actually cancel via `client.invocations.stop`, and what lets the Console
+ * tab show this turn's recall/intent/inquiry phases as they happen.
  *
- * Action hits surfaced by inquire render with a "Run" button that calls
+ * Action hits multi_inquire returns render with a "Run" button that calls
  * actions.exec with the hit's parameters — the same plumbing the widget's
- * own calls already use, so a user can go from "what actions can do X?"
- * to "run X" without leaving the chat.
+ * own calls already use, so a user can go from "what actions can do X?" to
+ * "run X" without leaving the chat.
  */
 
+import { isTerminalStatus } from "../../solx-widgets/src/shared/widgetClient";
+import type { WidgetClient, WidgetInvocation } from "../../solx-widgets/src/shared/widgetClient";
 import { compact } from "../../solx-widgets/src/wrap/host";
 import type { Host } from "../../solx-widgets/src/wrap/host";
-import { INQUIRE, OLLAMA_CHAT, RESEARCH_TRIGGERS } from "./refs";
-import type { InquireHit, InquireResult, OllamaChatResult } from "./types";
+import { startTrackedCall } from "./console";
+import { INQUIRY_PATH, MULTI_INQUIRE_FN } from "./refs";
+import type { InquireHit, MultiInquireResult } from "./types";
 
-export type DispatchResult =
-  | { kind: "chat"; text: string; model: string }
-  | { kind: "inquire"; result: InquireResult; model: string };
+/** How long one long-poll waits for the invocation to change before this loop asks again. */
+const POLL_WAIT_SECS = 25;
 
-export function isResearch(prompt: string): boolean {
-  const trimmed = prompt.trim();
-  if (trimmed.startsWith("/research ") || trimmed === "/research") return true;
-  const lower = trimmed.toLowerCase();
-  return RESEARCH_TRIGGERS.some((t) => lower.includes(t));
-}
-
-/** Strip a `/research ` prefix so the prompt that reaches inquire is the natural-language one. */
-function stripResearchPrefix(prompt: string): string {
-  const t = prompt.trim();
-  if (t.startsWith("/research ")) return t.slice("/research ".length);
-  if (t === "/research") return "";
-  return t;
+export interface DispatchHandle {
+  invocationId: string;
+  /** Resolves once the invocation reaches a terminal state; rejects on failure or cancellation. */
+  result: Promise<MultiInquireResult>;
 }
 
 /**
- * Run a single conversational turn. Throws on action failure — the caller
- * renders the failure as an error turn, the way the merged-console
- * mechanism renders any other failure. Uses `host.call` because a chat
- * failure means the surrounding turn cannot continue.
+ * Start one turn, tracked under `logId` so it shows up in the widget's
+ * merged Console tab. Returns as soon as the call is accepted — the caller
+ * awaits `.result` separately so it can render the invocation id (for Stop)
+ * before the turn finishes.
  */
-export async function dispatchChat(
-  host: Host,
-  prompt: string,
-  model: string,
-): Promise<DispatchResult> {
-  const result = await host.call<OllamaChatResult>(OLLAMA_CHAT, compact({
-    model,
-    messages: [
-      { role: "user", content: prompt },
-    ],
-  }));
-  const text = (result?.message?.content ?? "").toString();
-  return { kind: "chat", text, model };
-}
-
-/**
- * Run a research turn. inquire returns a structured result with both the
- * natural-language summary and the raw hits — the widget renders the
- * summary as the reply and the hits (when actions) as executable
- * suggestions inline.
- */
-export async function dispatchInquire(
-  host: Host,
-  prompt: string,
-  model: string,
-  scope: "documents" | "actions" | "both" = "both",
-): Promise<DispatchResult> {
-  const inquiry = stripResearchPrefix(prompt);
-  const result = await host.call<InquireResult>(INQUIRE, compact({
-    inquiry,
-    model,
-    scope,
-    max_terms: 5,
-    max_results: 10,
-  }));
-  return { kind: "inquire", result, model };
-}
-
-/** Top-level entry: route then dispatch. */
 export async function dispatch(
+  client: WidgetClient,
   host: Host,
-  prompt: string,
+  logId: string,
+  instruction: string,
   model: string,
-): Promise<DispatchResult> {
-  return isResearch(prompt)
-    ? dispatchInquire(host, prompt, model)
-    : dispatchChat(host, prompt, model);
+  session: string,
+): Promise<DispatchHandle> {
+  const inv = await startTrackedCall(
+    client,
+    host,
+    logId,
+    INQUIRY_PATH,
+    MULTI_INQUIRE_FN,
+    compact({
+      instruction,
+      model,
+      session,
+      max_inquiries: 3,
+      max_terms: 5,
+      max_results: 10,
+    }),
+    "turn",
+  );
+  return { invocationId: inv.invocation_id, result: waitForResult(client, inv) };
+}
+
+async function waitForResult(client: WidgetClient, inv: WidgetInvocation): Promise<MultiInquireResult> {
+  let current = inv;
+  while (!isTerminalStatus(current.status)) {
+    const polled = await client.invocations.poll(current.invocation_id, POLL_WAIT_SECS);
+    if (polled) current = polled;
+  }
+  if (current.error) {
+    throw new Error(current.error);
+  }
+  return current.result as MultiInquireResult;
 }
 
 /**
  * Pull the most plausible parameter object out of an action hit.
  *
- * `search-actions` does not return a hit's full param schema by itself —
- * inquire fetches it separately and stuffs it under `hit.details.paramSchema`.
- * We don't have it here at the dispatch layer (this module is pure
- * plumbing), so the caller builds the params object from the schema at the
- * call site. This helper just decides which action-hit is runnable: one
- * whose source is "action" and whose details carry a category so the user
- * can see what kind of action it is.
+ * multi_inquire does not return a hit's full param schema inline — it's
+ * fetched separately and stuffed under `hit.details.paramSchema`. We don't
+ * have it here at the dispatch layer (this module is pure plumbing), so the
+ * caller builds the params object from the schema at the call site. This
+ * helper just decides which action hit is runnable: one whose source is
+ * "action" and whose details carry a category so the user can see what kind
+ * of action it is.
  */
 export function isRunnableActionHit(hit: InquireHit): boolean {
   return hit.source === "action" && !!hit.details?.category;

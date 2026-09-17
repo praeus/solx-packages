@@ -8,8 +8,10 @@ import { useState, type KeyboardEvent } from "react";
  *
  * Mirrors solx-agent's Composer on purpose — same muscle memory — but
  * stops at the dispatch layer rather than between agent iterations: a
- * single xprompt turn is one ollama-chat or one inquire call, both of
- * which the host can cancel via invocations.stop.
+ * single xprompt turn is one detached multi_inquire invocation (see
+ * dispatch.ts), and the Stop button cancels it for real via
+ * `client.invocations.stop` — the invocation keeps running server-side
+ * until that call lands, but the widget stops waiting on it immediately.
  */
 export function Composer({
   disabled,

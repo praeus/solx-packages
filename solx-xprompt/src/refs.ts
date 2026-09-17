@@ -3,38 +3,23 @@
  * drift between the call sites and the install metadata (which lists the
  * same packages as action phrases).
  *
- * Inquiry and Ollama are separate packages by design — inquire is the one
- * that decides what to search and how to summarize the result, ollama is
- * one of several possible chat backends. The widget defaults to whatever
- * `inquire` defaults to (which defaults to ollama-chat), and only talks to
- * ollama directly when the user wants a plain conversational turn with no
- * search.
+ * multi_inquire is the only research/chat action this widget calls: its own
+ * intent phase decides whether an instruction can be answered directly or
+ * needs inquiries fanned out (see solx-inquiry's intent.rs), so there is no
+ * separate ollama-chat call or keyword-based routing here to duplicate that
+ * decision — see dispatch.ts.
  */
 
 export const LIST_MODELS = "/packages/solx-ollama/ollama-list-models";
-export const OLLAMA_CHAT = "/packages/solx-ollama/ollama-chat";
-export const INQUIRE = "/packages/solx-inquiry/inquire";
+
+export const INQUIRY_PATH = "/packages/solx-inquiry";
+export const MULTI_INQUIRE_FN = "multi_inquire";
+
+/** Where this widget's multi_inquire session documents would live, if a turn's session ref is ever persisted. */
+export const XPROMPT_SESSION_PATH = "/xprompt/sessions";
 
 export const SAVE_DOC = "/builtin/document/entity-save-document";
 export const GET_DOC = "/builtin/document/entity-get-document";
 
 export const SEARCH_ACTIONS = "/builtin/action/search-actions";
 export const SEARCH_DOCS = "/builtin/document/search-documents";
-
-/**
- * Heuristic: a prompt is treated as "research" rather than "chat" if it
- * contains a question word or any of these triggers. Kept inline so the
- * routing decision is obvious in the dispatch code; expanded as the widget
- * learns more routing (e.g. an explicit "mode" field).
- */
-export const RESEARCH_TRIGGERS = [
-  "search",
-  "find",
-  "look up",
-  "what do i have",
-  "what do i know",
-  "summarize",
-  "research",
-  "investigate",
-  "show me",
-];

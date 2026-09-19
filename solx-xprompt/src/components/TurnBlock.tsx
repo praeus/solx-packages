@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Host } from "../../../solx-widgets/src/wrap/host";
-import { isRunnableActionHit } from "../dispatch";
+import { isDestructiveHit, isRunnableActionHit, unapprovedDestructiveRefs } from "../dispatch";
 import type { InquireHit, MultiInquireScript, Turn } from "../types";
 
 /**
@@ -13,15 +13,37 @@ import type { InquireHit, MultiInquireScript, Turn } from "../types";
  * the danger styling — a successful "Run" is not a failure and must not look
  * like one.
  */
+/** Chip variant per run-turn status. `skipped` reads as a caution, not a pass. */
+const RUN_STATUS_CLASS: Record<"ok" | "error" | "skipped", string> = {
+  ok: "ok",
+  error: "danger",
+  skipped: "warn",
+};
+
 export function TurnBlock({
   turn,
   host,
   onRun,
+  onRunScript,
+  approved,
 }: {
   turn: Turn;
   host: Host | null;
   onRun: (hit: InquireHit, params: Record<string, unknown>, status: "ok" | "error", message: string) => void;
+  /**
+   * Auto-run the entire script in order. Captures are substituted between
+   * steps; destructive steps are gated against `approved`. Pushes one
+   * run-turn per step through the same `onRun` channel.
+   */
+  onRunScript?: (script: MultiInquireScript) => void;
+  /** Session-scoped allowlist of destructive action refs the user has approved. */
+  approved?: ReadonlySet<string>;
 }) {
+  // Hooks must run unconditionally on every render, so this is declared
+  // before the early returns below even though only the "answer" branch
+  // reads it.
+  const [citesOpen, setCitesOpen] = useState(false);
+
   if (turn.kind === "user") {
     return (
       <div className="col" style={{ gap: 4, alignItems: "flex-end" }}>
@@ -47,7 +69,7 @@ export function TurnBlock({
     return (
       <div className="col" style={{ gap: 4 }}>
         <div
-          className={"chip " + (turn.status === "ok" ? "ok" : "danger")}
+          className={"chip " + RUN_STATUS_CLASS[turn.status]}
           style={{ alignSelf: "flex-start", padding: "6px 10px" }}
         >
           {turn.message}
@@ -78,6 +100,9 @@ export function TurnBlock({
   const docHits = result.hits.filter((h) => h.source === "document");
   const citedResponses = result.responses.filter((r) => r.citations.length > 0);
   const text = result.responses.map((r) => r.text).join("\n\n") || "(no response)";
+  // Default closed — a 4-turn transcript used to stack four "Cited
+  // documents (N)" blocks and bury the answer. The header still shows
+  // the count, so the user can expand whichever turn they're reading.
 
   return (
     <div className="col" style={{ gap: 6 }}>
@@ -112,6 +137,10 @@ export function TurnBlock({
 
         {actionHits.length > 0 && (
           <div className="col" style={{ gap: 4, marginTop: 4 }}>
+            {/* Suggested actions are search results, not a plan - nothing
+                chose them or their parameters - so each is run individually,
+                with parameters the user supplies. Running the list wholesale
+                is what `scripts[]` and "Run plan" are for. */}
             <span className="muted" style={{ fontSize: 11 }}>
               Suggested actions ({actionHits.length})
             </span>
@@ -128,19 +157,35 @@ export function TurnBlock({
 
         {docHits.length > 0 && (
           <div className="col" style={{ gap: 2, marginTop: 4 }}>
-            <span className="muted" style={{ fontSize: 11 }}>
-              Cited documents ({docHits.length})
-            </span>
-            {docHits.slice(0, 5).map((hit, i) => (
-              <span key={i} className="faint" style={{ fontSize: 11 }}>
-                · {hit.path}/{hit.name}
-                {hit.title ? ` — ${hit.title}` : ""}
-              </span>
-            ))}
-            {docHits.length > 5 && (
-              <span className="faint" style={{ fontSize: 11 }}>
-                · …and {docHits.length - 5} more
-              </span>
+            <button
+              onClick={() => setCitesOpen((o) => !o)}
+              className="muted"
+              style={{
+                fontSize: 11,
+                background: "none",
+                border: "none",
+                padding: 0,
+                textAlign: "left",
+                cursor: "pointer",
+                color: "var(--text-muted)",
+              }}
+            >
+              {citesOpen ? "▾" : "▸"} Cited documents ({docHits.length})
+            </button>
+            {citesOpen && (
+              <div className="col" style={{ gap: 2, marginTop: 2 }}>
+                {docHits.slice(0, 5).map((hit, i) => (
+                  <span key={i} className="faint" style={{ fontSize: 11 }}>
+                    · {hit.path}/{hit.name}
+                    {hit.title ? ` — ${hit.title}` : ""}
+                  </span>
+                ))}
+                {docHits.length > 5 && (
+                  <span className="faint" style={{ fontSize: 11 }}>
+                    · …and {docHits.length - 5} more
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -148,10 +193,16 @@ export function TurnBlock({
         {result.scripts.length > 0 && (
           <div className="col" style={{ gap: 4, marginTop: 4 }}>
             <span className="muted" style={{ fontSize: 11 }}>
-              Proposed action plan{result.scripts.length > 1 ? "s" : ""} ({result.scripts.length}) — not run automatically
+              Proposed action plan{result.scripts.length > 1 ? "s" : ""} ({result.scripts.length})
             </span>
             {result.scripts.map((script, i) => (
-              <ScriptRow key={i} script={script} />
+              <ScriptRow
+                key={i}
+                script={script}
+                host={host}
+                onRunScript={onRunScript}
+                approved={approved}
+              />
             ))}
           </div>
         )}
@@ -182,6 +233,7 @@ function ActionHitRow({
 }) {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const destructive = isDestructiveHit(hit);
 
   const run = async () => {
     if (!host) return;
@@ -211,12 +263,29 @@ function ActionHitRow({
           disabled={!host || busy}
           onClick={run}
           style={{ fontSize: 11, padding: "2px 8px" }}
-          title={hit.path + "/" + hit.name}
+          title={
+            destructive
+              ? `${hit.path}/${hit.name} — destructive: solx would stop for a human decision`
+              : hit.path + "/" + hit.name
+          }
         >
           {busy ? "…" : "Run"}
         </button>
         <span style={{ fontSize: 12 }}>{hit.path}/{hit.name}</span>
         <span className="chip" style={{ fontSize: 10 }}>{hit.details?.category ?? "action"}</span>
+        {/* Running one hit by hand is a deliberate act - the user picks it and
+            types its parameters - so it is not gated the way an unattended
+            plan is. But nothing here previously said that a `command` action
+            is shell execution, and that is worth seeing before clicking. */}
+        {destructive && (
+          <span
+            className="chip warn"
+            style={{ fontSize: 10 }}
+            title={`${hit.details?.actionType ?? "this action"} — solx marks this destructive`}
+          >
+            destructive
+          </span>
+        )}
         {typeof hit.score === "number" && (
           <span className="faint" style={{ fontSize: 10 }}>
             score {hit.score.toFixed(2)}
@@ -238,22 +307,52 @@ function ActionHitRow({
 
 /**
  * A `multi_inquire` script, rendered read-only: title, whether it carries
- * anything destructive, and its steps behind a details toggle. Nothing here
- * executes a step — see the roadmap's "Auto-run non-destructive actions"
- * item for what a "Run plan" affordance would need.
+ * anything destructive, and its steps behind a details toggle. The
+ * `onRunScript` callback wires a "Run plan" button that drives
+ * `dispatch.runScript` (with capture substitution) against the host.
  */
-function ScriptRow({ script }: { script: MultiInquireScript }) {
+function ScriptRow({
+  script,
+  host,
+  onRunScript,
+  approved,
+}: {
+  script: MultiInquireScript;
+  host: Host | null;
+  onRunScript?: (script: MultiInquireScript) => void;
+  approved?: ReadonlySet<string>;
+}) {
   const [open, setOpen] = useState(false);
+  const unapproved = approved ? unapprovedDestructiveRefs(script, approved) : script.destructive;
 
   return (
     <div className="col" style={{ gap: 2 }}>
       <div className="row" style={{ gap: 6 }}>
-        <span style={{ fontSize: 12 }}>{script.title}</span>
+        <span style={{ fontSize: 12 }}>{script.title ?? "(untitled plan)"}</span>
         {script.destructive.length > 0 && (
-          <span className="chip warn" style={{ fontSize: 10 }}>destructive</span>
+          <span className="chip warn" style={{ fontSize: 10 }}>
+            destructive{script.destructive.length > 1 ? ` (${script.destructive.length})` : ""}
+          </span>
         )}
         <span className="faint" style={{ fontSize: 10 }}>{script.steps.length} step(s)</span>
+        {onRunScript && (
+          <button
+            disabled={!host}
+            onClick={() => onRunScript(script)}
+            title={unapproved.length > 0
+              ? `Asks first: ${unapproved.length} destructive action(s) not yet approved`
+              : `Run ${script.steps.length} step(s) in order`}
+            style={{ fontSize: 11, padding: "2px 8px", marginLeft: "auto" }}
+          >
+            Run plan{unapproved.length > 0 ? "…" : ""}
+          </button>
+        )}
       </div>
+      {unapproved.length > 0 && (
+        <span className="faint" style={{ fontSize: 10 }}>
+          asks before running: {unapproved.join(", ")}
+        </span>
+      )}
       {open && (
         <pre style={{ fontSize: 11 }}>{JSON.stringify(script.steps, null, 2)}</pre>
       )}
@@ -273,17 +372,25 @@ function ScriptRow({ script }: { script: MultiInquireScript }) {
  * surface a tiny editor and let the user paste in whatever the action
  * expects.
  *
- * Returns `null` if the user cancels.
+ * Returns `null` if the user cancels — including when `window.prompt` is
+ * unavailable (Electrobun, certain iframes, JSDOM). We must not fail open
+ * there: `ActionHitRow.run` treats anything but `null` as user-supplied
+ * params and executes immediately, so a fallback like `{}` would let any
+ * action — destructive ones included — run with zero chance to review or
+ * cancel it.
  */
 function promptForParams(hit: InquireHit): Record<string, unknown> | null {
   const defaultText = JSON.stringify({}, null, 2);
-  // Use a synchronous prompt for the scaffold — replace with an inline
-  // editor if/when a real params form is built.
-  // eslint-disable-next-line no-alert
-  const text = window.prompt(
-    "Parameters for " + hit.path + "/" + hit.name + " (JSON):",
-    defaultText,
-  );
+  let text: string | null;
+  try {
+    // eslint-disable-next-line no-alert
+    text = window.prompt(
+      "Parameters for " + hit.path + "/" + hit.name + " (JSON):",
+      defaultText,
+    );
+  } catch {
+    return null;
+  }
   if (text === null) return null;
   try {
     const parsed = JSON.parse(text);

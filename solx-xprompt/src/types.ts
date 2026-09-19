@@ -21,8 +21,21 @@ export interface InquireHit {
   /** Which inquiry (by index) produced this hit. Only set on a multi_inquire result. */
   inquiry?: number | null;
   details?: {
+    /**
+     * A descriptive grouping ("ops", "llm", "read"). **Not** how the action
+     * runs — that is `actionType`, and conflating the two silently disables
+     * half the destructive test (see `isDestructiveHit`).
+     */
     category?: string;
     capabilities?: string[];
+    /**
+     * How the action executes: `wasm` | `command` | `webhook` | `script` |
+     * `internal`. solx-core treats `command` and `webhook` as unconditionally
+     * destructive — shell and outbound HTTP — whatever their capabilities say.
+     * Copied onto the hit by solx-inquiry's `search::action_details` for
+     * exactly this reason.
+     */
+    actionType?: string;
     phrases?: string[];
     paramTypeRef?: string;
     paramSchema?: Record<string, unknown>;
@@ -135,5 +148,11 @@ export interface XPromptSessionSummary {
 export type Turn =
   | { kind: "user"; text: string; at: string }
   | { kind: "answer"; model: string; result: MultiInquireResult; at: string }
-  | { kind: "run"; status: "ok" | "error"; message: string; at: string }
+  /**
+   * One executed (or refused) action. `skipped` is its own status because a
+   * step skipped *for being destructive* is not a success, and rendering it
+   * as one was actively misleading in a feature whose whole job is to stop
+   * before something irreversible.
+   */
+  | { kind: "run"; status: "ok" | "error" | "skipped"; message: string; at: string }
   | { kind: "error"; message: string; at: string };

@@ -298,13 +298,23 @@ pub fn parse_responses(result: &Value, index: usize) -> Vec<Response> {
 /// against the catalogue. Returns the surviving scripts and any notes from
 /// scripts that did not survive, so a caller is told *why* an inquiry
 /// produced nothing runnable rather than just being handed an empty list.
+///
+/// Accepts three shapes the model might reasonably produce:
+///
+/// * `{"scripts": [{"title": ..., "steps": [...]}, ...]}` — the documented shape
+/// * `[{"title": ..., "steps": [...]}, ...]` — a bare array, what many cloud
+///   models actually emit when the schema's `format` constraint is treated
+///   as advisory. Treated as one implicit-script list (the model's
+///   "run these in order" answer), wrapped to the documented form.
+/// * `[step, step, ...]` — a bare array of *step objects* (each with
+///   `action_ref`/`params`), what a model that skipped the script wrapper
+///   entirely emits. Wrapped into one script whose steps are those steps.
 pub fn parse_scripts(result: &Value, catalogue: &Catalogue) -> (Vec<Script>, Vec<String>) {
     let content = result.pointer("/message/content").and_then(Value::as_str).unwrap_or("").trim();
     let mut scripts = Vec::new();
     let mut notes = Vec::new();
 
-    let Some(items) = parse_object(content).and_then(|v| v.get("scripts").and_then(Value::as_array).cloned())
-    else {
+    let Some(items) = extract_scripts_items(content) else {
         // No structured answer at all. Prose from an action inquiry is not a
         // script and must not be presented as one - it is reported as a note.
         if !content.is_empty() {
@@ -349,6 +359,32 @@ pub fn parse_scripts(result: &Value, catalogue: &Catalogue) -> (Vec<Script>, Vec
     (scripts, notes)
 }
 
+/// Reduce the model's answer string to a list of script-shaped objects
+/// (each with optional `title`, `notes`, and a `steps` array). See
+/// [`parse_scripts`] for the accepted shapes.
+fn extract_scripts_items(content: &str) -> Option<Vec<Value>> {
+    let parsed = parse_object(content)?;
+    let items = match &parsed {
+        Value::Object(_) => parsed.get("scripts").and_then(Value::as_array).cloned()?,
+        // Bare array of script objects: `[{title, steps, ...}, ...]`.
+        Value::Array(items) if items.iter().all(|v| v.is_object() && v.get("steps").is_some()) => {
+            items.clone()
+        }
+        // Bare array of step objects: `[{action_ref, params}, ...]` — wrap
+        // into one implicit script so the rest of the pipeline can treat it
+        // uniformly.
+        Value::Array(items) if items.iter().all(|v| v.get("action_ref").is_some()) => vec![json!({
+            "title": null,
+            "notes": null,
+            "steps": items.clone(),
+        })],
+        // Anything else (array of primitives, mixed shapes) is treated as
+        // "no structured answer".
+        _ => return None,
+    };
+    Some(items)
+}
+
 fn string_array(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -363,15 +399,28 @@ fn string_array(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Parse the model's answer string into a JSON value, accepting both the
+/// bare shape and a markdown fence. Returns `None` if neither form yields
+/// a JSON object OR array — prose without a JSON envelope is not a script.
+///
+/// An array is accepted (not just an object) because the schema constraint
+/// `format` in ollama is advisory: many models emit a bare JSON array of
+/// steps as their "scripts answer", without the `{"scripts": [...]}` wrap.
+/// That output is still parseable as `Value::Array`, and the caller of
+/// `parse_object` (`parse_scripts`) treats an array as a single implicit
+/// script — a model that returns `[step1, step2]` is plainly saying "run
+/// these in order", which is what `scripts[]` would say anyway. Rejecting
+/// that shape here is why action inquiries have been returning 0 scripts
+/// against cloud models.
 fn parse_object(text: &str) -> Option<Value> {
-    if let Ok(v @ Value::Object(_)) = serde_json::from_str(text) {
+    if let Ok(v @ (Value::Object(_) | Value::Array(_))) = serde_json::from_str(text) {
         return Some(v);
     }
     let text = text.strip_prefix("```")?;
     let text = text.strip_prefix("json").unwrap_or(text);
     let (body, _) = text.split_once("```")?;
     match serde_json::from_str(body.trim()) {
-        Ok(v @ Value::Object(_)) => Some(v),
+        Ok(v @ (Value::Object(_) | Value::Array(_))) => Some(v),
         _ => None,
     }
 }
@@ -553,5 +602,60 @@ mod tests {
         let (scripts, notes) = parse_scripts(&result, &Catalogue::default());
         assert!(scripts.is_empty());
         assert_eq!(notes, vec!["nothing installed can transcode video"]);
+    }
+
+    /// A bare JSON array of script objects — what cloud models emit when
+    /// they ignore the `format` constraint's `{scripts: [...]}` wrap and
+    /// produce just the array. Treated as one implicit-script list.
+    #[test]
+    fn a_bare_array_of_script_objects_is_accepted() {
+        let result = content(
+            r#"[{"title":"find","steps":[{"action_ref":"/builtin/document/search-documents","params":{"q":"auth"},"capture":"hits"}]}]"#,
+        );
+        let catalogue = allowing(&["/builtin/document/search-documents"]);
+        let (scripts, notes) = parse_scripts(&result, &catalogue);
+        assert_eq!(scripts.len(), 1, "notes={notes:?}");
+        assert!(notes.is_empty());
+        assert_eq!(scripts[0].title.as_deref(), Some("find"));
+    }
+
+    /// A bare JSON array of step objects (no script wrapper) — what a model
+    /// that skipped the `scripts` layer entirely emits. Wrapped into one
+    /// implicit script.
+    #[test]
+    fn a_bare_array_of_step_objects_is_wrapped_into_one_script() {
+        let result = content(
+            r#"[{"action_ref":"/builtin/document/search-documents","params":{"q":"auth"}},{"action_ref":"/builtin/document/get-field","params":{"path":"/n","name":"a","field":"x"},"capture":"x"}]"#,
+        );
+        let catalogue = allowing(&[
+            "/builtin/document/search-documents",
+            "/builtin/document/get-field",
+        ]);
+        let (scripts, notes) = parse_scripts(&result, &catalogue);
+        assert_eq!(scripts.len(), 1, "notes={notes:?}");
+        assert_eq!(scripts[0].steps.len(), 2);
+        assert_eq!(scripts[0].steps[1].capture.as_deref(), Some("x"));
+    }
+
+    /// A markdown-fenced bare array is also accepted — ollama-style
+    /// ```json\n[...]\n``` envelopes were getting rejected before the fix.
+    #[test]
+    fn a_fenced_bare_array_is_accepted() {
+        let result = content(
+            "```json\n[{\"action_ref\":\"/real/thing\",\"params\":{}}]\n```",
+        );
+        let (scripts, notes) = parse_scripts(&result, &allowing(&["/real/thing"]));
+        assert_eq!(scripts.len(), 1, "notes={notes:?}");
+        assert_eq!(scripts[0].steps[0].action_ref, "/real/thing");
+    }
+
+    /// A bare array of primitives (no objects) is *not* a script — falls
+    /// through to "no structured answer" and the content becomes a note.
+    #[test]
+    fn a_bare_array_of_primitives_is_a_note() {
+        let (scripts, notes) =
+            parse_scripts(&content("[1, 2, 3]"), &Catalogue::default());
+        assert!(scripts.is_empty());
+        assert_eq!(notes, vec!["[1, 2, 3]"]);
     }
 }

@@ -747,11 +747,16 @@ fn milestones_are_printed_with_parseable_tags_and_data() {
     let prints = host.calls_named(CONSOLE_PRINT);
     let messages: Vec<&str> = prints.iter().map(|p| p["message"].as_str().unwrap()).collect();
     for tag in [
+        "[multi_inquire:run]",
         "[multi_inquire:recall]",
         "[multi_inquire:context]",
+        "[multi_inquire:intent:start]",
         "[multi_inquire:intent]",
         "[multi_inquire:inquiry:0:terms]",
         "[multi_inquire:inquiry:0:hits]",
+        "[multi_inquire:inquiry:0:start]",
+        "[multi_inquire:fanout]",
+        "[multi_inquire:inquiry:0:done]",
         "[multi_inquire:inquiry:0:result]",
         "[multi_inquire:result]",
     ] {
@@ -764,6 +769,354 @@ fn milestones_are_printed_with_parseable_tags_and_data() {
     assert_eq!(intent["data"]["inquiries"][0]["question"], json!("what is auth?"));
     let hits = prints.iter().find(|p| p["message"].as_str().unwrap().starts_with("[multi_inquire:inquiry:0:hits]")).unwrap();
     assert_eq!(hits["data"]["refs"], json!(["/notes/auth"]));
+}
+
+// ── progress events ─────────────────────────────────────────────────────────
+//
+// The `data.ev` envelope is what a UI switches on, so these pin the contract
+// rather than the prose: a consumer that regexed the message would be making a
+// wire format out of text that exists to be reworded.
+
+/// Every printed milestone as `(tag, ev)`, in print order. Entries without an
+/// envelope are dropped, so a test that asserts over this is also asserting
+/// they all have one.
+fn events(host: &FakeHost) -> Vec<(String, Value)> {
+    host.calls_named(CONSOLE_PRINT)
+        .into_iter()
+        .filter_map(|p| {
+            let message = p["message"].as_str()?.to_string();
+            let tag = message.split(']').next()?.trim_start_matches('[').to_string();
+            Some((tag, p["data"].get("ev")?.clone()))
+        })
+        .collect()
+}
+
+/// Just the event types, in print order.
+fn event_types(host: &FakeHost) -> Vec<String> {
+    events(host).into_iter().map(|(_, e)| e["t"].as_str().unwrap_or_default().to_string()).collect()
+}
+
+fn events_of(host: &FakeHost, t: &str) -> Vec<Value> {
+    events(host).into_iter().filter(|(_, e)| e["t"] == json!(t)).map(|(_, e)| e).collect()
+}
+
+#[test]
+fn every_milestone_carries_a_versioned_event_envelope() {
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done("inv-intent", THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_start("inv-2");
+    host.push_done("inv-0", r#"{"responses":[{"text":"auth uses tokens"}]}"#);
+    host.push_done("inv-1", r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
+    host.push_done("inv-2", r#"{"scripts":[]}"#);
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let prints = host.calls_named(CONSOLE_PRINT);
+    assert!(!prints.is_empty());
+    for print in &prints {
+        let ev = print["data"].get("ev").unwrap_or_else(|| panic!("no envelope on {print:?}"));
+        assert_eq!(ev["v"], json!(1), "{print:?}");
+        assert!(ev["t"].as_str().is_some_and(|t| !t.is_empty()), "{print:?}");
+    }
+}
+
+#[test]
+fn each_inquiry_reports_started_and_finished() {
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done("inv-intent", THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_start("inv-2");
+    host.push_done("inv-0", r#"{"responses":[{"text":"auth uses tokens"}]}"#);
+    host.push_done("inv-1", r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
+    host.push_done("inv-2", r#"{"scripts":[]}"#);
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let started: Vec<Value> = events_of(&host, "inquiry.started").iter().map(|e| e["i"].clone()).collect();
+    let finished = events_of(&host, "inquiry.finished");
+    assert_eq!(started, vec![json!(0), json!(1), json!(2)]);
+    assert_eq!(finished.len(), 3);
+    for e in &finished {
+        assert_eq!(e["ok"], json!(true), "{e:?}");
+        assert_eq!(e["status"], json!("ok"), "{e:?}");
+    }
+
+    // One event carrying the denominator, so a consumer joining mid-run can
+    // still size the fan-out it is watching.
+    let fanout = events_of(&host, "fanout.started");
+    assert_eq!(fanout.len(), 1);
+    assert_eq!(fanout[0]["n"], json!(3));
+}
+
+#[test]
+fn an_inquiry_started_event_carries_its_question_and_scope() {
+    // Pins `Job.meta`: without it the fan-out has no question to report, and
+    // a progress UI can only show "#1 running" with nothing to hover.
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done("inv-intent", THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_start("inv-2");
+    host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
+    host.push_done("inv-1", r#"{"responses":[{"text":"b"}]}"#);
+    host.push_done("inv-2", r#"{"scripts":[]}"#);
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let started = events_of(&host, "inquiry.started");
+    assert_eq!(started[0]["q"], json!("what is auth?"));
+    assert_eq!(started[0]["kind"], json!("documents"));
+    assert_eq!(started[0]["n"], json!(3));
+    assert_eq!(started[2]["q"], json!("how do I search?"));
+    assert_eq!(started[2]["kind"], json!("actions"));
+
+    // The same two fields ride on `inquiry.planned` as well, so a consumer
+    // that caught only one of the pair still has its hover text.
+    let planned = events_of(&host, "inquiry.planned");
+    assert_eq!(planned[0]["q"], json!("what is auth?"));
+    assert_eq!(planned[0]["kind"], json!("documents"));
+}
+
+#[test]
+fn every_inquiry_reports_started_before_any_reports_finished() {
+    // The console analogue of `every_inquiry_is_started_before_any_of_them_is_polled`,
+    // and what makes "3 inquiries running" an honest thing for a UI to say: if
+    // a start could land after another inquiry's completion, the strip would
+    // only count up to three once the first was already done.
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done("inv-intent", THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_start("inv-2");
+    host.push_done("inv-0", r#"{"responses":[{"text":"a"}]}"#);
+    host.push_done("inv-1", r#"{"responses":[{"text":"b"}]}"#);
+    host.push_done("inv-2", r#"{"scripts":[]}"#);
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let types = event_types(&host);
+    let last_started = types.iter().rposition(|t| t == "inquiry.started").unwrap();
+    let first_finished = types.iter().position(|t| t == "inquiry.finished").unwrap();
+    assert!(last_started < first_finished, "{types:?}");
+    // And the denominator lands before any of them completes, too.
+    let fanout = types.iter().position(|t| t == "fanout.started").unwrap();
+    assert!(fanout < first_finished, "{types:?}");
+}
+
+#[test]
+fn a_failed_inquiry_reports_both_finished_not_ok_and_failed() {
+    // Two events for one failure, deliberately: the lifecycle edge and the
+    // diagnosis answer different questions, and either may be the only one a
+    // consumer receives.
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done(
+        "inv-intent",
+        r#"{"mode":"inquire","inquiries":[
+            {"kind":"documents","question":"a","terms":["a"]},
+            {"kind":"documents","question":"b","terms":["b"]}
+        ]}"#,
+    );
+    host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/n", "name": "a", "typeRef": "x" }])));
+    host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "2", "path": "/n", "name": "b", "typeRef": "x" }])));
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_done("inv-0", r#"{"responses":[{"text":"found a"}]}"#);
+    host.push_failed("inv-1", "model exploded");
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let finished = events_of(&host, "inquiry.finished");
+    let one = finished.iter().find(|e| e["i"] == json!(1)).unwrap();
+    assert_eq!(one["ok"], json!(false));
+    assert_eq!(one["status"], json!("failed"));
+
+    let failed = events_of(&host, "inquiry.failed");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["i"], json!(1));
+    assert_eq!(failed[0]["reason"], json!("llm_error"));
+
+    // Inquiry 0 succeeded and must not be reported as failed at all.
+    assert_eq!(finished.iter().find(|e| e["i"] == json!(0)).unwrap()["ok"], json!(true));
+}
+
+#[test]
+fn a_dispatch_failure_still_terminates_that_inquiry() {
+    // An inquiry whose `action-start` was refused never reaches the model, so
+    // nothing downstream would otherwise close it out - and a progress UI
+    // would leave its row spinning for the rest of the run.
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done(
+        "inv-intent",
+        r#"{"mode":"inquire","inquiries":[
+            {"kind":"documents","question":"a","terms":["a"]},
+            {"kind":"documents","question":"b","terms":["b"]}
+        ]}"#,
+    );
+    host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/n", "name": "a", "typeRef": "x" }])));
+    host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "2", "path": "/n", "name": "b", "typeRef": "x" }])));
+    host.push_start("inv-0");
+    host.push_err(ACTION_START, "no such action /packages/solx-ollama/ollama-chat");
+    host.push_done("inv-0", r#"{"responses":[{"text":"found a"}]}"#);
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let finished = events_of(&host, "inquiry.finished");
+    let one = finished.iter().find(|e| e["i"] == json!(1)).unwrap();
+    assert_eq!(one["ok"], json!(false));
+    assert_eq!(one["status"], json!("dispatch_error"));
+    // It never started, so it must never have reported that it did.
+    assert!(events_of(&host, "inquiry.started").iter().all(|e| e["i"] != json!(1)));
+    // And the `:error` line is printed exactly once, by `multi.rs` when it
+    // zips the results - not doubled by the fan-out.
+    assert_eq!(events_of(&host, "inquiry.failed").iter().filter(|e| e["i"] == json!(1)).count(), 1);
+}
+
+#[test]
+fn the_direct_path_prints_no_inquiry_events() {
+    // The consumer contract for a direct answer is `intent.done {mode, n: 0}`
+    // followed by `run.done` - never inferred from the absence of anything.
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done("inv-intent", r#"{"mode":"direct","response":"Auth uses session tokens."}"#);
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let types = event_types(&host);
+    assert!(!types.iter().any(|t| t.starts_with("inquiry.")), "{types:?}");
+    assert!(!types.iter().any(|t| t.starts_with("fanout.")), "{types:?}");
+
+    let intent = events_of(&host, "intent.done");
+    assert_eq!(intent.len(), 1);
+    assert_eq!(intent[0]["mode"], json!("direct"));
+    assert_eq!(intent[0]["n"], json!(0));
+    assert_eq!(events_of(&host, "run.done").len(), 1);
+}
+
+#[test]
+fn a_cancelled_fanout_prints_run_cancelled() {
+    // Otherwise this path is console-silent and a UI cannot tell a cancelled
+    // run from a stalled one - the spinner simply never stops.
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_ok(ACTION_CANCELLED, json!({ "cancelled": false }));
+    host.push_done("inv-intent", THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_start("inv-0");
+    host.push_start("inv-1");
+    host.push_start("inv-2");
+    host.push_ok(ACTION_CANCELLED, json!({ "cancelled": true }));
+    host.push_ok(ACTION_STOP, json!({ "status": "cancelling" }));
+    host.push_ok(ACTION_STOP, json!({ "status": "cancelling" }));
+    host.push_ok(ACTION_STOP, json!({ "status": "cancelling" }));
+
+    let out = run(&host, base_params());
+    assert!(!out.success);
+
+    let cancelled = events_of(&host, "run.cancelled");
+    assert_eq!(cancelled.len(), 1);
+    assert_eq!(cancelled[0]["stopped"], json!(3));
+}
+
+#[test]
+fn the_sequential_fallback_still_reports_per_inquiry_progress() {
+    // A degraded run is the one that most needs narrating: it takes the sum of
+    // three model calls rather than the longest of them, and without these
+    // events the strip would sit frozen for all of it.
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_err(ACTION_START, "action-start requires a long-lived host (solx-server or solx-mcp).");
+    host.push_blocking(THREE_INQUIRIES);
+    push_three_inquiry_searches(&host);
+    host.push_err(ACTION_START, "action-start requires a long-lived host (solx-server or solx-mcp).");
+    host.push_blocking(r#"{"responses":[{"text":"auth uses tokens"}]}"#);
+    host.push_blocking(r#"{"responses":[{"text":"sessions expire hourly"}]}"#);
+    host.push_blocking(r#"{"scripts":[]}"#);
+
+    let out = run(&host, base_params());
+    assert!(out.success, "{:?}", out.message);
+
+    let degraded = events_of(&host, "fanout.degraded");
+    assert_eq!(degraded.len(), 1);
+    assert_eq!(degraded[0]["reason"], json!("host_cannot_detach"));
+    assert_eq!(degraded[0]["n"], json!(3));
+
+    assert_eq!(events_of(&host, "inquiry.started").len(), 3);
+    assert_eq!(events_of(&host, "inquiry.finished").len(), 3);
+    // Sequential, so unlike the parallel path each one finishes before the
+    // next begins - which is exactly what the strip should show.
+    let types = event_types(&host);
+    let first_finished = types.iter().position(|t| t == "inquiry.finished").unwrap();
+    let last_started = types.iter().rposition(|t| t == "inquiry.started").unwrap();
+    assert!(first_finished < last_started, "{types:?}");
+}
+
+#[test]
+fn a_failed_intent_call_prints_intent_failed() {
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_failed("inv-intent", "model exploded");
+
+    let out = run(&host, base_params());
+    assert!(!out.success);
+
+    // Started, then failed - so a consumer that saw the run go quiet knows
+    // which phase it went quiet in.
+    let types = event_types(&host);
+    assert!(types.contains(&"intent.started".to_string()), "{types:?}");
+    let failed = events_of(&host, "intent.failed");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["reason"], json!("llm_error"));
+    assert!(events_of(&host, "intent.done").is_empty());
+}
+
+#[test]
+fn every_inquiry_failing_prints_run_failed() {
+    let host = FakeHost::new();
+    push_empty_context(&host);
+    host.push_start("inv-intent");
+    host.push_done(
+        "inv-intent",
+        r#"{"mode":"inquire","inquiries":[{"kind":"documents","question":"a","terms":["a"]}]}"#,
+    );
+    host.push_ok(DOCUMENT_SEARCH_REF, doc_hits(json!([{ "id": "1", "path": "/n", "name": "a", "typeRef": "x" }])));
+    host.push_start("inv-0");
+    host.push_failed("inv-0", "model exploded");
+
+    let out = run(&host, base_params());
+    assert!(!out.success);
+
+    let failed = events_of(&host, "run.failed");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["reason"], json!("all_inquiries_failed"));
 }
 
 #[test]

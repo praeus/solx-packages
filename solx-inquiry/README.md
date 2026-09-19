@@ -7,9 +7,9 @@ prose, memories and runnable action plans. One `wasm32-wasip2` component
 | action | in | out |
 |---|---|---|
 | [`inquire`](#inquire) | a question | one grounded prose answer |
-| [`multi_inquire`](#multi_inquire) | an instruction | responses, save-ready memories, and runnable action plans |
+| [`multi-inquire`](#multi_inquire) | an instruction | responses, save-ready memories, and runnable action plans |
 
-`multi_inquire` is not a wrapper around `inquire`. It reuses this package's
+`multi-inquire` is not a wrapper around `inquire`. It reuses this package's
 search, merge and enrichment code directly rather than calling `inquire` as
 an action, which is why it lives here.
 
@@ -324,9 +324,9 @@ ceilings. `options.num_ctx` is the complementary half: the backstop bounds
 what this pipeline *puts* in the prompt, but only a large enough `num_ctx`
 determines what the model actually *keeps* of it.
 
-## multi_inquire
+## multi-inquire
 
-`multi_inquire` takes an instruction rather than a question, and answers with
+`multi-inquire` takes an instruction rather than a question, and answers with
 four things a caller can act on: **responses** (prose), **memories**
 (responses the model judged worth keeping, returned ready to save),
 **scripts** (validated, ordered action steps, as JSON, ready to execute), and
@@ -351,7 +351,7 @@ That is **1 + N** model calls, four at the cap.
 ### Usage
 
 ```bash
-solx exec /packages/solx-inquiry/multi_inquire --json '{
+solx exec /packages/solx-inquiry/multi-inquire --json '{
   "instruction": "what do I know about authentication, and how would I search for it?",
   "model": "qwen3:4b",
   "session": "/solx-inquiry/sessions/my-thread",
@@ -671,10 +671,14 @@ context document is not).
 Each is fetched with one `entity-get-document` call, once, up front —
 before the intent call, alongside recall — capped at 10 documents. A document's
 text is read the same way a memory's is (`contents.text`, so a document minted
-by an earlier `multi_inquire` run reads back cleanly), falling back to `summary`
-and then to the document's raw `contents` for one written by hand or another
-tool, so a context document reads as whatever it actually holds rather than
-nothing at all. The assembled block is capped like the memory and skill blocks
+by an earlier `multi_inquire` run reads back cleanly), falling back to the
+document's raw `contents` for one written by hand or another tool, and only
+then — when `contents` holds nothing at all — to `summary`. That order matters:
+a summary is a precis, and a caller who named a document here asked for the
+document, so letting the summary win wherever `contents.text` happened to be
+absent silently substituted a one-line description for the real content. A
+session document is the case that exposed it — its `contents` are the turns and
+its `summary` is one response from the last of them. The assembled block is capped like the memory and skill blocks
 are, dropping whichever named document would push it over budget.
 
 A reference that is not a valid `/path/name` shape, or that fails to load, is
@@ -737,29 +741,88 @@ A session document that does not exist yet is an empty session, not an error.
 Every milestone is printed to the action's own console with both a tagged
 message and a machine-readable `data` object, so a run can be reconstructed
 from `/builtin/console/read` without re-running it. The grammar is
-`[multi_inquire:<phase>]` or `[multi_inquire:inquiry:<index>:<step>]`, and it
-is defined in [`src/console.rs`](src/console.rs) and nowhere else.
+`[multi_inquire:<phase>]`, `[multi_inquire:<phase>:<step>]` or
+`[multi_inquire:inquiry:<index>:<step>]`, and it is defined in
+[`src/console.rs`](src/console.rs) and nowhere else. One tag means one kind of
+print: a phase that reports more than once (`intent` reports both its start and
+its decision) uses a step rather than printing twice under the bare phase tag.
 
 There is no `solx console` subcommand; the console is read through the
-built-in action:
+built-in action. Note the action ref is hyphenated — `multi-inquire`, as
+[`install.solx`](install.solx) registers it — even though the tag root is not:
 
 ```bash
-solx exec /builtin/console/read --json '{"action_ref":"/packages/solx-inquiry/multi_inquire","limit":50}'
+solx exec /builtin/console/read --json '{"action_ref":"/packages/solx-inquiry/multi-inquire","limit":50}'
 ```
 
 | tag | `data` |
 |---|---|
+| `[multi_inquire:run]` | the instruction, `{n: max_inquiries, model}` in `ev` |
 | `[multi_inquire:recall]` | `{skills: [refs], memories: [refs]}` |
 | `[multi_inquire:context]` | `{context: [refs], notes: [why a named reference did not load]}` |
+| `[multi_inquire:intent:start]` | — (the model call is about to be made) |
 | `[multi_inquire:intent]` | the parsed intent object |
+| `[multi_inquire:intent:error]` | — (`ev.reason` carries the kind) |
 | `[multi_inquire:inquiry:<i>:terms]` | `{kind, question, terms}` |
 | `[multi_inquire:inquiry:<i>:hits]` | `{count, refs}` |
+| `[multi_inquire:inquiry:<i>:start]` | — (`ev` carries `{i, n, kind, q}`) |
+| `[multi_inquire:fanout]` | — (`ev` carries `{n, mode}`) |
+| `[multi_inquire:fanout:degraded]` | — (`ev.reason` says why it went sequential) |
+| `[multi_inquire:inquiry:<i>:done]` | — (`ev` carries `{i, status, ok}`) |
 | `[multi_inquire:inquiry:<i>:result]` | `{responses}` or `{scripts, notes}` |
 | `[multi_inquire:inquiry:<i>:error]` | the failure's own error object |
+| `[multi_inquire:run:cancelled]` | — (`ev.stopped` counts what was still running) |
+| `[multi_inquire:run:error]` | — (`ev.reason` is `all_inquiries_failed`) |
 | `[multi_inquire:result]` | `{responses, memories, scripts, errors}` |
 
 Echoed child lines keep the `[multi_inquire:inquiry:<i>]` prefix, so live model
 output is attributable to the inquiry that produced it.
+
+### Progress events
+
+Every one of those prints also carries a versioned envelope under the reserved
+`data.ev` key. The tag grammar is the human affordance; the envelope is the
+wire format, so a UI rendering progress switches on `ev.t` and never has to
+regex prose that exists to be reworded.
+
+```jsonc
+{
+  "ev": { "v": 1, "t": "inquiry.started", "i": 0, "n": 3,
+          "kind": "documents", "q": "what is auth?" },
+  "count": 7, "refs": ["/notes/auth"]        // the domain payload, untouched
+}
+```
+
+It sits *beside* the existing `data` rather than replacing it, so nothing that
+reads either half breaks — and `message` keeps its exact shape, which is what
+the CLI's stderr echo, solx-mcp's progress notifications and solx-web's console
+pane all render.
+
+Event types: `run.started`, `recall.done`, `context.done`, `intent.started`,
+`intent.done`, `intent.failed`, `inquiry.planned`, `inquiry.searched`,
+`fanout.started`, `fanout.degraded`, `inquiry.started`, `inquiry.finished`,
+`inquiry.failed`, `inquiry.result`, `run.cancelled`, `run.failed`, `run.done`.
+
+Two rules bind consumers:
+
+* **Unknown is ignorable.** A new `t`, or a new optional field on an existing
+  one, keeps `v: 1`; a consumer ignores what it does not know and drops `v > 1`
+  rather than guessing. Only `intent.done.mode` and an inquiry event's `i` are
+  ever required.
+* **Any single event can be lost.** Printing is best-effort (a console hiccup
+  must never fail a run that is otherwise producing correct results), and a
+  busy shared console can evict a run's early entries before anyone tails it.
+  So nothing may require that event A arrived before event B is understood.
+  `solx-xprompt`'s reducer is the worked example: it creates an inquiry on
+  first sight whatever phase that is, never moves one backwards, and only ever
+  grows its expected count.
+
+`inquiry.started` and `inquiry.finished` come from the fan-out itself, and have
+to: [`fanout::run`](src/fanout.rs) returns only once *every* job is terminal,
+so nothing upstream can observe an individual start or completion at the moment
+it happens. That window — between the last `:hits` print and the first
+`:result` — is the longest silent stretch of a researched run, and the one a
+progress UI most needs narrated.
 
 ### Why there is no result phase
 
@@ -948,7 +1011,7 @@ src/inquiry.rs         one inquiry's search, its payload, and parsing what comes
 src/fanout.rs          run N chat calls at once: start all, then poll/drain/cancel as one
 src/script.rs          validate structured steps against the catalogue, dropping unsurfaced actions
 src/session.rs         read the session for history, assemble the updated document for the caller to save
-src/console.rs         the [multi_inquire:...] console tag vocabulary
+src/console.rs         the [multi_inquire:...] tag vocabulary and the data.ev progress envelope
 
 tests/dispatch.rs      the inquire pipeline, against a FakeHost
 tests/multi.rs         the multi_inquire pipeline, against a FakeHost that scripts concurrent children

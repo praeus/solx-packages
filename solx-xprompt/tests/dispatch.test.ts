@@ -55,6 +55,47 @@ describe("dispatch", () => {
     expect(r.contents?.calls?.[0]).toMatchObject({ actionRef: MULTI_INQUIRE_REF, name: "multi-inquire" });
   });
 
+  it("forwards force_kind to multi_inquire when the caller asks for it", async () => {
+    const { client, respondTo, startCalls } = createFakeClient();
+    const host = hostFromClient(client);
+    respondTo(MULTI_INQUIRE_REF, { result: { responses: [] } });
+
+    await dispatch(
+      client,
+      host,
+      "session-force",
+      "do the wikipedia thing",
+      "m",
+      "/xprompt/sessions/sf",
+      { forceKind: "actions" },
+    );
+
+    // `startCalls` records what the widget handed `invocations.start`,
+    // which is the same `compact()`ed object that `multi_inquire` parses.
+    const last = startCalls[startCalls.length - 1];
+    expect(last.actionRef).toBe(MULTI_INQUIRE_REF);
+    expect((last.params as { force_kind?: unknown }).force_kind).toBe("actions");
+  });
+
+  it("omits force_kind entirely when set to auto", async () => {
+    const { client, respondTo, startCalls } = createFakeClient();
+    const host = hostFromClient(client);
+    respondTo(MULTI_INQUIRE_REF, { result: { responses: [] } });
+
+    await dispatch(
+      client,
+      host,
+      "session-auto",
+      "hi",
+      "m",
+      "/xprompt/sessions/sa",
+      { forceKind: undefined },
+    );
+
+    const last = startCalls[startCalls.length - 1];
+    expect("force_kind" in ((last.params ?? {}) as Record<string, unknown>)).toBe(false);
+  });
+
   it("surfaces an inquire-mode result with hits and scripts intact", async () => {
     const { client, respondTo } = createFakeClient();
     const host = hostFromClient(client);
@@ -118,5 +159,46 @@ describe("isRunnableActionHit", () => {
         details: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("waiting for a turn's result", () => {
+  const start = async (outcome: { result?: unknown; error?: string; status?: string }) => {
+    const { client, respondTo } = createFakeClient();
+    const host = hostFromClient(client);
+    respondTo(MULTI_INQUIRE_REF, outcome);
+    const handle = await dispatch(client, host, "session-1", "hi", "m", "/xprompt/sessions/s1");
+    return handle.result;
+  };
+
+  it("rejects a terminal status that is not ok, even with no error message", async () => {
+    // The store writes `error` as "" when there was none and the read-back
+    // turns "" into absent, so cancelled/timeout/interrupted can arrive with
+    // nothing to report. A guard that only checked `error` let those through
+    // and returned `result` — null — as if it were an answer.
+    for (const status of ["cancelled", "timeout", "interrupted"]) {
+      await expect(start({ status, result: null })).rejects.toThrow(status);
+    }
+  });
+
+  it("prefers the reported error when there is one", async () => {
+    await expect(start({ error: "model exploded" })).rejects.toThrow("model exploded");
+  });
+
+  it("rejects an ok turn that returned nothing usable", async () => {
+    // Rendering this as an empty answer would read as "the model had nothing
+    // to say", which is a different and untrue statement.
+    await expect(start({ result: null })).rejects.toThrow("no usable result");
+    await expect(start({ result: "not an object" })).rejects.toThrow("no usable result");
+  });
+
+  it("normalises a partial result rather than handing it on raw", async () => {
+    // A turn from an older build is missing whole fields; the components that
+    // render it dereference them without guards.
+    const result = await start({ result: { instruction: "x" } });
+    expect(result.intent.mode).toBe("direct");
+    expect(result.responses).toEqual([]);
+    expect(result.hits).toEqual([]);
+    expect(result.scripts).toEqual([]);
   });
 });

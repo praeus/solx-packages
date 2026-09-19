@@ -5,7 +5,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { hostFromClient } from "../../solx-widgets/src/wrap/host";
-import { listSessions, loadSessionTranscript, randomSessionName, saveSessionDocument } from "../src/session";
+import {
+  deleteSession,
+  listSessions,
+  loadSessionTranscript,
+  randomSessionName,
+  saveSessionDocument,
+} from "../src/session";
 import type { XPromptSessionDocument } from "../src/types";
 import { createFakeClient } from "./fakeClient";
 
@@ -115,7 +121,7 @@ describe("listSessions", () => {
   it("lists nothing before any session is saved", async () => {
     const { client } = createFakeClient();
     const host = hostFromClient(client);
-    expect(await listSessions(host)).toEqual([]);
+    expect(await listSessions(host)).toEqual({ sessions: [], total: 0 });
   });
 
   it("lists saved sessions, most recently updated first", async () => {
@@ -124,8 +130,9 @@ describe("listSessions", () => {
     await saveSessionDocument(host, sessionDoc("older", []));
     await saveSessionDocument(host, sessionDoc("newer", []));
 
-    const sessions = await listSessions(host);
+    const { sessions, total } = await listSessions(host);
     expect(sessions.map((s) => s.name)).toEqual(["newer", "older"]);
+    expect(total).toBe(2);
   });
 
   it("does not pick up documents outside the sessions path", async () => {
@@ -138,7 +145,87 @@ describe("listSessions", () => {
       contents: { calls: [] },
     });
 
-    const sessions = await listSessions(host);
+    const { sessions } = await listSessions(host);
     expect(sessions.map((s) => s.name)).toEqual(["real-session"]);
+  });
+});
+
+describe("deleteSession", () => {
+  const callLog = (name: string) => ({
+    path: "/xprompt/call-logs",
+    name,
+    contents: { calls: [] },
+  });
+
+  it("removes both the session document and its call log", async () => {
+    const { client, docKeys } = createFakeClient();
+    const host = hostFromClient(client);
+    await saveSessionDocument(host, sessionDoc("doomed", []));
+    await host.call("/builtin/document/entity-save-document", callLog("doomed"));
+
+    await deleteSession(host, "doomed");
+
+    expect(docKeys()).toEqual([]);
+  });
+
+  it("leaves other sessions alone", async () => {
+    const { client } = createFakeClient();
+    const host = hostFromClient(client);
+    await saveSessionDocument(host, sessionDoc("keep", []));
+    await saveSessionDocument(host, sessionDoc("doomed", []));
+
+    await deleteSession(host, "doomed");
+
+    const { sessions } = await listSessions(host);
+    expect(sessions.map((s) => s.name)).toEqual(["keep"]);
+  });
+
+  it("succeeds for a session that never had a call log", async () => {
+    // The normal case: a session is saved after its first turn, but the call
+    // log only exists once something was tracked under it.
+    const { client, docKeys } = createFakeClient();
+    const host = hostFromClient(client);
+    await saveSessionDocument(host, sessionDoc("no-log", []));
+
+    await expect(deleteSession(host, "no-log")).resolves.toBeUndefined();
+    expect(docKeys()).toEqual([]);
+  });
+
+  it("throws when the session document itself cannot be deleted", async () => {
+    const { client } = createFakeClient();
+    const host = hostFromClient(client);
+    await expect(deleteSession(host, "never-existed")).rejects.toThrow();
+  });
+
+  it("deletes the call log before the session document", async () => {
+    // Order is the contract: a failure partway must leave the session still
+    // listed and the operation retryable, never a call log stranded behind a
+    // session that has vanished from the picker.
+    const { client } = createFakeClient();
+    const host = hostFromClient(client);
+    await saveSessionDocument(host, sessionDoc("ordered", []));
+    await host.call("/builtin/document/entity-save-document", callLog("ordered"));
+
+    const seen: string[] = [];
+    const original = client.actions.exec.bind(client.actions);
+    client.actions.exec = async (path, name, params) => {
+      if (name === "entity-delete-document") {
+        seen.push(String((params as Record<string, unknown>).path));
+      }
+      return original(path, name, params);
+    };
+
+    await deleteSession(host, "ordered");
+    expect(seen).toEqual(["/xprompt/call-logs", "/xprompt/sessions"]);
+  });
+
+  it("does nothing for an empty name", async () => {
+    const { client, docKeys } = createFakeClient();
+    const host = hostFromClient(client);
+    await saveSessionDocument(host, sessionDoc("safe", []));
+
+    await deleteSession(host, "");
+
+    expect(docKeys()).toHaveLength(1);
   });
 });

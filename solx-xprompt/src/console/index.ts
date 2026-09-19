@@ -15,5 +15,6 @@
  */
 export { loadCallLog, appendCall, startTrackedCall } from "./callLog";
 export { readMergedConsole } from "./merge";
+export { useConsoleFeed } from "./useConsoleFeed";
 export { CALL_LOG_PATH, CALL_LOG_TYPE } from "./refs";
 export type { CallLog, CallRecord, MergedEntry, MergeCursors } from "./types";

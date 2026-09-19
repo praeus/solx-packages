@@ -66,6 +66,7 @@ PACKAGES=(
   solx-omniparse
   solx-agent
   solx-xprompt
+  solx-prompt
 )
 
 fail_count=0

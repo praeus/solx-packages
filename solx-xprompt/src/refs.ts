@@ -23,6 +23,7 @@ export const XPROMPT_SESSION_PATH = "/xprompt/sessions";
 export const SAVE_DOC = "/builtin/document/entity-save-document";
 export const GET_DOC = "/builtin/document/entity-get-document";
 export const LIST_DOCS = "/builtin/document/entity-list-documents";
+export const DELETE_DOC = "/builtin/document/entity-delete-document";
 
 export const SEARCH_ACTIONS = "/builtin/action/search-actions";
 export const SEARCH_DOCS = "/builtin/document/search-documents";

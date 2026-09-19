@@ -48,9 +48,15 @@ export interface WidgetConsoleTail {
   next_cursor: number | null;
 }
 
-/** `true` once a status can never change again. Mirrors `invocations::is_terminal`. */
-export function isTerminalStatus(status: string): boolean {
-  return status !== "running" && status !== "cancelling";
+/** `true` once a status can never change again. Mirrors `invocations::is_terminal`.
+ *
+ * Treats missing/non-string `status` as non-terminal, not as "done". A fresh
+ * `invocations.start` response from solx-server carries `invocation_id`,
+ * `action_ref`, and `console_seq_start` but no `status` field — without this
+ * guard, `waitForResult` would short-circuit before polling once and return
+ * `result: undefined` to a caller that expected a real answer. */
+export function isTerminalStatus(status: unknown): boolean {
+  return status === "ok" || status === "failed" || status === "cancelled" || status === "timeout" || status === "interrupted";
 }
 
 export interface WidgetClient {

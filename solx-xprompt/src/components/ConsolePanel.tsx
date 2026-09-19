@@ -1,69 +1,28 @@
-import { useEffect, useRef, useState } from "react";
-import type { WidgetClient } from "../../../solx-widgets/src/shared/widgetClient";
-import type { Host } from "../../../solx-widgets/src/wrap/host";
-import { loadCallLog, readMergedConsole } from "../console";
-import type { MergedEntry, MergeCursors } from "../console";
+import type { MergedEntry } from "../console";
 
 /**
- * The merged console for this widget session's tracked calls — currently
- * one tracked call per turn, its `multi_inquire` invocation (see
- * `dispatch.ts`) — as one time-ordered feed. Reload-safe because the call
- * log itself is a saved document (see `src/console/`).
+ * The merged console for this widget session's tracked calls — currently one
+ * tracked call per turn, its `multi_inquire` invocation (see `dispatch.ts`) —
+ * as one time-ordered feed. Reload-safe because the call log itself is a saved
+ * document (see `src/console/`).
  *
- * Long-polls `readMergedConsole` while this panel is mounted (i.e. while the
- * Console tab is open) and reloads the call log on every cycle so a turn
- * started after this panel mounted is picked up, not just the ones tracked
- * before it.
+ * Purely presentational: the tail loop lives in `useConsoleFeed`, owned by
+ * `XPromptWidget`, so the feed keeps running while this panel is closed and
+ * the same entries can drive the progress strip on the Chat tab.
+ *
+ * Note what does *not* appear here. `multi_inquire` drains each child model
+ * call's console into its own, but `console-copy` stamps copied rows with the
+ * source invocation id, and the client-side merge filters on the
+ * `multi_inquire` invocation — so the streamed tokens are dropped and what
+ * shows is the milestone prints. See `console/merge.ts`.
  */
 export function ConsolePanel({
-  host,
-  client,
-  logId,
+  entries,
+  error,
 }: {
-  host: Host;
-  client: WidgetClient;
-  logId: string;
+  entries: MergedEntry[];
+  error: string | null;
 }) {
-  const [entries, setEntries] = useState<MergedEntry[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const cursorsRef = useRef<MergeCursors>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    setEntries([]);
-    setError(null);
-    cursorsRef.current = {};
-
-    void (async () => {
-      while (!cancelled) {
-        try {
-          const log = await loadCallLog(host, logId);
-          if (log.calls.length === 0) {
-            await sleep(1500);
-            continue;
-          }
-          const { entries: batch, cursors } = await readMergedConsole(client, log, cursorsRef.current, {
-            limit: 200,
-            waitSecs: 25,
-          });
-          if (cancelled) return;
-          cursorsRef.current = cursors;
-          if (batch.length > 0) {
-            setEntries((prev) => [...prev, ...batch].slice(-500));
-          }
-        } catch (err) {
-          if (cancelled) return;
-          setError(err instanceof Error ? err.message : String(err));
-          await sleep(3000);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [host, client, logId]);
-
   return (
     <div className="col" style={{ gap: 6, flex: 1, minHeight: 120, overflow: "hidden" }}>
       {error && (
@@ -105,10 +64,6 @@ export function ConsolePanel({
       </div>
     </div>
   );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function formatTime(iso: string): string {

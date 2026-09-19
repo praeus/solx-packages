@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "TODO: one-line description of what the xprompt widget does.",
+  "description": "XPrompt (ExecPrompt) widget: turn a natural-language prompt into either a chat reply or a research answer (solx-inquiry + solx-ollama), with action hits runnable inline.",
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit",

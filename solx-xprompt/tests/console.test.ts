@@ -110,4 +110,39 @@ describe("merged console", () => {
     const second = await readMergedConsole(client, log, first.cursors);
     expect(second.entries.map((e) => e.message)).toEqual(["second"]);
   });
+
+  it("orders entries sharing a timestamp by seq", async () => {
+    // `ts` is a server-side `Utc::now()`, and a burst of milestones emitted
+    // back to back with no I/O between them genuinely shares one - three
+    // `inquiry.started` events, say. Emission order is what the progress fold
+    // depends on, and within one console that is `seq`.
+    const { client, pushEntry } = createFakeClient();
+    const host = hostFromClient(client);
+
+    const call = await startTrackedCall(client, host, "session-1", "/packages/solx-inquiry", "multi-inquire", {});
+    const ts = "2026-01-01T00:00:00.000Z";
+    for (const message of ["first", "second", "third"]) {
+      pushEntry(call.action_ref, call.invocation_id, message, { ts });
+    }
+
+    const log = await loadCallLog(host, "session-1");
+    const { entries } = await readMergedConsole(client, log);
+    expect(entries.map((e) => e.message)).toEqual(["first", "second", "third"]);
+  });
+
+  it("carries the structured data half through the merge", async () => {
+    // The machine-readable half is the whole point of the progress feed; a
+    // merge that dropped it would leave the strip with nothing to read.
+    const { client, pushEntry } = createFakeClient();
+    const host = hostFromClient(client);
+
+    const call = await startTrackedCall(client, host, "session-1", "/packages/solx-inquiry", "multi-inquire", {});
+    pushEntry(call.action_ref, call.invocation_id, "[multi_inquire:fanout] 3 inquiries running", {
+      data: { ev: { v: 1, t: "fanout.started", n: 3 } },
+    });
+
+    const log = await loadCallLog(host, "session-1");
+    const { entries } = await readMergedConsole(client, log);
+    expect(entries[0].data).toEqual({ ev: { v: 1, t: "fanout.started", n: 3 } });
+  });
 });

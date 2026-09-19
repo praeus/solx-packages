@@ -1,0 +1,31 @@
+# Removes the action rows, document types and artifacts install.solx installed.
+#
+# Deliberately does NOT remove anything under /solx-prompt/sessions,
+# /solx-prompt/call-logs, or whatever memory_path a caller supplied. Those are
+# the user's own records, written over many runs, and removing a package should
+# not delete what it was used to produce.
+#
+# Every delete carries --if-exists, because a script aborts on the first failing
+# statement and a partial install must still be removable.
+#
+# The action and type names here must match install.solx EXACTLY. solx-inquiry
+# registers /packages/solx-inquiry/multi-inquire but deletes multi_inquire, so
+# its uninstall silently leaves the action row behind and its verify.solx could
+# never have passed. Changing a name is a three-file edit: install, uninstall,
+# verify.
+
+delete doc /solx-prompt/skills/optional-params --if-exists;
+
+delete action /packages/solx-prompt/prompt-widget --if-exists;
+delete action /packages/solx-prompt/prompt --if-exists;
+
+delete type /packages/solx-prompt/PromptCallLog --if-exists;
+delete type /packages/solx-prompt/PromptSkill --if-exists;
+delete type /packages/solx-prompt/PromptMemory --if-exists;
+delete type /packages/solx-prompt/PromptSession --if-exists;
+delete type /packages/solx-prompt/PromptResult --if-exists;
+delete type /packages/solx-prompt/PromptParams --if-exists;
+
+delete file widgets/solx-prompt.js --if-exists;
+delete file files/actions/shared/solx-prompt-widget-descriptor.solx --if-exists;
+delete file files/actions/shared/solx-prompt.wasm --if-exists;

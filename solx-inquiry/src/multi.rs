@@ -45,8 +45,22 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         Err(outcome) => return outcome,
     };
 
+    // t0, and the run's declared shape. Also what lets a consumer folding
+    // this console into progress state know that a *new* run has begun and
+    // whatever it was showing belongs to the last one.
+    console::print_ev(
+        host,
+        &console::phase_tag(console::PHASE_RUN),
+        &format!("instruction: {}", truncate(&p.instruction, console::Q_CAP)),
+        console::ev(
+            console::EV_RUN_STARTED,
+            json!({ "n": p.max_inquiries, "model": p.model }),
+        ),
+        Value::Null,
+    );
+
     let recalled = recall::recall(host, &p);
-    console::print(
+    console::print_ev(
         host,
         &console::phase_tag(console::PHASE_RECALL),
         &format!(
@@ -54,15 +68,20 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
             recalled.skills.len(),
             recalled.memories.len()
         ),
+        console::ev(
+            console::EV_RECALL_DONE,
+            json!({ "skills": recalled.skills.len(), "memories": recalled.memories.len() }),
+        ),
         recalled.to_json(),
     );
 
     let (context_docs, mut notes) = context::fetch(host, &p);
     let context_block = context::context_block(&context_docs);
-    console::print(
+    console::print_ev(
         host,
         &console::phase_tag(console::PHASE_CONTEXT),
         &format!("loaded {} context document(s)", context_docs.len()),
+        console::ev(console::EV_CONTEXT_DONE, json!({ "docs": context_docs.len() })),
         json!({
             "context": context_docs.iter().map(|d| Value::String(d.reference.clone())).collect::<Vec<_>>(),
             "notes": notes,
@@ -71,19 +90,98 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
 
     let stored = session::load(host, &p);
 
-    let intent = match intent::decide(host, &p, &recalled, &stored, context_block.as_deref()) {
-        Ok(i) => i,
-        Err(outcome) => return outcome,
-    };
-    console::print(
+    // One full model round trip follows, and until this event existed nothing
+    // marked its beginning - so the console went silent for the length of an
+    // llm call, which on a direct-mode turn is the *entire* run.
+    console::print_ev(
         host,
-        &console::phase_tag(console::PHASE_INTENT),
-        match intent.mode {
-            Mode::Direct => "answering directly",
-            Mode::Inquire => "inquiries proposed",
-        },
-        intent.to_json(),
+        &console::phase_step_tag(console::PHASE_INTENT, console::STEP_START),
+        "deciding what this needs",
+        console::ev(console::EV_INTENT_STARTED, json!({ "model": p.model })),
+        Value::Null,
     );
+
+    // `force_kind` is a caller-set override that skips the intent call
+    // entirely: synthesise the intent the caller asked for and let the rest
+    // of the pipeline run as if the model had picked it. The intent_prompt /
+    // action_prompt / document_prompt overrides still apply to the inquiry
+    // call that follows.
+    let forced_intent = p.force_kind.as_ref().map(|kind| {
+        let terms = crate::terms::fallback_terms(&p.instruction, p.max_terms);
+        intent::Intent {
+            mode: intent::Mode::Inquire,
+            response: None,
+            memory: false,
+            inquiries: vec![intent::Inquiry {
+                kind: kind.clone(),
+                question: p.instruction.clone(),
+                terms,
+                amendment: None,
+            }],
+            next_prompt: None,
+        }
+    });
+
+    let intent = match forced_intent {
+        Some(i) => {
+            console::print_ev(
+                host,
+                &console::phase_tag(console::PHASE_INTENT),
+                &format!(
+                    "force_kind={} (skipping intent call)",
+                    i.inquiries.first().map(|q| q.kind.as_str()).unwrap_or("?")
+                ),
+                console::ev(
+                    console::EV_INTENT_DONE,
+                    json!({
+                        "mode": "inquire",
+                        "n": i.inquiries.len(),
+                        "forced": true,
+                    }),
+                ),
+                i.to_json(),
+            );
+            i
+        }
+        None => match intent::decide(host, &p, &recalled, &stored, context_block.as_deref()) {
+            Ok(i) => i,
+            Err(outcome) => {
+                console::warn_ev(
+                    host,
+                    &console::phase_step_tag(console::PHASE_INTENT, console::STEP_ERROR),
+                    outcome.message.as_deref().unwrap_or("intent failed"),
+                    console::ev(
+                        console::EV_INTENT_FAILED,
+                        json!({
+                            "reason": outcome.output.get("kind").and_then(Value::as_str).unwrap_or("llm_error"),
+                        }),
+                    ),
+                    Value::Null,
+                );
+                return outcome;
+            }
+        }
+    };
+    if p.force_kind.is_none() {
+        // The forced-intent path already printed its own EV_INTENT_DONE; only
+        // echo the model's intent here.
+        console::print_ev(
+            host,
+            &console::phase_tag(console::PHASE_INTENT),
+            match intent.mode {
+                Mode::Direct => "answering directly",
+                Mode::Inquire => "inquiries proposed",
+            },
+            console::ev(
+                console::EV_INTENT_DONE,
+                json!({
+                    "mode": match intent.mode { Mode::Direct => "direct", Mode::Inquire => "inquire" },
+                    "n": intent.inquiries.len(),
+                }),
+            ),
+            intent.to_json(),
+        );
+    }
 
     let mut responses: Vec<Response> = Vec::new();
     let mut scripts: Vec<Script> = Vec::new();
@@ -123,19 +221,25 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         // `search-documents` is a likely one), and without this each would
         // fetch its `paramSchema` separately. See `search::TypeCache`.
         let mut type_cache = search::TypeCache::default();
+        let proposed = intent.inquiries.len();
         for (index, one) in intent.inquiries.iter().enumerate() {
-            console::print(
+            console::print_ev(
                 host,
                 &console::inquiry_step_tag(index, console::STEP_TERMS),
                 &one.question,
+                console::ev(console::EV_INQUIRY_PLANNED, inquiry_ev_fields(index, proposed, one)),
                 one.to_json(),
             );
             match inquiry::prepare(host, &p, index, one.clone(), &mut type_cache) {
                 Ok(ready) => {
-                    console::print(
+                    console::print_ev(
                         host,
                         &console::inquiry_step_tag(index, console::STEP_HITS),
                         &format!("{} hit(s)", ready.hits.len()),
+                        console::ev(
+                            console::EV_INQUIRY_SEARCHED,
+                            json!({ "i": index, "hits": ready.hits.len() }),
+                        ),
                         json!({
                             "count": ready.hits.len(),
                             "refs": ready.hits.iter().map(|h| Value::String(h.reference())).collect::<Vec<_>>(),
@@ -155,8 +259,17 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         let jobs: Vec<Job> = prepared
             .iter()
             .map(|ready| Job {
+                index: ready.index,
                 label: console::inquiry_tag(ready.index),
                 payload: inquiry::payload(&p, &recalled, ready, context_block.as_deref()),
+                // What the fan-out echoes into its lifecycle events. Built
+                // here because this is where the domain knowledge lives; kept
+                // to `{kind, q}` because solx-mcp inlines `data` into every
+                // progress notification (see `console::Q_CAP`).
+                meta: json!({
+                    "kind": ready.inquiry.kind.as_str(),
+                    "q": truncate(&ready.inquiry.question, console::Q_CAP),
+                }),
             })
             .collect();
 
@@ -186,20 +299,28 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
                 Ok(value) => {
                     if ready.inquiry.is_actions() {
                         let (found, said) = inquiry::parse_scripts(&value, &ready.catalogue);
-                        console::print(
+                        console::print_ev(
                             host,
                             &console::inquiry_step_tag(index, console::STEP_RESULT),
                             &format!("{} script(s)", found.len()),
+                            console::ev(
+                                console::EV_INQUIRY_RESULT,
+                                json!({ "i": index, "scripts": found.len() }),
+                            ),
                             json!({ "scripts": found.iter().map(Script::to_json).collect::<Vec<_>>(), "notes": said }),
                         );
                         scripts.extend(found);
                         notes.extend(said);
                     } else {
                         let found = inquiry::parse_responses(&value, index);
-                        console::print(
+                        console::print_ev(
                             host,
                             &console::inquiry_step_tag(index, console::STEP_RESULT),
                             &format!("{} response(s)", found.len()),
+                            console::ev(
+                                console::EV_INQUIRY_RESULT,
+                                json!({ "i": index, "responses": found.len() }),
+                            ),
                             json!({ "responses": found.iter().map(Response::to_json).collect::<Vec<_>>() }),
                         );
                         responses.extend(found);
@@ -226,6 +347,16 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         // phase happened to give alongside them is not evidence that the work
         // it asked for happened.
         if !errors.is_empty() && responses.len() == direct_responses && scripts.is_empty() {
+            console::warn_ev(
+                host,
+                &console::phase_step_tag(console::PHASE_RUN, console::STEP_ERROR),
+                "every inquiry failed",
+                console::ev(
+                    console::EV_RUN_FAILED,
+                    json!({ "reason": "all_inquiries_failed", "errors": errors.len() }),
+                ),
+                Value::Null,
+            );
             return Outcome::fail(
                 // Not `llm_error`: what failed may have been every *search*,
                 // and each entry in `errors` already carries its own kind.
@@ -275,7 +406,7 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
     // cannot fail; the caller decides whether and when to persist it.
     let session_document = session::build_document(&p, &stored, turn);
 
-    console::print(
+    console::print_ev(
         host,
         &console::phase_tag(console::PHASE_RESULT),
         &format!(
@@ -283,6 +414,15 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
             responses.len(),
             memories.len(),
             scripts.len()
+        ),
+        console::ev(
+            console::EV_RUN_DONE,
+            json!({
+                "responses": responses.len(),
+                "memories": memories.len(),
+                "scripts": scripts.len(),
+                "errors": errors.len(),
+            }),
         ),
         json!({
             "responses": responses.len(),
@@ -306,6 +446,21 @@ pub fn run(host: &dyn Host, params: &Value) -> Outcome {
         "notes": notes,
         "errors": errors,
     }))
+}
+
+/// The `{i, n, kind, q}` an inquiry's console events carry.
+///
+/// `kind` and `q` ride on both `inquiry.planned` here and `inquiry.started`
+/// from the fan-out, deliberately: a consumer that joined mid-run, or whose
+/// earlier entries were evicted from this shared console, gets its hover text
+/// from whichever of the two it caught.
+fn inquiry_ev_fields(index: usize, n: usize, one: &intent::Inquiry) -> Value {
+    json!({
+        "i": index,
+        "n": n,
+        "kind": one.kind.as_str(),
+        "q": truncate(&one.question, console::Q_CAP),
+    })
 }
 
 fn error_entry(index: usize, outcome: &Outcome) -> Value {

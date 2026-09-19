@@ -63,27 +63,39 @@ pub fn fetch(host: &dyn Host, p: &MultiInquireParams) -> (Vec<ContextDocument>, 
 }
 
 /// A document has no fixed shape below `contents`, unlike a memory (which
-/// this pipeline itself produces with a known `text` field). `contents.text`
-/// is read the same way a memory is, for a context document another
-/// `multi_inquire` run minted; anything else is read as the document's
-/// contents verbatim, so a context document written by hand or by another
-/// tool still comes through as whatever it actually holds rather than
-/// nothing at all.
+/// this pipeline itself produces with a known `text` field). In order:
+///
+/// 1. **`contents.text`** - read the same way a memory is, for a context
+///    document another `multi_inquire` run minted.
+/// 2. **`contents` verbatim** - so a document written by hand or by another
+///    tool comes through as whatever it actually holds rather than nothing
+///    at all.
+/// 3. **`summary`** - only when `contents` holds nothing. A summary is a
+///    precis, and a caller who named this document in `context_documents`
+///    asked for the document; letting the summary win wherever
+///    `contents.text` happened to be absent silently replaced real content
+///    with a one-line description of it. A session document is the case that
+///    exposed it: its `contents` are the turns, and its `summary` is the
+///    first response of the last turn, so naming one as context used to
+///    yield a sentence in place of the history.
 fn to_context_document(reference: &str, doc: &Value) -> Option<ContextDocument> {
     let title = doc.get("title").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
     let contents = doc.get("contents")?;
     let text = match contents.get("text").and_then(Value::as_str) {
         Some(text) => text.trim().to_string(),
-        None => {
-            let summary = doc.get("summary").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
-            match summary {
-                Some(summary) => summary.to_string(),
-                // An empty object has nothing worth showing - falling
-                // through to it would render the literal text "{}".
-                None if contents.as_object().is_some_and(|m| m.is_empty()) => String::new(),
-                None => serde_json::to_string_pretty(contents).unwrap_or_default(),
-            }
-        }
+        // Nothing under `contents` at all - the summary is all there is.
+        // Checked before the string arm below, so a whitespace-only string
+        // is absence rather than its own (empty) text.
+        None if is_blank(contents) => doc
+            .get("summary")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string(),
+        // A bare string is already its own text; rendering it as JSON would
+        // put the quotes in front of the model too.
+        None if contents.is_string() => contents.as_str().unwrap_or_default().trim().to_string(),
+        None => serde_json::to_string_pretty(contents).unwrap_or_default(),
     };
     if text.is_empty() {
         return None;
@@ -93,6 +105,19 @@ fn to_context_document(reference: &str, doc: &Value) -> Option<ContextDocument> 
         title: title.map(str::to_string),
         text: truncate(&text, CONTEXT_TEXT_CAP),
     })
+}
+
+/// True when `contents` has nothing worth putting in a prompt. Rendering one
+/// of these verbatim would put the literal text `{}`, `[]` or `null` in front
+/// of the model, which reads as content when it is the absence of any.
+fn is_blank(contents: &Value) -> bool {
+    match contents {
+        Value::Null => true,
+        Value::Object(map) => map.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        Value::String(s) => s.trim().is_empty(),
+        _ => false,
+    }
 }
 
 /// The reference block carrying every loaded context document, joined under
@@ -135,10 +160,42 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_summary_when_contents_has_no_text() {
+    fn falls_back_to_summary_only_when_contents_holds_nothing() {
         let doc = json!({ "contents": {}, "summary": "from summary" });
         let d = to_context_document("/notes/b", &doc).unwrap();
         assert_eq!(d.text, "from summary");
+    }
+
+    #[test]
+    fn real_contents_beat_a_summary() {
+        // The case that made naming a session document as context useless:
+        // its contents are the turns, its summary is one response from the
+        // last one, and the summary used to win.
+        let doc = json!({
+            "contents": { "turns": [{ "instruction": "how does auth work?" }], "turnCount": 1 },
+            "summary": "Auth uses session tokens.",
+        });
+        let d = to_context_document("/sessions/s", &doc).unwrap();
+        assert!(d.text.contains("how does auth work?"), "{}", d.text);
+        assert!(!d.text.contains("Auth uses session tokens."), "{}", d.text);
+    }
+
+    #[test]
+    fn a_string_contents_is_read_as_its_own_text() {
+        let doc = json!({ "contents": "just a note" });
+        let d = to_context_document("/notes/s", &doc).unwrap();
+        assert_eq!(d.text, "just a note");
+    }
+
+    #[test]
+    fn contents_shaped_like_absence_are_never_rendered_literally() {
+        // `null`, `[]` and `""` all read as content when they are the
+        // absence of it, so each falls through to the summary.
+        for empty in [json!(null), json!([]), json!("   ")] {
+            let doc = json!({ "contents": empty, "summary": "from summary" });
+            let d = to_context_document("/notes/e", &doc).unwrap();
+            assert_eq!(d.text, "from summary");
+        }
     }
 
     #[test]

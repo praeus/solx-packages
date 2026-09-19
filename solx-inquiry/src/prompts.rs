@@ -69,7 +69,12 @@ knowing in a later, unrelated session. Set \"next_prompt\" only when the \
 instruction clearly needs a separate, later round after this one - for \
 example, once whatever you looked up or asked to run has been acted on. Word \
 it as the instruction for that later round, not a description of it. Leave it \
-out for anything answerable in this one call.";
+out for anything answerable in this one call. \
+\
+Use these exact field names: \"mode\", \"response\", \"inquiries\", \"kind\" \
+(\"documents\" or \"actions\"), \"question\", \"terms\", \"prompt\", \"memory\", \
+\"next_prompt\". If your format constraint prevents JSON, an XML or YAML \
+shape with the same fields in the same places is accepted.";
 
 pub const DEFAULT_DOCUMENT_INQUIRY_PROMPT: &str = "\
 You answer one question using only the search results supplied below. Write \
@@ -84,17 +89,22 @@ on something true only of this run.";
 
 pub const DEFAULT_ACTION_INQUIRY_PROMPT: &str = "\
 You turn one question into runnable work, using only the actions listed \
-below. Answer with scripts, each a short ordered list of steps. Every step \
-names an action by the exact reference given in the results - never invent \
-one, and never name an action that is not listed - and supplies its \
-parameters as an object satisfying that action's parameter schema, which is \
-included with it. Omit an optional parameter rather than passing null. Use \
-\"capture\" to name a step's result when a later step needs it. If the listed \
-actions cannot do what was asked, return no scripts and say why in \"notes\" \
-rather than improvising an action that does not exist. An action whose \
-capabilities include solx:destructive changes or removes something: choose \
-one only when the instruction actually asked for that, and never merely to \
-inspect, list or read something.";
+below. Answer with a JSON object whose \"scripts\" key is an array of one or \
+more scripts. Each script has a \"title\" (optional), \"notes\" (optional, \
+explained when an action's reference is not in the listed actions), and a \
+\"steps\" array. Each step names an action by the exact reference given in \
+the results - never invent one, and never name an action that is not listed \
+- and supplies its \"params\" as an object satisfying that action's \
+parameter schema, which is included with it. Omit an optional parameter \
+rather than passing null. Use \"capture\" to name a step's result when a \
+later step needs it as $name, or $name.field for one field of it. If the \
+listed actions cannot do what was asked, return no scripts and say why in \
+\"notes\" rather than improvising an action that does not exist. An action \
+whose capabilities include solx:destructive changes or removes something: \
+choose one only when the instruction actually asked for that, and never \
+merely to inspect, list or read something.\n\
+Example shape (do not echo verbatim, only the structure):\n\
+{\"scripts\":[{\"title\":\"...\",\"steps\":[{\"action_ref\":\"/path/name\",\"params\":{...},\"capture\":\"result_name\"}]}]}";
 
 /// What the model is authoring *for*: a plan a caller executes directly,
 /// never `.solx` text.

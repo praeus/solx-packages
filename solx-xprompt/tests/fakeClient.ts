@@ -26,22 +26,50 @@ interface DocRecord {
 
 export interface FakeClient {
   client: WidgetClient;
+  /**
+   * Every `invocations.start` invocation ever made, in order. Each entry
+   * captures the actionRef and the params the widget handed the start
+   * call — used by dispatch tests to verify what reached the action's own
+   * `run`, since `start` itself is a side-effect.
+   */
+  startCalls: Array<{ actionRef: string; params: unknown }>;
   /** Write directly into an action's fake console, as if some guest code had called `console-print`. */
-  pushEntry(actionRef: string, invocationId: string, message: string): void;
+  pushEntry(
+    actionRef: string,
+    invocationId: string,
+    message: string,
+    opts?: { data?: unknown; ts?: string; level?: string },
+  ): void;
   /**
    * Registers what `invocations.poll` resolves an action ref's next-started
    * invocation to, terminal on the first poll — enough for dispatch tests to
    * exercise the start-then-wait flow without a real long-poll loop.
    */
-  respondTo(actionRef: string, outcome: { result?: unknown; error?: string }): void;
+  /** Every `path name` key currently stored, sorted — for asserting a delete. */
+  docKeys(): string[];
+  respondTo(
+    actionRef: string,
+    outcome: {
+      result?: unknown;
+      error?: string;
+      /**
+       * Terminal status to settle on. Defaults to `failed` when `error` is
+       * set and `ok` otherwise. Set it explicitly to reach `cancelled` /
+       * `timeout` / `interrupted`, which the real store can finish with no
+       * `error` at all.
+       */
+      status?: string;
+    },
+  ): void;
 }
 
 export function createFakeClient(): FakeClient {
   const docs = new Map<string, DocRecord>();
   const consoles = new Map<string, WidgetConsoleEntry[]>();
   const invocations = new Map<string, WidgetInvocation>();
-  const responses = new Map<string, { result?: unknown; error?: string }>();
+  const responses = new Map<string, { result?: unknown; error?: string; status?: string }>();
   const pollCounts = new Map<string, number>();
+  const startCalls: Array<{ actionRef: string; params: unknown }> = [];
   let invCounter = 0;
   let entryClock = 0;
   let docClock = 0;
@@ -78,6 +106,17 @@ export function createFakeClient(): FakeClient {
           return { action: ref, result: doc, success: true };
         }
 
+        if (ref === "/builtin/document/entity-delete-document") {
+          const key = docKey(p.path as string, p.name as string);
+          if (!docs.has(key)) {
+            // Mirrors solx-core: deleting something that is not there is a
+            // failed call, not a silent success.
+            return { action: ref, result: null, success: false, message: "not found: " + key };
+          }
+          docs.delete(key);
+          return { action: ref, result: { deleted: true }, success: true };
+        }
+
         if (ref === "/builtin/document/entity-list-documents") {
           const prefix = (p.path_prefix as string | undefined) ?? "";
           const items = [...docs.values()]
@@ -98,8 +137,9 @@ export function createFakeClient(): FakeClient {
     },
 
     invocations: {
-      async start(path, name): Promise<WidgetInvocation> {
+      async start(path, name, params): Promise<WidgetInvocation> {
         const actionRef = path + "/" + name;
+        startCalls.push({ actionRef, params });
         invCounter += 1;
         const invocationId = "inv-" + invCounter;
         const consoleSeqStart = (consoles.get(actionRef)?.length ?? 0) + 1;
@@ -139,7 +179,7 @@ export function createFakeClient(): FakeClient {
           ...inv,
           // Must be one of isTerminalStatus's recognized values (see
           // solx-widgets/src/shared/widgetClient.ts) — "ok", not "succeeded".
-          status: outcome.error ? "failed" : "ok",
+          status: outcome.status ?? (outcome.error ? "failed" : "ok"),
           result: outcome.result ?? null,
           error: outcome.error ?? null,
         };
@@ -165,24 +205,35 @@ export function createFakeClient(): FakeClient {
     },
   };
 
-  function pushEntry(actionRef: string, invocationId: string, message: string): void {
+  function pushEntry(
+    actionRef: string,
+    invocationId: string,
+    message: string,
+    opts: { data?: unknown; ts?: string; level?: string } = {},
+  ): void {
     const list = consoles.get(actionRef) ?? [];
     entryClock += 1;
     list.push({
       seq: list.length + 1,
-      // Millisecond-spaced so entries across different fake actions still sort deterministically by ts.
-      ts: new Date(entryClock).toISOString(),
-      level: "info",
+      // Millisecond-spaced so entries across different fake actions still sort
+      // deterministically by ts. An explicit `ts` overrides that, which is how
+      // a test reproduces the real tie the server can produce: several events
+      // emitted back to back with no I/O between them share a timestamp.
+      ts: opts.ts ?? new Date(entryClock).toISOString(),
+      level: opts.level ?? "info",
       invocation_id: invocationId,
       message,
-      data: null,
+      data: opts.data ?? null,
     });
     consoles.set(actionRef, list);
   }
 
-  function respondTo(actionRef: string, outcome: { result?: unknown; error?: string }): void {
+  function respondTo(
+    actionRef: string,
+    outcome: { result?: unknown; error?: string; status?: string },
+  ): void {
     responses.set(actionRef, outcome);
   }
 
-  return { client, pushEntry, respondTo };
+  return { client, startCalls, pushEntry, respondTo, docKeys: () => [...docs.keys()].sort() };
 }

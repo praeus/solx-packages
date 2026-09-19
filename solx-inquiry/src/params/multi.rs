@@ -12,7 +12,7 @@
 //! [`crate::params::apply_llm_overrides`] and [`crate::llm::call`] keep working
 //! unchanged for both actions.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::host::{str_param, Outcome};
 use super::{Params, Scope, DEFAULT_LLM_ACTION_REF, MAX_LLM_TIMEOUT};
@@ -168,6 +168,17 @@ pub struct MultiInquireParams {
     pub intent_prompt: Option<String>,
     pub document_prompt: Option<String>,
     pub action_prompt: Option<String>,
+    /// Force the run into a specific inquiry shape without asking the model
+    /// to decide. `None` is the documented behaviour: the intent phase picks
+    /// `mode` and `kind` per its own reasoning. `Some(Actions)` synthesises an
+    /// intent with `mode: Inquire` and exactly one inquiry of `kind: Actions`,
+    /// whose `question` is the instruction and whose `terms` come from
+    /// [`crate::terms::fallback_terms`]. `Some(Documents)` does the same for
+    /// documents. Used by the xprompt widget's "force actions" mode so a
+    /// caller can route around a model that won't pick `kind: actions` on
+    /// its own; the existing `intent_prompt` / `action_prompt` overrides
+    /// still apply to whichever llm call this run ends up making.
+    pub force_kind: Option<Scope>,
     /// Carries the connection overrides and `llm_action_ref` so the existing
     /// `params::apply_llm_overrides` / `llm::call` path is reused verbatim.
     /// Its `inquiry`/`scope`/`max_*` fields are not read by `multi_inquire`.
@@ -252,6 +263,20 @@ pub fn parse(params: &Value) -> Result<MultiInquireParams, Outcome> {
         intent_prompt: str_param(params, "intent_prompt"),
         document_prompt: str_param(params, "document_prompt"),
         action_prompt: str_param(params, "action_prompt"),
+        force_kind: match str_param(params, "force_kind").as_deref() {
+            Some("actions") => Some(Scope::Actions),
+            Some("documents") => Some(Scope::Documents),
+            Some(other) => {
+                return Err(Outcome::fail(
+                    "bad_params",
+                    format!(
+                        "force_kind must be \"actions\" or \"documents\" (got {other:?})"
+                    ),
+                    json!({ "force_kind": other }),
+                ))
+            }
+            None => None,
+        },
         llm: Params {
             // Placeholders: `multi_inquire` never reads these back. Only the
             // connection fields below are used, via `apply_llm_overrides`.
@@ -388,5 +413,32 @@ mod tests {
         assert_eq!(parsed.llm.timeout_secs, Some(30));
         assert_eq!(parsed.llm.options, Some(json!({ "num_ctx": 8192 })));
         assert_eq!(parsed.llm_action_ref(), DEFAULT_LLM_ACTION_REF);
+    }
+
+    #[test]
+    fn force_kind_defaults_to_none_and_accepts_actions_or_documents() {
+        let p = parse(&base()).unwrap();
+        assert_eq!(p.force_kind, None);
+
+        let mut with_actions = base();
+        with_actions["force_kind"] = json!("actions");
+        assert_eq!(parse(&with_actions).unwrap().force_kind, Some(Scope::Actions));
+
+        let mut with_docs = base();
+        with_docs["force_kind"] = json!("documents");
+        assert_eq!(parse(&with_docs).unwrap().force_kind, Some(Scope::Documents));
+    }
+
+    #[test]
+    fn force_kind_rejects_unknown_values_with_a_clear_message() {
+        let mut p = base();
+        p["force_kind"] = json!("everything");
+        let err = parse(&p).unwrap_err();
+        assert_eq!(err.output["kind"], "bad_params");
+        let msg = err.message.as_deref().unwrap_or("");
+        assert!(
+            msg.contains("force_kind") && msg.contains("everything"),
+            "unexpected message: {msg:?}"
+        );
     }
 }

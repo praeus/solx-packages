@@ -1,7 +1,0 @@
-# Build outputs. The repo-level solx-packages/.gitignore already covers these
-# with unanchored patterns; this file exists so a standalone checkout of just
-# this package behaves the same way.
-crate/target
-crate/bin
-widget/dist
-widget/node_modules

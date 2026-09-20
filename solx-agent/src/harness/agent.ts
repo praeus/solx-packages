@@ -109,6 +109,7 @@ async function resolveTurnCatalogue(
     cat = await resolveCatalogue(host, null, session.grant, session.catalogue_cap, null);
   }
   session.tools = cat.map;
+  session.tool_labels = cat.labels;
   session.tools_dropped = cat.dropped;
 
   const refs = Object.keys(cat.map).map((n) => cat.map[n]);
@@ -149,6 +150,7 @@ export async function createSession(
     chat_timeout_secs: opts.chat_timeout_secs || null,
     grant,
     tools: {},
+    tool_labels: {},
     tools_defs: [],
     tools_dropped: 0,
     catalogue_cap: opts.catalogue_cap || DEFAULT_CATALOGUE_CAP,

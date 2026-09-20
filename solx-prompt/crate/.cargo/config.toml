@@ -1,9 +1,0 @@
-# Alias only - deliberately NOT `[build] target = "wasm32-wasip2"`, which would
-# make `cargo test` target wasm32-wasip2 and leave the host unit tests
-# unrunnable.
-#
-# Note this file is discovered from the *cwd*, not from the manifest, so
-# `cargo --manifest-path crate/Cargo.toml` run from the package root would
-# ignore it and `cargo wasm` would not exist. build.ps1 / build.sh cd in here.
-[alias]
-wasm = ["build", "--release", "--target", "wasm32-wasip2"]

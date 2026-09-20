@@ -25,9 +25,10 @@
  */
 
 import { permitted, reservedDocWrite, splitRef, isExecutableType } from "./gate";
+import { chat, ChatCancelledError, type ChatMessage } from "./chat";
 import { callId, saveSession } from "./session";
 import { isSysTool, runSysTool } from "./sysTools";
-import { CHAT, GET_ACTION, MAX_CONSECUTIVE_FAILURES, SYS_TOOL_SEARCH } from "./refs";
+import { GET_ACTION, MAX_CONSECUTIVE_FAILURES, SYS_TOOL_SEARCH } from "./refs";
 import type { Host } from "./host";
 import type { Message, PendingCall, PendingView, Session, StepResult, ToolCall } from "./types";
 
@@ -81,16 +82,6 @@ export async function gateCall(
     destructive: caps.indexOf("solx:destructive") !== -1 || isExecutableType(ty),
     reason: null,
   };
-}
-
-async function chat(host: Host, session: Session): Promise<Partial<Message> & { tool_calls?: ToolCall[] }> {
-  const out = await host.call<{ message?: Record<string, unknown> }>(CHAT, {
-    model: session.model,
-    messages: session.messages,
-    tools: session.tools_defs,
-    timeout_secs: session.chat_timeout_secs || null,
-  });
-  return ((out && out.message) || {}) as Partial<Message> & { tool_calls?: ToolCall[] };
 }
 
 /**
@@ -228,11 +219,13 @@ export async function step(
   host: Host,
   session: Session,
   approve?: string[],
+  opts?: { isAbandoned?: () => boolean },
 ): Promise<StepResult> {
   if (session.status !== "running" && session.status !== "awaiting_approval") {
     return summarize(session, session.status);
   }
   const approved = Array.isArray(approve) ? approve : [];
+  const isAbandoned = opts?.isAbandoned;
 
   // Resuming a suspended turn: the model was already asked, and `pending`
   // holds what it wanted. Nothing new is sent until the turn completes. This
@@ -262,7 +255,17 @@ export async function step(
   session.iteration++;
   session.turn_iteration++;
 
-  const message = await chat(host, session);
+  let message: ChatMessage;
+  try {
+    message = await chat(host, session, isAbandoned);
+  } catch (e) {
+    if (e instanceof ChatCancelledError) {
+      session.status = "cancelled";
+      await saveSession(host, session.id, session);
+      return summarize(session, "cancelled");
+    }
+    throw e;
+  }
   const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
 
   // The assistant turn goes in verbatim -- including its tool_calls, which

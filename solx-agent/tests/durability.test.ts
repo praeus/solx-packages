@@ -89,7 +89,7 @@ describe("persistence within a turn", () => {
     // what was in flight.
     await step(host, s);
     const order = f.callNames();
-    const chat = order.indexOf("/packages/solx-ollama/ollama-chat");
+    const chat = order.indexOf("/builtin/action/start");
     const dispatch = order.indexOf("/builtin/document/set-field-at-path");
     const saveBetween = order.findIndex(
       (r, i) => i > chat && i < dispatch && r === "/builtin/document/entity-save-document",

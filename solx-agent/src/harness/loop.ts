@@ -41,7 +41,7 @@ export async function driveSession(
 
   while (result.status === "running") {
     if (opts.isAbandoned?.()) return result;
-    result = await step(host, current, undefined);
+    result = await step(host, current, undefined, { isAbandoned: opts.isAbandoned });
     handlers.onProgress(result, current);
   }
   return result;
@@ -59,7 +59,7 @@ export async function approveAndContinue(
   handlers: DriveHandlers,
   opts: DriveOptions = {},
 ): Promise<StepResult> {
-  const resumed = await step(host, session, approve);
+  const resumed = await step(host, session, approve, { isAbandoned: opts.isAbandoned });
   return driveSession(host, session, resumed, handlers, opts);
 }
 

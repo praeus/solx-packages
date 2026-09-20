@@ -80,8 +80,6 @@ commands and outbound hosts that package is asking for.
 | `solx-livejournal` | WASM | Extracts a LiveJournal into `BlogPostWithComments` documents with the full comment tree, resumably. |
 | `solx-quickjs`     | Command | Build tool: compiles a JavaScript action into a WASM component via `componentize-qjs`. |
 | `solx-agent`       | Script | A supervised agent thread: the action registry as an LLM tool catalogue, driven one iteration at a time behind a default-deny gate with human approval for destructive calls. The harness runs inside the widget bundle; sessions, memories and skills are documents under `/agent`. |
-| `solx-xprompt`     | Script | TODO: describe what this widget does. |
-| `solx-prompt`      | WASM + Script | Turns a prompt into a message plus a runnable plan: one intent call proposes abstract steps, a no-llm search phase resolves them against the action and document catalogues, and one steps call emits concrete action calls validated against what was actually found. Ships its own chat widget, which owns the loop - run the steps, feed the results and `next_prompt` back in. The only package here carrying both a wasm crate (`crate/`) and a widget bundle (`widget/`). |
 
 `solx-package-lib/` is not a package — it's a shared Rust crate (`solx-package-log`
 in code, since every consumer still calls it via `solx_package_log::...`)

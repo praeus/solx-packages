@@ -93,6 +93,8 @@ async function schemaFor(host: Host, action: ActionRow): Promise<Record<string, 
 export interface Catalogue {
   tools: ToolDef[];
   map: Record<string, string>;
+  /** Tool name -> human-readable label (the action's caption, else its name). */
+  labels: Record<string, string>;
   dropped: number;
 }
 
@@ -115,6 +117,7 @@ export async function resolveCatalogue(
   const seen: Record<string, boolean> = {};
   const tools: ToolDef[] = [];
   const map: Record<string, string> = {};
+  const labels: Record<string, string> = {};
   let matched = 0;
 
   for (const rule of allow) {
@@ -154,6 +157,10 @@ export async function resolveCatalogue(
 
       const toolName = encodeToolName(a.path, a.name);
       map[toolName] = ref;
+      // The label is for the transcript, never the wire: `encodeToolName` keeps
+      // its collision-free internal name for dispatch, and the caption (or the
+      // plain action name) is what a person reads.
+      labels[toolName] = (a.caption && a.caption.trim()) || a.name;
       tools.push({
         type: "function",
         function: {
@@ -165,7 +172,7 @@ export async function resolveCatalogue(
     }
   }
 
-  return { tools, map, dropped: Math.max(0, matched - tools.length) };
+  return { tools, map, labels, dropped: Math.max(0, matched - tools.length) };
 }
 
 export function invertMap(map: Record<string, string>): Record<string, string> {

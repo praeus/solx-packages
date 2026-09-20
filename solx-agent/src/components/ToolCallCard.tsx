@@ -46,13 +46,12 @@ export function ToolCallCard({ call }: { call: RenderedCall }) {
             textAlign: "left",
             flex: 1,
             minWidth: 0,
-            fontFamily: "var(--font-mono)",
             fontSize: 12,
           }}
           title={call.ref ?? call.name}
         >
           <span className="faint">{open ? "▾" : "▸"} </span>
-          {call.name}
+          {call.label}
         </button>
         {outcome === "running" ? (
           <span className="chip">running…</span>

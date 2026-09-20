@@ -63,8 +63,8 @@ describe.skipIf(!built)("the built bundle", () => {
 
   test("renders the setup surface, because a session cannot start without it", () => {
     const html = el.shadowRoot!.innerHTML;
-    expect(html).toContain("Tools and setup");
-    expect(html).toContain("allowed");
+    expect(html).toContain("Setup");
+    expect(html).toContain("Memory scope");
   });
 
   test("reaches its injected client", () => {

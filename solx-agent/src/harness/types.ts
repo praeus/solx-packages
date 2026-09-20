@@ -144,6 +144,8 @@ export interface Session {
   grant: AllowEntry[];
   /** Re-resolved from the newest user message at the top of every turn. */
   tools: Record<string, string>;
+  /** Tool name -> human-readable label, for the transcript only. */
+  tool_labels: Record<string, string>;
   tools_defs: ToolDef[];
   tools_dropped: number;
   catalogue_cap: number;

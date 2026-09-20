@@ -84,6 +84,9 @@ export class FakeHost implements ExecClient {
   calls: { ref: string; params: Json }[] = [];
   /** Scripted ollama-chat messages. */
   replies: Json[] = [];
+  /** Detached invocations, keyed by invocation_id. */
+  invocations: Map<string, { status: string; result: unknown; error: string | null }> = new Map();
+  private seq = 0;
 
   action(ref: string, row: Partial<ActionRow> = {}): this {
     const i = ref.lastIndexOf("/");
@@ -253,6 +256,42 @@ export class FakeHost implements ExecClient {
       case "/packages/solx-ollama/ollama-chat": {
         if (this.replies.length === 0) return fail("no scripted reply left");
         return ok({ message: this.replies.shift() });
+      }
+
+      case "/builtin/action/start": {
+        // The detached chat path: resolve the target and, for ollama-chat,
+        // immediately complete with the next scripted reply. Other actions are
+        // not detached in these tests, so they fall through to a plain run.
+        const ref = (p.path === "/" ? "" : p.path) + "/" + p.name;
+        if (ref === "/packages/solx-ollama/ollama-chat") {
+          if (this.replies.length === 0) return fail("no scripted reply left");
+          const id = "inv-" + ++this.seq;
+          this.invocations.set(id, { status: "ok", result: { message: this.replies.shift() }, error: null });
+          return ok({ invocation_id: id, action_ref: ref, console_seq_start: 0 });
+        }
+        return fail("start not modelled for " + ref);
+      }
+
+      case "/builtin/action/poll": {
+        const inv = this.invocations.get(p.invocation_id as string);
+        if (!inv) return fail("no such invocation " + p.invocation_id);
+        return ok({
+          invocation_id: p.invocation_id,
+          status: inv.status,
+          result: inv.result,
+          error: inv.error,
+        });
+      }
+
+      case "/builtin/action/stop": {
+        const inv = this.invocations.get(p.invocation_id as string);
+        if (!inv) return fail("no such invocation " + p.invocation_id);
+        inv.status = "cancelled";
+        return ok({ invocation_id: p.invocation_id, status: "cancelled", result: null, error: null });
+      }
+
+      case "/builtin/action/cancelled": {
+        return ok({ cancelled: false });
       }
     }
 

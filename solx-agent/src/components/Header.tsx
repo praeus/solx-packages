@@ -28,6 +28,7 @@ export function Header({
   iteration,
   maxIterations,
   sessionId,
+  title,
   sessions,
   onOpenSession,
   onNewSession,
@@ -40,6 +41,8 @@ export function Header({
   iteration: number;
   maxIterations: number;
   sessionId: string | null;
+  /** Human-readable session title; the raw id is the fallback. */
+  title: string | null;
   sessions: SessionSummary[];
   onOpenSession: (id: string) => void;
   onNewSession: () => void;
@@ -88,7 +91,7 @@ export function Header({
         {badge && <span className={badge.cls}>{badge.text}</span>}
         {sessionId && (
           <>
-            <span className="chip">{sessionId}</span>
+            <span className="chip">{title || sessionId}</span>
             <span className="faint" style={{ fontSize: 11 }}>
               iteration {iteration}/{maxIterations} this turn
             </span>

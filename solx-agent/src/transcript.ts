@@ -16,7 +16,10 @@ import type { CallRecord, Message, Session, ToolCall } from "./harness";
  */
 
 export interface RenderedCall {
+  /** The wire tool name (`act__…`). Kept so an exact name stays visible. */
   name: string;
+  /** Human-readable label (the action's caption, else its name). */
+  label: string;
   ref: string | null;
   arguments: Record<string, unknown>;
   /** The tool turn's content: a JSON result, or an error/refusal string. */
@@ -44,9 +47,11 @@ export interface RenderedTurn {
   answer: string | null;
 }
 
-function toRenderedCall(call: ToolCall): RenderedCall {
+function toRenderedCall(call: ToolCall, labels: Record<string, string>): RenderedCall {
+  const name = call.function?.name ?? "(unnamed)";
   return {
-    name: call.function?.name ?? "(unnamed)",
+    name,
+    label: labels[name] || name,
     ref: null,
     arguments: call.function?.arguments ?? {},
     result: null,
@@ -55,7 +60,11 @@ function toRenderedCall(call: ToolCall): RenderedCall {
   };
 }
 
-export function buildTurns(messages: Message[], calls: CallRecord[]): RenderedTurn[] {
+export function buildTurns(
+  messages: Message[],
+  calls: CallRecord[],
+  labels: Record<string, string> = {},
+): RenderedTurn[] {
   const turns: RenderedTurn[] = [];
   let pendingSystem: string[] = [];
   let callCursor = 0;
@@ -100,7 +109,7 @@ export function buildTurns(messages: Message[], calls: CallRecord[]): RenderedTu
       turn.iterations.push({
         index: turn.iterations.length + 1,
         narration: message.content ?? "",
-        calls: toolCalls.map(toRenderedCall),
+        calls: toolCalls.map((c) => toRenderedCall(c, labels)),
       });
       continue;
     }
@@ -136,7 +145,7 @@ export function buildTurns(messages: Message[], calls: CallRecord[]): RenderedTu
 }
 
 export function buildTurnsFrom(session: Session): RenderedTurn[] {
-  return buildTurns(session.messages ?? [], session.calls ?? []);
+  return buildTurns(session.messages ?? [], session.calls ?? [], session.tool_labels ?? {});
 }
 
 /** One-line recap for a collapsed turn. */

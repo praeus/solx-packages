@@ -1,5 +1,0 @@
-{
-  "name": "solx-xprompt",
-  "version": "0.1.0",
-  "description": "XPrompt (ExecPrompt) widget: turn a natural-language prompt into either a chat reply or a research answer (solx-inquiry + solx-ollama), with action hits runnable inline."
-}

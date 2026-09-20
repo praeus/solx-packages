@@ -7,19 +7,14 @@ import {
   driveSession,
   hostFromClient,
   isQuiescent,
-  previewTools,
   readSession,
-  searchActionPaths,
   summarize,
-  widenGrant,
   LIST_MODELS,
   SEARCH_DOCS,
   SESSION_PATH,
-  type AllowEntry,
   type DriveHandlers,
   type Host,
   type OllamaModel,
-  type PathSuggestion,
   type Session,
   type SessionStatus,
   type StepResult,
@@ -31,6 +26,7 @@ import { Header, type SessionSummary } from "./components/Header";
 import { SetupPanel } from "./components/SetupPanel";
 import { TurnBlock } from "./components/TurnBlock";
 import {
+  DEFAULT_GRANT,
   loadActiveSession,
   loadModel,
   loadSetup,
@@ -222,12 +218,9 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
 
         if (!current || current.id !== sessionId) {
           if (!model) throw new Error("Pick a model first.");
-          if (setup.grant.length === 0) {
-            throw new Error("Allow at least one action path — the gate is default-deny.");
-          }
           current = await createSession(host, message, {
             model,
-            grant: setup.grant,
+            grant: DEFAULT_GRANT,
             system: setup.system || null,
             catalogue_cap: setup.catalogueCap,
             tool_search: setup.toolSearch,
@@ -239,13 +232,6 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
           setSessionId(current.id);
           seed = summarize(current, "running");
         } else {
-          // The grant is the operator's to change mid-conversation; push any
-          // edits made since the last turn before this one resolves its
-          // catalogue against them.
-          if (grantChanged(current.grant, setup.grant) && setup.grant.length > 0) {
-            await widenGrant(host, current, setup.grant);
-          }
-          if (genRef.current !== myGen) return;
           current.catalogue_cap = setup.catalogueCap;
           current.tool_search = setup.toolSearch;
           seed = await addTurn(host, current, message, {
@@ -305,21 +291,6 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
     setSessionId(null);
   }, []);
 
-  const onPreview = useCallback(
-    (grant: AllowEntry[], query: string | null, cap: number) => {
-      if (!host) return Promise.reject(new Error("no client"));
-      return previewTools(host, grant, query, cap);
-    },
-    [host],
-  );
-
-  const onSearchPaths = useCallback(
-    (q: string): Promise<PathSuggestion[]> => {
-      if (!host) return Promise.reject(new Error("no client"));
-      return searchActionPaths(host, q);
-    },
-    [host],
-  );
 
   if (!client || !host) {
     return (
@@ -344,20 +315,14 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
         iteration={result?.turn_iteration ?? session?.turn_iteration ?? 0}
         maxIterations={result?.max_iterations ?? setup.maxIterations}
         sessionId={sessionId}
+        title={session?.title ?? null}
         sessions={sessions}
         onOpenSession={openSession}
         onNewSession={newSession}
         busy={busy}
       />
 
-      <SetupPanel
-        setup={setup}
-        onChange={setSetup}
-        onPreview={onPreview}
-        onSearchPaths={onSearchPaths}
-        live={!!sessionId}
-        queryHint={turns[turns.length - 1]?.user ?? ""}
-      />
+      <SetupPanel setup={setup} onChange={setSetup} live={!!sessionId} />
 
       <div
         ref={threadRef}
@@ -376,8 +341,8 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
       >
         {turns.length === 0 && !busy && (
           <span className="faint">
-            Describe what you want done. The agent will use the tools allowed above, and stop
-            for your approval before anything destructive.
+            Describe what you want done. The agent will use the tools it finds, and stop for
+            your approval before anything destructive.
           </span>
         )}
         {turns.map((turn, i) => (
@@ -418,9 +383,4 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
       />
     </div>
   );
-}
-
-/** Cheap structural compare: the grant is a handful of entries at most. */
-function grantChanged(a: AllowEntry[], b: AllowEntry[]): boolean {
-  return JSON.stringify(a) !== JSON.stringify(b);
 }

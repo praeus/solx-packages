@@ -1,5 +1,0 @@
-{
-  "name": "solx-prompt",
-  "version": "0.1.0",
-  "description": "Turn a natural-language prompt into a message plus a runnable plan of action steps, and a chat widget that runs the plan in a loop - one wasm32-wasip2 component plus one widget bundle"
-}

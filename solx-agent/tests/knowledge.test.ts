@@ -205,6 +205,21 @@ describe("skills", () => {
     expect(s.messages.some((m) => m.content.includes("Search before saving."))).toBe(true);
   });
 
+  test("resolve from the search alone, with no follow-up read per candidate", async () => {
+    const { f, host } = seeded();
+    f.doc("/agent/skills/documents", skill(["/builtin/document/*"], "Search before saving."));
+    f.doc("/agent/skills/media", skill(["/packages/solx-media/*"], "Transcode carefully."));
+    const s = await session(host);
+    expect(s.messages.some((m) => m.content.includes("Search before saving."))).toBe(true);
+    // `search-documents` returns whole documents, so the globs and the
+    // instructions are already in hand. A get aimed at the skills path means
+    // the N+1 round-trip has come back.
+    const gets = f
+      .refsCalled("/builtin/document/entity-get-document")
+      .filter((c) => String((c.params as { path?: string }).path || "").startsWith("/agent/skills"));
+    expect(gets).toEqual([]);
+  });
+
   test("a skill without tools or instructions is ignored", async () => {
     const { f, host } = seeded();
     f.doc("/agent/skills/empty", { typeRef: SKILL_TYPE, contents: { tools: [], instructions: "" } });
@@ -255,7 +270,7 @@ describe("tool_search", () => {
     expect(said).not.toMatch(/do exist at/);
   });
 
-  test("stops at the catalogue cap", async () => {
+  test("evicts to make room at the catalogue cap, rather than dead-ending", async () => {
     const { f, host } = seeded();
     f.action("/builtin/document/entity-delete-document", { description: "document delete" });
     const s = await createSession(host, "document", {
@@ -264,11 +279,83 @@ describe("tool_search", () => {
       catalogue_cap: 2,
     });
     expect(Object.keys(s.tools).length).toBe(2);
+    const before = Object.keys(s.tools);
 
-    f.replyCalls(["sys__tool_search", { q: "document" }]);
+    // The search surfaces a tool not already held; the cap is full, so a held
+    // tool is evicted to make room rather than the search being refused with
+    // "no room for more tools".
+    f.replyCalls(["sys__tool_search", { q: "delete" }]);
     await step(host, s);
+
     expect(Object.keys(s.tools).length).toBe(2);
-    expect(s.messages.at(-1)!.content).toMatch(/maximum/);
+    expect(s.messages.at(-1)!.content).toMatch(/dropped from the catalogue/);
+
+    // The point of the change: the tool the search just found is *held*, and
+    // something that was there before is gone. Counting alone passed happily
+    // against the old "refuse when full" behaviour, so it proved nothing.
+    const after = Object.keys(s.tools);
+    const added = after.filter((n) => !before.includes(n));
+    const gone = before.filter((n) => !after.includes(n));
+    expect(added.length).toBeGreaterThan(0);
+    expect(gone.length).toBe(added.length);
+    for (const n of added) expect(s.tools_defs.some((d) => d.function.name === n)).toBe(true);
+    for (const n of gone) expect(s.tools_defs.some((d) => d.function.name === n)).toBe(false);
+  });
+
+  test("never evicts a tool an immediately preceding search added", async () => {
+    const { f, host } = seeded();
+    f.action("/builtin/document/entity-delete-document", { description: "document delete" });
+    f.action("/builtin/document/entity-list-documents", { description: "document listing" });
+    const s = await createSession(host, "document", {
+      model: "m",
+      grant: DOCS_GRANT,
+      catalogue_cap: 2,
+    });
+
+    // The regression this guards: eviction used to walk insertion order, so
+    // once the initial catalogue was gone the previous search's results were
+    // the oldest entries and consecutive searches cannibalised each other. A
+    // real session lost `file-put` one search after fetching it and died
+    // refused. Two searches in a row must leave the second one's tools held.
+    f.replyCalls(["sys__tool_search", { q: "delete" }]);
+    await step(host, s);
+    const deleteTool = "act__builtin__document__entity-delete-document";
+    expect(Object.keys(s.tools)).toContain(deleteTool);
+
+    f.replyCalls(["sys__tool_search", { q: "listing" }]);
+    await step(host, s);
+
+    const held = Object.keys(s.tools);
+    expect(held.length).toBe(2);
+    // Both searches' finds are held. Under insertion order the second search
+    // would have evicted the first one's, because by then it was the oldest.
+    expect(held).toContain(deleteTool);
+    expect(held).toContain("act__builtin__document__entity-list-documents");
+  });
+
+  test("keeps a tool that was called over one that was only ever listed", async () => {
+    const { f, host } = seeded();
+    f.action("/builtin/document/entity-delete-document", { description: "document delete" });
+    const s = await createSession(host, "document", {
+      model: "m",
+      grant: DOCS_GRANT,
+      catalogue_cap: 2,
+    });
+    const [first, second] = Object.keys(s.tools);
+
+    // Use `first`, so it is the more recently touched of the two.
+    f.replyCalls([first, {}]);
+    await step(host, s);
+
+    f.replyCalls(["sys__tool_search", { q: "delete" }]);
+    await step(host, s);
+
+    // `second` was never called and is the stalest thing held, so it is what
+    // goes. Under the old insertion-order rule `first` would have gone instead,
+    // precisely because it was added first.
+    const held = Object.keys(s.tools);
+    expect(held).toContain(first);
+    expect(held).not.toContain(second);
   });
 
   test("is offered by default and can be switched off", async () => {

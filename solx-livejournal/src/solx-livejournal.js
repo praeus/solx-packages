@@ -304,7 +304,7 @@ const ICON_EXT_BY_CONTENT_TYPE = {
 function storeIcon(user, id, iconUrl) {
   if (!iconUrl) return null;
   try {
-    const resp = callExec("/builtin/web/http_request", { url: iconUrl, timeout_secs: 30 });
+    const resp = callExec("/builtin/web/http-request", { url: iconUrl, timeout_secs: 30 });
     if (!resp || resp.status < 200 || resp.status >= 300) {
       log("saveEntry: icon fetch failed for " + id + " (" + iconUrl + "): status=" + (resp && resp.status));
       return null;
@@ -312,7 +312,7 @@ function storeIcon(user, id, iconUrl) {
     const contentType = (resp.content_type || "").split(";")[0].trim().toLowerCase();
     const ext = ICON_EXT_BY_CONTENT_TYPE[contentType] || "jpg";
     const relPath = "files/docs/shared/lj-" + user + "-" + id + "-icon." + ext;
-    callExec("/builtin/file/file_put", { rel_path: relPath, content: resp.body, encoding: resp.body_encoding });
+    callExec("/builtin/file/file-put", { rel_path: relPath, content: resp.body, encoding: resp.body_encoding });
     return relPath;
   } catch (e) {
     log("saveEntry: icon download failed for " + id + ": " + String(e).slice(0, 200));
@@ -335,7 +335,7 @@ function saveEntry(entry, path, security) {
   const paras = entry.contents.paragraphs || [];
   const iconRelPath = storeIcon(entry.author, entry.id, entry.icon);
   if (iconRelPath) entry.contents.icon = iconRelPath;
-  callExec("/builtin/document/entity_save_document", {
+  callExec("/builtin/document/entity-save-document", {
     path: path,
     name: name,
     title: entry.title || "(untitled)",
@@ -409,7 +409,7 @@ function harvest(input) {
 
   let index = input.index;
   if (!index) {
-    const got = callExec("/builtin/env/get_env", { namespace: namespace, key: cursorKey });
+    const got = callExec("/builtin/env/get-env", { namespace: namespace, key: cursorKey });
     index = (got && got.value) || "/";
   }
   log("harvest: user=" + input.user + " starting at cursor=" + index + " max_pages=" + maxPages);
@@ -437,7 +437,7 @@ function harvest(input) {
     // Advance the cursor after every page, not at the end: a run killed
     // mid-way then resumes at the first page it has not finished.
     if (page.prev) {
-      callExec("/builtin/env/set_env", {
+      callExec("/builtin/env/set-env", {
         namespace: namespace, key: cursorKey, value: page.prev, persist: true
       });
       index = page.prev;

@@ -45,7 +45,7 @@ describe.skipIf(!built)("the built bundle", () => {
               result: { models: [{ name: "qwen3:4b", capabilities: ["tools"] }] },
             };
           }
-          return { success: true, result: { hits: [] } };
+          return { success: true, result: { items: [] } };
         },
       },
     };
@@ -61,10 +61,18 @@ describe.skipIf(!built)("the built bundle", () => {
     expect(el.shadowRoot!.innerHTML).not.toContain("needs a host that supplies one");
   });
 
-  test("renders the setup surface, because a session cannot start without it", () => {
+  test("renders the advanced toggle, collapsed, so setup stays reachable without cluttering the thread", () => {
     const html = el.shadowRoot!.innerHTML;
-    expect(html).toContain("Setup");
-    expect(html).toContain("Memory scope");
+    expect(html).toContain("Advanced");
+    expect(html).not.toContain("Memory scope");
+  });
+
+  test("reveals memory scope once the advanced section is expanded", async () => {
+    const buttons = Array.from(el.shadowRoot!.querySelectorAll("button"));
+    const advancedButton = buttons.find((b) => b.textContent?.includes("Advanced"));
+    advancedButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(el.shadowRoot!.innerHTML).toContain("Memory scope");
   });
 
   test("reaches its injected client", () => {

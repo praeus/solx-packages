@@ -84,7 +84,7 @@ export async function recallMemories(
   query: string | null,
 ): Promise<{ name: string; text: string }[]> {
   if (!memory || !memory.read) return [];
-  const r = await host.try<{ hits?: { name: string; title?: string; summary?: string }[] }>(
+  const r = await host.try<{ items?: { name: string; title?: string; summary?: string }[] }>(
     SEARCH_DOCS,
     compact({
       q: query,
@@ -93,8 +93,8 @@ export async function recallMemories(
       limit: memory.limit,
     }),
   );
-  if (!r.ok || !r.value || !Array.isArray(r.value.hits)) return [];
-  return r.value.hits
+  if (!r.ok || !r.value || !Array.isArray(r.value.items)) return [];
+  return r.value.items
     .map((h) => ({ name: h.name, text: h.summary || h.title || "" }))
     .filter((m) => m.text !== "");
 }
@@ -184,7 +184,7 @@ export async function resolveContext(
       entries = [r.value];
     } else if (spec?.query || spec?.path || spec?.typeRef) {
       const r = await host.try<{
-        hits?: { path: string; name: string; title?: string; summary?: string }[];
+        items?: { path: string; name: string; title?: string; summary?: string }[];
       }>(
         SEARCH_DOCS,
         compact({
@@ -194,8 +194,8 @@ export async function resolveContext(
           limit: clamp(spec.limit || cap, 1, cap),
         }),
       );
-      if (!r.ok || !r.value || !Array.isArray(r.value.hits)) continue;
-      entries = r.value.hits;
+      if (!r.ok || !r.value || !Array.isArray(r.value.items)) continue;
+      entries = r.value.items;
     } else {
       throw new Error("each context entry needs a ref, or a query/path/typeRef to search by");
     }
@@ -287,10 +287,13 @@ export interface ResolvedSkill {
  * are -- so the search is now a plain listing of the skills path and the
  * glob check below decides everything.
  *
- * The cost is one `entity-get-document` per candidate, because a search hit
- * carries no `contents` and the globs live in `contents.tools`. `alreadySeen`
- * is checked *before* the get, so only the first turn of a session pays it.
- * That is the reason to keep the skills path small.
+ * This used to cost one `entity-get-document` per candidate, because a search
+ * hit carried no `contents` and the globs live in `contents.tools`. Since
+ * commit `330197d` in solx-core, `search-documents` returns whole documents
+ * (`Page<Document>`), so the listing already has everything this needs and
+ * the follow-up reads are gone -- the search is now the only round-trip.
+ * Keep the skills path small anyway: every document under it is fetched in
+ * full by that one search, whether or not its globs end up matching.
  */
 export async function resolveSkills(
   host: Host,
@@ -299,25 +302,28 @@ export async function resolveSkills(
   alreadySeen: Record<string, boolean> | null,
 ): Promise<ResolvedSkill[]> {
   if (!skills || !skills.enabled || refs.length === 0) return [];
-  const hits = await host.try<{ hits?: { path: string; name: string }[] }>(
+  const page = await host.try<{
+    items?: {
+      path: string;
+      name: string;
+      title?: string;
+      contents?: Record<string, unknown>;
+    }[];
+  }>(
     SEARCH_DOCS,
     compact({ pathPrefix: skills.path, typeRef: SKILL_TYPE, limit: skills.limit }),
   );
-  if (!hits.ok || !hits.value || !Array.isArray(hits.value.hits)) return [];
+  if (!page.ok || !page.value || !Array.isArray(page.value.items)) return [];
 
   const out: ResolvedSkill[] = [];
   let budget = SKILL_TOTAL_CAP;
 
-  for (const hit of hits.value.hits) {
+  for (const hit of page.value.items) {
     const ref = refOf(hit.path, hit.name);
     if (alreadySeen && alreadySeen[ref]) continue;
 
-    const got = await host.try<{ title?: string; contents?: Record<string, unknown> }>(GET_DOC, {
-      path: hit.path,
-      name: hit.name,
-    });
-    if (!got.ok || !got.value || !got.value.contents) continue;
-    const c = got.value.contents;
+    const c = hit.contents;
+    if (!c) continue;
     const patterns = Array.isArray(c.tools) ? (c.tools as unknown[]) : [];
     const instructions = typeof c.instructions === "string" ? c.instructions : "";
     if (patterns.length === 0 || instructions === "") continue;
@@ -330,7 +336,7 @@ export async function resolveSkills(
     // skill after it in the listing.
     if (body.length > budget) continue;
     budget -= body.length;
-    out.push({ ref, title: got.value.title || hit.name, matched, instructions: body });
+    out.push({ ref, title: hit.title || hit.name, matched, instructions: body });
   }
   return out;
 }

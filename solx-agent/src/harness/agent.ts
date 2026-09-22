@@ -111,6 +111,11 @@ async function resolveTurnCatalogue(
   session.tools = cat.map;
   session.tool_labels = cat.labels;
   session.tools_dropped = cat.dropped;
+  // The whole catalogue enters at once, so every tool shares this turn's
+  // iteration. `toolSearch`'s eviction reads it alongside `calls` to drop the
+  // least-recently-touched tool rather than the one that happens to sort first.
+  session.tools_added = {};
+  for (const toolName of Object.keys(cat.map)) session.tools_added[toolName] = session.iteration;
 
   const refs = Object.keys(cat.map).map((n) => cat.map[n]);
   session.skills_seen = session.skills_seen || {};

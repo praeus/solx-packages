@@ -9,6 +9,7 @@ import {
   isQuiescent,
   readSession,
   summarize,
+  DELETE_DOC,
   LIST_MODELS,
   SEARCH_DOCS,
   SESSION_PATH,
@@ -89,6 +90,9 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
   // now-irrelevant loop and have it resume publishing into the wrong thread.
   const genRef = useRef(0);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  // Bumped by "Collapse all"; each TurnBlock folds its sections whenever this
+  // changes, regardless of its own individually-expanded state.
+  const [collapseSignal, setCollapseSignal] = useState(0);
   // Whether the thread was scrolled to (or near) the bottom the last time the
   // user touched it, so streamed updates don't yank someone back down while
   // they're reading up-thread.
@@ -100,11 +104,11 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
 
   const refreshSessions = useCallback(async (h: Host) => {
     try {
-      const r = await h.try<{ hits?: SessionSummary[] }>(SEARCH_DOCS, {
+      const r = await h.try<{ items?: SessionSummary[] }>(SEARCH_DOCS, {
         pathPrefix: SESSION_PATH,
         limit: 50,
       });
-      if (r.ok && r.value?.hits) setSessions(r.value.hits);
+      if (r.ok && r.value?.items) setSessions(r.value.items);
     } catch {
       /* history is a convenience; a failure here is not worth a banner */
     }
@@ -268,7 +272,13 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
   // generation (rather than flipping a shared flag) means nothing later can
   // accidentally resurrect this loop -- see `genRef` above.
   const stop = useCallback(() => {
+    // Bumping the generation orphans the in-flight loop's `run()` call, so
+    // its own `finally` will never clear `busy` (the guard there is by
+    // design -- an abandoned loop must not touch state belonging to
+    // whatever replaces it). Clear it here instead, immediately: nothing
+    // else will.
     genRef.current++;
+    setBusy(false);
   }, []);
 
   const openSession = useCallback((id: string) => {
@@ -290,6 +300,34 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
     setResult(null);
     setSessionId(null);
   }, []);
+
+  const deleteSession = useCallback(async () => {
+    if (!host || !sessionId) return;
+    const myGen = ++genRef.current;
+    setBusy(true);
+    setError(null);
+    try {
+      await host.call(DELETE_DOC, { path: SESSION_PATH, name: sessionId });
+    } catch (err) {
+      // Bail either way. A failed delete must not clear the thread, and a
+      // *superseded* failed delete must not touch state at all -- the
+      // generation it belonged to is gone, and whatever replaced it owns
+      // the widget now.
+      if (genRef.current === myGen) setError(err instanceof Error ? err.message : String(err));
+      return;
+    } finally {
+      if (genRef.current === myGen) setBusy(false);
+    }
+    // The delete landed, but only clear the thread if this is still the
+    // current generation: the person may have opened another session while
+    // the call was in flight, and that one is not the one that was deleted.
+    if (genRef.current !== myGen) return;
+    liveRef.current = null;
+    setSession(null);
+    setResult(null);
+    setSessionId(null);
+    void refreshSessions(host);
+  }, [host, sessionId, refreshSessions]);
 
 
   if (!client || !host) {
@@ -319,10 +357,9 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
         sessions={sessions}
         onOpenSession={openSession}
         onNewSession={newSession}
+        onDeleteSession={deleteSession}
         busy={busy}
       />
-
-      <SetupPanel setup={setup} onChange={setSetup} live={!!sessionId} />
 
       <div
         ref={threadRef}
@@ -351,6 +388,7 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
             turn={turn}
             live={running && i === turns.length - 1 && !awaitingApproval}
             defaultExpanded={i === turns.length - 1}
+            collapseSignal={collapseSignal}
           />
         ))}
         {awaitingApproval && <ApprovalCard pending={pending} busy={busy} onDecide={decide} />}
@@ -381,6 +419,18 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
         onSend={send}
         onStop={stop}
       />
+
+      {turns.length > 0 && (
+        <button
+          onClick={() => setCollapseSignal((v) => v + 1)}
+          className="muted"
+          style={{ alignSelf: "flex-start", background: "none", border: "none", padding: 0, fontSize: 11 }}
+        >
+          Collapse all
+        </button>
+      )}
+
+      <SetupPanel setup={setup} onChange={setSetup} live={!!sessionId} />
     </div>
   );
 }

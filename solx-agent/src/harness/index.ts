@@ -41,6 +41,14 @@ export type { DriveHandlers, DriveOptions } from "./loop";
 export { step, summarize } from "./turn";
 export { loadSession, saveSession } from "./session";
 export { normalizeAllow, permitted } from "./gate";
-export { LIST_MODELS, SEARCH_DOCS, SESSION_PATH, SESSION_TYPE } from "./refs";
+export {
+  DEFAULT_CATALOGUE_CAP,
+  DEFAULT_MAX_ITERATIONS,
+  DELETE_DOC,
+  LIST_MODELS,
+  SEARCH_DOCS,
+  SESSION_PATH,
+  SESSION_TYPE,
+} from "./refs";
 
 export * from "./types";

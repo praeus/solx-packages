@@ -3,8 +3,11 @@ import { useState, type KeyboardEvent } from "react";
 /**
  * The message box.
  *
- * Enabled whenever nothing is in flight -- including after `idle`, which
- * means the model handed the turn back rather than that the session ended.
+ * The textarea itself is never disabled -- you can draft or paste a message
+ * at any time, including while a turn is running. `disabled` only gates
+ * *sending*: it holds off submission (Enter or the button) while a turn is
+ * in flight or an approval is pending, so the draft is simply queued in the
+ * box until it's safe to send.
  *
  * Stop lands *between* iterations, so it may take a moment: the loop only
  * checks once the in-flight model call returns. There is nothing to force,
@@ -48,7 +51,6 @@ export function Composer({
         rows={2}
         value={draft}
         placeholder={placeholder}
-        disabled={disabled}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
       />

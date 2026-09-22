@@ -4,6 +4,8 @@
   "description": "LiveJournal extraction for solx-core - one quickjs wasm component backing three actions that drive the logged-in Firefox session and write BlogPostWithComments documents",
   "allowed_base_urls": [
     "https://l-userpic.livejournal.com/",
-    "https://l-userpic.livejournal.net/"
+    "https://l-userpic.livejournal.net/",
+    "https://l-stat.livejournal.com/",
+    "https://l-stat.livejournal.net/"
   ]
 }

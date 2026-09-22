@@ -99,6 +99,74 @@ export interface Catalogue {
 }
 
 /**
+ * One catalogue search, with a per-term retry when the phrase matched nothing.
+ *
+ * `fts_match_query` in solx-docs turns each whitespace-separated term into
+ * `"term"*` and **ANDs** them, so a phrase only matches an action whose text
+ * contains every word. Measured against a real catalogue: `file` returns 16,
+ * `store` 7, `write` 8 -- and `file store write` returns 0. A model driving
+ * `sys__tool_search` writes phrases, not keywords, so the AND made tool
+ * discovery fail exactly when it was needed most: a session that had run out
+ * of catalogue would search, match nothing, and start guessing tool names.
+ *
+ * The widening lives here rather than in `fts_match_query` because AND is the
+ * right default for document search, where precision matters. `resolveSkills`
+ * reached the same conclusion from the other side and dropped `q` entirely.
+ *
+ * Only a *zero* result triggers the retry. A phrase that matched something
+ * matched it precisely, and that ranking is better than anything merging can
+ * reconstruct. The merge is round-robin by rank, not term-by-term, so each
+ * term contributes its best matches before any term contributes its worst --
+ * otherwise `cap` would be filled by the first word alone.
+ */
+async function searchRows(
+  host: Host,
+  query: string | null,
+  pathPrefix: string | null,
+): Promise<ActionRow[]> {
+  const once = async (q: string | null): Promise<ActionRow[]> => {
+    const page = await host.try<{ items?: ActionRow[] }>(
+      SEARCH_ACTIONS,
+      // `q` is omitted rather than nulled when there is no query -- see
+      // `compact`. A null there fails schema validation and the whole search
+      // errors, which is how a no-query fallback silently resolves to nothing.
+      compact({ q, pathPrefix, limit: SEARCH_FETCH, excludeHidden: true }),
+    );
+    return page.ok && page.value && Array.isArray(page.value.items) ? page.value.items : [];
+  };
+
+  const rows = await once(query);
+  if (rows.length > 0 || !query) return rows;
+
+  const terms = query
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\p{L}\p{N}_-]/gu, ""))
+    .filter((t) => t.length > 1);
+  if (terms.length < 2) return rows;
+
+  const perTerm: ActionRow[][] = [];
+  for (const t of terms) perTerm.push(await once(t));
+
+  const merged: ActionRow[] = [];
+  const taken: Record<string, boolean> = {};
+  for (let rank = 0; merged.length < SEARCH_FETCH; rank++) {
+    let anyLeft = false;
+    for (const rowsForTerm of perTerm) {
+      if (rank >= rowsForTerm.length) continue;
+      anyLeft = true;
+      const a = rowsForTerm[rank];
+      const ref = refOf(a.path, a.name);
+      if (taken[ref]) continue;
+      taken[ref] = true;
+      merged.push(a);
+      if (merged.length >= SEARCH_FETCH) break;
+    }
+    if (!anyLeft) break;
+  }
+  return merged;
+}
+
+/**
  * Resolve the tools a turn may use: one search per grant prefix, filtered by
  * the gate, capped, and turned into Ollama tool definitions.
  *
@@ -132,21 +200,9 @@ export async function resolveCatalogue(
     // pattern over a large registry can come back short. That is the same
     // truncation `tools_dropped` already reports for the cap, and the query
     // does the real selecting in practice.
-    const page = await host.try<{ items?: ActionRow[] }>(
-      SEARCH_ACTIONS,
-      // `q` is omitted rather than nulled when there is no query -- see
-      // `compact`. A null there fails schema validation and the whole search
-      // errors, which is how a no-query fallback silently resolves to nothing.
-      compact({
-        q: query,
-        pathPrefix: isGlob(rule.path) ? null : rule.path,
-        limit: SEARCH_FETCH,
-        excludeHidden: true,
-      }),
-    );
-    if (!page.ok || !page.value || !Array.isArray(page.value.items)) continue;
+    const rows = await searchRows(host, query, isGlob(rule.path) ? null : rule.path);
 
-    for (const a of page.value.items) {
+    for (const a of rows) {
       const ref = refOf(a.path, a.name);
       if (seen[ref]) continue;
       seen[ref] = true;

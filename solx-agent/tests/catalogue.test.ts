@@ -92,6 +92,35 @@ describe("resolveCatalogue", () => {
     expect(Object.values(cat.map)).not.toContain("/builtin/document/search-documents");
   });
 
+  test("retries term by term when a phrase ANDs to nothing", async () => {
+    // fakeHost.ts's `matches` ANDs every whitespace-separated term, the same
+    // as solx-docs' real FTS -- so a phrase naming several actions at once
+    // (none of which contain every word) matches nothing on its own, exactly
+    // as it did in the live session that motivated this: `q: "type schema
+    // get"` returned zero although `type`, `schema` and `get` each matched
+    // real tools individually.
+    const { f, host } = seeded();
+    f.action("/builtin/document/entity-get-document", { description: "fetch a stored document" });
+    f.action("/builtin/type/entity-get-type", { description: "fetch a stored schema entry" });
+    const cat = await resolveCatalogue(host, "document schema fetch", DOCS_GRANT, 10, null);
+    // Nothing in the fixture contains all three words, so the direct search
+    // (asserted below) is empty and only the per-term retry can find these.
+    expect(Object.values(cat.map)).toContain("/builtin/document/entity-get-document");
+
+    const calls = f.refsCalled("/builtin/action/search-actions");
+    expect(calls[0].params.q).toBe("document schema fetch");
+    expect(calls.length).toBeGreaterThan(1);
+  });
+
+  test("a phrase that already matched something is not retried", async () => {
+    const { f, host } = seeded();
+    await resolveCatalogue(host, "document", DOCS_GRANT, 10, null);
+    // A single term has nothing to retry against, and a phrase that matched
+    // is precise -- retrying would just add noise to a ranking that was
+    // already right. One search, not four.
+    expect(f.refsCalled("/builtin/action/search-actions").length).toBe(1);
+  });
+
   test("a tool name is readable, and resolved through the map rather than parsed", async () => {
     expect(encodeToolName("/builtin/document", "search-documents")).toBe(
       "act__builtin__document__search-documents",

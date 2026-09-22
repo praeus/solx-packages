@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { summariseTurn, type RenderedTurn } from "../transcript";
 import { ToolCallCard } from "./ToolCallCard";
 
@@ -16,18 +16,34 @@ export function TurnBlock({
   turn,
   live,
   defaultExpanded,
+  collapseSignal,
 }: {
   turn: RenderedTurn;
   live: boolean;
   /** The newest turn stays open: it is what was just watched, and when a turn
    *  suspends for approval its work is the context for that decision. */
   defaultExpanded: boolean;
+  /** Bumped by "Collapse all" -- any change folds this turn's sections. */
+  collapseSignal?: number;
 }) {
   // Null until the reader says otherwise, so the default can keep changing as
   // newer turns arrive without overriding a deliberate collapse.
   const [override, setOverride] = useState<boolean | null>(null);
+  const [answerOverride, setAnswerOverride] = useState<boolean | null>(null);
   const showWork = live || (override ?? defaultExpanded);
+  const showAnswer = answerOverride ?? defaultExpanded;
   const hasWork = turn.iterations.length > 0;
+
+  // Only react to an actual change in the signal -- not to its initial value
+  // on mount, which would collapse a freshly-opened newest turn.
+  const prevSignal = useRef(collapseSignal);
+  useEffect(() => {
+    if (collapseSignal !== prevSignal.current) {
+      prevSignal.current = collapseSignal;
+      setOverride(false);
+      setAnswerOverride(false);
+    }
+  }, [collapseSignal]);
 
   return (
     <div className="col" style={{ gap: 6 }}>
@@ -73,9 +89,6 @@ export function TurnBlock({
           {showWork &&
             turn.iterations.map((iteration) => (
               <div key={iteration.index} className="col" style={{ gap: 4 }}>
-                <div className="faint" style={{ fontSize: 11 }}>
-                  iteration {iteration.index}
-                </div>
                 {iteration.narration && (
                   <div style={{ whiteSpace: "pre-wrap" }}>{iteration.narration}</div>
                 )}
@@ -88,11 +101,23 @@ export function TurnBlock({
       )}
 
       {turn.answer !== null && (
-        <div style={{ maxWidth: "95%", whiteSpace: "pre-wrap" }}>
-          {turn.answer.trim() === "" ? (
-            <span className="faint">(ended the turn without saying anything)</span>
-          ) : (
-            turn.answer
+        <div className="col" style={{ gap: 4, maxWidth: "95%" }}>
+          <button
+            onClick={() => setAnswerOverride(!showAnswer)}
+            style={{ background: "none", border: "none", padding: 0, textAlign: "left" }}
+          >
+            <span className="muted" style={{ fontSize: 11 }}>
+              {showAnswer ? "▾" : "▸"} agent response
+            </span>
+          </button>
+          {showAnswer && (
+            <div style={{ whiteSpace: "pre-wrap" }}>
+              {turn.answer.trim() === "" ? (
+                <span className="faint">(ended the turn without saying anything)</span>
+              ) : (
+                turn.answer
+              )}
+            </div>
           )}
         </div>
       )}

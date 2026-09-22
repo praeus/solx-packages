@@ -146,6 +146,12 @@ export interface Session {
   tools: Record<string, string>;
   /** Tool name -> human-readable label, for the transcript only. */
   tool_labels: Record<string, string>;
+  /**
+   * Tool name -> the iteration it entered the catalogue. Read with `calls` to
+   * order eviction by least-recently-touched; absent on sessions written
+   * before it existed, which reads as "oldest" and is the right default.
+   */
+  tools_added?: Record<string, number>;
   tools_defs: ToolDef[];
   tools_dropped: number;
   catalogue_cap: number;

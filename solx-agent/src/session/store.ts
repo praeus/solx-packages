@@ -1,3 +1,4 @@
+import { DEFAULT_CATALOGUE_CAP, DEFAULT_MAX_ITERATIONS } from "../harness";
 import type { AllowEntry } from "../harness";
 
 /**
@@ -102,8 +103,11 @@ export const DEFAULT_SETUP: SetupPrefs = {
   grant: DEFAULT_GRANT,
   memoryScope: "",
   system: DEFAULT_PREAMBLE,
-  maxIterations: 12,
-  catalogueCap: 16,
+  // Deliberately the harness's own defaults rather than copies: these drifted
+  // once already, and a widget that disagrees with the harness about the
+  // catalogue cap is the hardest kind of mismatch to notice.
+  maxIterations: DEFAULT_MAX_ITERATIONS,
+  catalogueCap: DEFAULT_CATALOGUE_CAP,
   toolSearch: true,
 };
 

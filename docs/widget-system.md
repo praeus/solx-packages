@@ -270,6 +270,29 @@ widget package needs:
 `solx-widgets` itself is never added to `reinstall-all.sh` — it has nothing
 to install.
 
+## Developing a widget with auto-reload
+
+`npm run dev` in a widget package (e.g. `solx-agent`) runs
+`solx-widgets/scripts/watch-and-install.mjs`: it starts `vite build --watch`
+and, on every rebuild, re-runs `solx install-package .` to re-upload the
+bundle and re-register the action — the same upsert-based command
+`reinstall-all.sh` already uses per package, just triggered automatically
+instead of by hand.
+
+On the `solx-web` side (`bun run dev`), `WidgetPanel` polls the mounted
+widget's bundle (dev builds only, via `import.meta.env.DEV`) and reloads the
+page when the bytes change. This is a full page reload, not a scoped
+remount: `defineReactWidget` calls `customElements.define(tagName, ...)`
+once per tag, and the browser will never let a second definition replace the
+first, so there is no way to pick up a rebuilt bundle for an already-mounted
+tag other than reloading. In-widget React state does not survive a save —
+functionally the same as manually refreshing, just automatic. See
+`solx-widgets/src/host/devReload.ts` for the polling loop.
+
+So: edit a widget's source, save, and within a couple of seconds the open
+`solx-web` tab reloads with the change — no manual rebuild, reinstall, or
+refresh.
+
 ## Testing a widget bundle without a browser
 
 There's no browser-automation tool wired into this environment. A jsdom

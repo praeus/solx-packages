@@ -6,6 +6,7 @@
   "description": "A supervised agent thread over the solx action catalogue: a React UI wrapped as a self-mounting custom element, with the agent harness itself in the bundle.",
   "scripts": {
     "build": "vite build",
+    "dev": "node ../solx-widgets/scripts/watch-and-install.mjs .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

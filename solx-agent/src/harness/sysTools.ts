@@ -119,7 +119,14 @@ export function sysToolDefs(session: Session): ToolDef[] {
           type: "object",
           required: ["q"],
           properties: {
-            q: { type: "string", description: "What you need a tool for." },
+            q: {
+              type: "string",
+              // A phrase works -- `resolveCatalogue` retries term by term when
+              // one matches nothing -- but a single keyword ranks better,
+              // because then the ranking is the engine's rather than a merge of
+              // several searches.
+              description: "What you need a tool for. One or two keywords beat a sentence.",
+            },
             limit: { type: "integer", description: "How many to add at most." },
           },
         },
@@ -177,14 +184,15 @@ export async function toolSearch(
   const names = Object.keys(session.tools || {});
   for (const n of names) known[session.tools[n]] = true;
 
-  const budget = Math.max(0, (session.catalogue_cap || DEFAULT_CATALOGUE_CAP) - names.length);
-  if (budget === 0) {
-    return {
-      outcome: "ok",
-      content: "no room for more tools; you already hold the maximum for this session",
-    };
-  }
-  const want = clamp((args.limit as number) || budget, 1, budget);
+  const cap = session.catalogue_cap || DEFAULT_CATALOGUE_CAP;
+  const budget = Math.max(0, cap - names.length);
+  // A full catalogue is not a dead end. The cap is a token budget, not a
+  // security boundary (the grant is), so a search may still *replace* a held
+  // tool: resolve matches, then evict the least-recently-touched to make room.
+  // `want` is the whole cap when there is no budget left, because the search
+  // itself is relevance-ranked and a targeted query typically returns only a
+  // few hits anyway.
+  const want = clamp((args.limit as number) || (budget > 0 ? budget : cap), 1, cap);
   const q = (args.q as string) || null;
   const cat = await resolveCatalogue(host, q, session.grant, want, known);
   if (cat.tools.length === 0) {
@@ -213,16 +221,67 @@ export async function toolSearch(
   }
 
   const addedRefs: string[] = [];
+  session.tools_added = session.tools_added || {};
   for (const toolName of Object.keys(cat.map)) {
     session.tools[toolName] = cat.map[toolName];
+    session.tools_added[toolName] = session.iteration;
     addedRefs.push(cat.map[toolName]);
   }
   session.tools_defs = (session.tools_defs || []).concat(cat.tools);
   session.tools_dropped = (session.tools_dropped || 0) + cat.dropped;
 
+  // Evict when the additions pushed past the cap, so a full catalogue still
+  // lets a search swap in a more relevant tool. Sys tools are never in
+  // `session.tools`, so they are untouched.
+  //
+  // Least-recently-*touched* wins, where touched means added or called.
+  // Insertion order was the obvious rule and it was wrong: once the turn's
+  // initial catalogue had been evicted, consecutive searches began
+  // cannibalising each other, because the previous search's results were then
+  // the oldest entries. A real session did exactly that -- `q:"file"` fetched
+  // `file-put`, `q:"save"` evicted it, and the run died refused when it went
+  // to write its source. Scoring by last touch fixes it without a special
+  // case: a tool added by this very search carries the current iteration, so
+  // it sorts last and cannot be evicted to make room for itself.
+  const evicted: string[] = [];
+  const held = Object.keys(session.tools);
+  if (held.length > cap) {
+    const touched: Record<string, number> = {};
+    held.forEach((tn, i) => {
+      // The fractional index keeps ties in insertion order, and stands in for
+      // the iteration on sessions written before `tools_added` existed.
+      touched[tn] = (session.tools_added || {})[tn] ?? i / held.length;
+    });
+    for (const call of session.calls || []) {
+      if (touched[call.name] !== undefined) {
+        touched[call.name] = Math.max(touched[call.name], call.iteration || 0);
+      }
+    }
+
+    const over = held.length - cap;
+    const victims = held.slice().sort((a, b) => touched[a] - touched[b]).slice(0, over);
+    for (const tn of victims) {
+      delete session.tools[tn];
+      if (session.tools_added) delete session.tools_added[tn];
+      evicted.push(tn);
+    }
+    if (evicted.length > 0) {
+      const evictSet = new Set(evicted);
+      session.tools_defs = (session.tools_defs || []).filter(
+        (d) => !evictSet.has(d.function.name),
+      );
+    }
+  }
+
   let text =
     "Now available to you:\n" +
     cat.tools.map((t) => "- " + t.function.name + " - " + t.function.description).join("\n");
+  if (evicted.length > 0) {
+    text +=
+      "\n\nTo make room, these were dropped from the catalogue (search again to " +
+      "bring one back): " +
+      evicted.join(", ");
+  }
 
   // Skills covering the new tools ride back in the tool result, so nothing
   // has to splice a system turn into the middle of a transcript.

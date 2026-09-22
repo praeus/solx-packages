@@ -6,9 +6,12 @@
  *
  * It is the check the fake host cannot make. `tests/fakeHost.ts` mirrors
  * solx-core's behaviour *as it was read out of the source* -- the camelCase
- * query keys, `typeRef` required on create, search hits carrying no contents,
- * the `not found` error text. If any of those changes, every other test here
- * keeps passing and the package breaks. This one would notice.
+ * query keys, `typeRef` required on create, search returning whole documents
+ * under `items`, the `not found` error text. If any of those changes, every
+ * other test here keeps passing and the package breaks. This one would
+ * notice -- and it is worth noting it did not: the `SearchHit` -> `Document`
+ * change landed while this test was skipped, which is how the now-removed
+ * per-skill `entity-get-document` survived as long as it did.
  *
  * ```sh
  * solx-server --port 8791 &

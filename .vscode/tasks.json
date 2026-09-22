@@ -1,0 +1,59 @@
+{
+  // VS Code tasks for solx-packages.
+  //
+  // Most packages here have a build step whose artifact `install.solx` stages
+  // into the file store (a `dist/` bundle, a `bin/*.wasm`, or a
+  // `target/release/*.exe`). The recurring trap is doing the build but
+  // forgetting the `install-package` that re-stages the artifact — the
+  // running server keeps serving the old build. These tasks pair the two.
+  //
+  // `solx: build+install solx-agent` is the one to reach for when editing
+  // solx-agent: it rebuilds the widget bundle and re-upserts it (plus the
+  // action/types/skills, all idempotent) in one Run Task.
+  //
+  // Pre-reqs:
+  //   - `solx` on PATH (or edit the install task's command to the absolute
+  //     path), and solx-server running (the CLI auto-resolves it).
+
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "solx: build solx-agent",
+      "type": "shell",
+      "command": "bun",
+      "args": ["run", "build"],
+      "options": {
+        "cwd": "${workspaceFolder}/solx-agent"
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "bun run build inside solx-agent — tsc --noEmit && vite build → dist/solx-agent.js"
+    },
+
+    {
+      "label": "solx: install solx-agent",
+      "type": "shell",
+      "command": "solx",
+      "args": ["install-package", "D:\\Projects\\solx-packages\\solx-agent"],
+      "detail": "Re-stage solx-agent's widget bundle (and action/types/skills, all upserts) into the file store. Requires solx-server running."
+    },
+
+    {
+      "label": "solx: build+install solx-agent",
+      "dependsOn": ["solx: build solx-agent", "solx: install solx-agent"],
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "detail": "Rebuild the solx-agent widget bundle and re-stage it into the file store."
+    },
+
+    {
+      "label": "solx: reinstall all",
+      "type": "shell",
+      "command": "bash",
+      "args": ["scripts/reinstall-all.sh"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "detail": "Run scripts/reinstall-all.sh — reinstalls every package in dependency order. Requires solx on PATH and solx-server running."
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { OllamaModel, SessionStatus } from "../harness";
 
 /** How each status reads to someone watching. */
@@ -32,6 +32,7 @@ export function Header({
   sessions,
   onOpenSession,
   onNewSession,
+  onDeleteSession,
   busy,
 }: {
   models: OllamaModel[];
@@ -46,10 +47,19 @@ export function Header({
   sessions: SessionSummary[];
   onOpenSession: (id: string) => void;
   onNewSession: () => void;
+  onDeleteSession: () => void;
   busy: boolean;
 }) {
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const badge = status ? STATUS_LABEL[status] : null;
+
+  // Disarm whenever the session changes, by any route -- the select below,
+  // the New button, or the widget switching sessions on its own. The confirm
+  // pair is hidden while `sessionId` is null rather than unmounted-and-reset,
+  // so without this an armed Delete from a previous session comes back
+  // already armed over the next one, and a single click deletes the wrong
+  // thread.
+  useEffect(() => setConfirmDelete(false), [sessionId]);
 
   return (
     <div className="col" style={{ gap: 5 }}>
@@ -79,12 +89,46 @@ export function Header({
             style={{ flex: 1, minWidth: 0 }}
           />
         )}
-        <button onClick={() => setHistoryOpen((v) => !v)} disabled={busy}>
-          History
-        </button>
-        <button onClick={onNewSession} disabled={busy}>
-          New
-        </button>
+
+        <select
+          value={sessionId ?? ""}
+          onChange={(e) => {
+            const id = e.target.value;
+            setConfirmDelete(false);
+            if (id) onOpenSession(id);
+            else onNewSession();
+          }}
+          disabled={busy}
+          title="Switch session"
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          <option value="">— New session —</option>
+          {sessions.map((s) => (
+            <option key={s.name} value={s.name}>
+              {s.title || s.name}
+            </option>
+          ))}
+        </select>
+
+        {sessionId &&
+          (confirmDelete ? (
+            <span className="row" style={{ gap: 4 }}>
+              <button onClick={() => { setConfirmDelete(false); onDeleteSession(); }} disabled={busy}>
+                Confirm
+              </button>
+              <button onClick={() => setConfirmDelete(false)} disabled={busy}>
+                Keep
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              disabled={busy}
+              title="Delete this session"
+            >
+              Delete
+            </button>
+          ))}
       </div>
 
       <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -103,38 +147,6 @@ export function Header({
           </span>
         )}
       </div>
-
-      {historyOpen && (
-        <div
-          className="col"
-          style={{
-            gap: 3,
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: 6,
-            maxHeight: 180,
-            overflowY: "auto",
-            background: "var(--bg-raised)",
-          }}
-        >
-          {sessions.length === 0 && <span className="faint" style={{ fontSize: 11 }}>No sessions yet.</span>}
-          {sessions.map((s) => (
-            <button
-              key={s.name}
-              onClick={() => {
-                setHistoryOpen(false);
-                onOpenSession(s.name);
-              }}
-              style={{ background: "none", border: "none", textAlign: "left", padding: "3px 0" }}
-            >
-              <span className="col" style={{ gap: 1 }}>
-                <span style={{ fontSize: 12 }}>{s.title || s.name}</span>
-                <span className="faint" style={{ fontSize: 11 }}>{s.name}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

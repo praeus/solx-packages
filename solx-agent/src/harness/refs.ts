@@ -18,6 +18,7 @@ export const GET_TYPE = "/builtin/type/entity-get-type";
 export const SAVE_DOC = "/builtin/document/entity-save-document";
 export const GET_DOC = "/builtin/document/entity-get-document";
 export const SEARCH_DOCS = "/builtin/document/search-documents";
+export const DELETE_DOC = "/builtin/document/entity-delete-document";
 
 /**
  * Every document this package owns lives under one root. Grouping by owner
@@ -38,11 +39,29 @@ export const SKILL_TYPE = "/packages/solx-agent/AgentSkill";
  * Every tool definition is prompt tokens on every iteration, so the catalogue
  * is resolved from a task query and then capped. A 4B model drowns long
  * before it runs out of context.
+ *
+ * 16 was tuned for that 4B case and is too tight for anything larger: a stock
+ * install already exposes ~44 actions, so a session *started* saturated and
+ * every tool it later needed had to displace one it held. That is what put
+ * `sys__tool_search` and its eviction on the critical path of every task, and
+ * both had bugs that only a saturated catalogue could expose. 32 clears a
+ * stock install with room to work while still being a budget.
+ *
+ * The real fix is to scale this with the model's context -- a large model
+ * should simply hold the whole catalogue and never search at all. Until that
+ * exists, a small local model wants this lowered in Setup.
  */
-export const DEFAULT_CATALOGUE_CAP = 16;
+export const DEFAULT_CATALOGUE_CAP = 32;
 export const SEARCH_FETCH = 50;
 
-export const DEFAULT_MAX_ITERATIONS = 12;
+/**
+ * 12 was below the floor for anything that *builds* something. Writing a
+ * JavaScript action is: find tools, read two parameter schemas, save a type,
+ * `file-put` the source, build the wasm, run it, save the results, verify --
+ * about twelve steps with no missteps at all, and a turn that spends two of
+ * them recovering from one bad parameter has already lost.
+ */
+export const DEFAULT_MAX_ITERATIONS = 24;
 /** Consecutive iterations where every dispatch failed. */
 export const MAX_CONSECUTIVE_FAILURES = 3;
 

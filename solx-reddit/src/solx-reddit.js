@@ -310,7 +310,7 @@ const ICON_EXT_BY_CONTENT_TYPE = {
 function storeIcon(subreddit, id, iconUrl) {
   if (!iconUrl) return null;
   try {
-    const resp = callExec("/builtin/web/http_request", { url: iconUrl, timeout_secs: 30 });
+    const resp = callExec("/builtin/web/http-request", { url: iconUrl, timeout_secs: 30 });
     if (!resp || resp.status < 200 || resp.status >= 300) {
       log("saveEntry: icon fetch failed for " + id + " (" + iconUrl + "): status=" + (resp && resp.status));
       return null;
@@ -318,7 +318,7 @@ function storeIcon(subreddit, id, iconUrl) {
     const contentType = (resp.content_type || "").split(";")[0].trim().toLowerCase();
     const ext = ICON_EXT_BY_CONTENT_TYPE[contentType] || "jpg";
     const relPath = "files/docs/shared/reddit-" + subreddit + "-" + id + "-icon." + ext;
-    callExec("/builtin/file/file_put", { rel_path: relPath, content: resp.body, encoding: resp.body_encoding });
+    callExec("/builtin/file/file-put", { rel_path: relPath, content: resp.body, encoding: resp.body_encoding });
     return relPath;
   } catch (e) {
     log("saveEntry: icon download failed for " + id + ": " + String(e).slice(0, 200));
@@ -344,7 +344,7 @@ function saveEntry(entry, path) {
   const paras = entry.contents.paragraphs || [];
   const iconRelPath = storeIcon(entry.subreddit, entry.id, entry.icon);
   if (iconRelPath) entry.contents.icon = iconRelPath;
-  callExec("/builtin/document/entity_save_document", {
+  callExec("/builtin/document/entity-save-document", {
     path: path,
     name: name,
     title: entry.title || "(untitled)",

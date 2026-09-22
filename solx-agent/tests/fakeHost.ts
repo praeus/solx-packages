@@ -16,7 +16,9 @@
  *     (solx-surface/src/entities.rs). It was snake_case before commit
  *     `3974d0b`, so a stale binary will disagree; check the source, not a
  *     running server.
- *   - `search-documents` hits carry no contents, only {path,name,title,summary}
+ *   - `search-documents` returns whole documents (`Page<Document>`, contents
+ *     included, no `score`). It returned shallow hits before commit `330197d`,
+ *     so a stale binary will disagree; check the source, not a running server.
  *   - `search-actions` takes camelCase `pathPrefix`/`excludeHidden`
  *   - `entity-get-action` reports a hidden action as not-found
  *   - a missing document reports `not found: ...`, which `sessionNameTaken`
@@ -232,9 +234,13 @@ export class FakeHost implements ExecClient {
       }
 
       case "/builtin/document/search-documents": {
-        // Hits are shallow: no contents. That is what makes the memory design
-        // (text in `summary`) cheap and the skill design (a get per hit) not.
-        const hits = [...this.docs.values()]
+        // A page of whole documents, `contents` included and no `score` --
+        // `DocManager::search` returns `Page<Document>` through the same
+        // `row_to_doc` as `get`/`list` (solx-docs/src/lib.rs). It used to
+        // return shallow `SearchHit`s, which is why anything here that still
+        // reads a hit with a follow-up `entity-get-document` is paying for a
+        // round-trip it no longer needs.
+        const items = [...this.docs.values()]
           .filter((d) => underPrefix(d.path, p.pathPrefix as string))
           .filter((d) => !p.typeRef || d.typeRef === p.typeRef)
           .filter((d) =>
@@ -248,9 +254,9 @@ export class FakeHost implements ExecClient {
             title: d.title,
             summary: d.summary,
             typeRef: d.typeRef,
-            score: 1,
+            contents: d.contents,
           }));
-        return ok({ hits, total: hits.length, limit: (p.limit as number) ?? 20, offset: 0 });
+        return ok({ items, total: items.length, limit: (p.limit as number) ?? 20, offset: 0 });
       }
 
       case "/packages/solx-ollama/ollama-chat": {

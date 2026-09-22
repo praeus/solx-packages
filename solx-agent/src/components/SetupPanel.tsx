@@ -25,8 +25,7 @@ export function SetupPanel({
   /** True once a session exists: seeded-at-creation fields lock. */
   live: boolean;
 }) {
-  const [open, setOpen] = useState(!live);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [open, setOpen] = useState(false);
 
   return (
     <div
@@ -44,7 +43,7 @@ export function SetupPanel({
         style={{ background: "none", border: "none", padding: 0, textAlign: "left" }}
       >
         <span className="row" style={{ gap: 6 }}>
-          <span className="muted">{open ? "▾" : "▸"} Setup</span>
+          <span className="muted">{open ? "▾" : "▸"} Advanced</span>
           {setup.memoryScope && <span className="chip">memory: {setup.memoryScope}</span>}
         </span>
       </button>
@@ -64,67 +63,54 @@ export function SetupPanel({
             />
           </label>
 
-          <button
-            onClick={() => setShowAdvanced((v) => !v)}
-            style={{ background: "none", border: "none", padding: 0, textAlign: "left" }}
-          >
+          <label className="col" style={{ gap: 3 }}>
             <span className="muted" style={{ fontSize: 11 }}>
-              {showAdvanced ? "▾" : "▸"} Advanced
+              Instructions — the harness adds no base prompt, so this plus any
+              skills that load is the whole framing the model gets.
+              {live && " Already sent for this session; applies to the next one."}
             </span>
-          </button>
-
-          {showAdvanced && (
-            <div className="col" style={{ gap: 6 }}>
-              <label className="col" style={{ gap: 3 }}>
-                <span className="muted" style={{ fontSize: 11 }}>
-                  Instructions — the harness adds no base prompt, so this plus any
-                  skills that load is the whole framing the model gets.
-                  {live && " Already sent for this session; applies to the next one."}
-                </span>
-                <textarea
-                  rows={6}
-                  value={setup.system}
-                  disabled={live}
-                  onChange={(e) => onChange({ ...setup, system: e.target.value })}
-                />
-              </label>
-              <div className="row" style={{ gap: 6 }}>
-                <label className="col" style={{ gap: 3, flex: 1 }}>
-                  <span className="muted" style={{ fontSize: 11 }}>Iterations per turn</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={setup.maxIterations}
-                    onChange={(e) =>
-                      onChange({ ...setup, maxIterations: Number(e.target.value) || 12 })
-                    }
-                  />
-                </label>
-                <label className="col" style={{ gap: 3, flex: 1 }}>
-                  <span className="muted" style={{ fontSize: 11 }}>Catalogue cap</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={setup.catalogueCap}
-                    onChange={(e) =>
-                      onChange({ ...setup, catalogueCap: Number(e.target.value) || 16 })
-                    }
-                  />
-                </label>
-              </div>
-              <label className="row" style={{ gap: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={setup.toolSearch}
-                  onChange={(e) => onChange({ ...setup, toolSearch: e.target.checked })}
-                  style={{ width: "auto" }}
-                />
-                <span className="muted" style={{ fontSize: 11 }}>
-                  Let the model search for more tools
-                </span>
-              </label>
-            </div>
-          )}
+            <textarea
+              rows={6}
+              value={setup.system}
+              disabled={live}
+              onChange={(e) => onChange({ ...setup, system: e.target.value })}
+            />
+          </label>
+          <div className="row" style={{ gap: 6 }}>
+            <label className="col" style={{ gap: 3, flex: 1 }}>
+              <span className="muted" style={{ fontSize: 11 }}>Iterations per turn</span>
+              <input
+                type="number"
+                min={1}
+                value={setup.maxIterations}
+                onChange={(e) =>
+                  onChange({ ...setup, maxIterations: Number(e.target.value) || 12 })
+                }
+              />
+            </label>
+            <label className="col" style={{ gap: 3, flex: 1 }}>
+              <span className="muted" style={{ fontSize: 11 }}>Catalogue cap</span>
+              <input
+                type="number"
+                min={1}
+                value={setup.catalogueCap}
+                onChange={(e) =>
+                  onChange({ ...setup, catalogueCap: Number(e.target.value) || 16 })
+                }
+              />
+            </label>
+          </div>
+          <label className="row" style={{ gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={setup.toolSearch}
+              onChange={(e) => onChange({ ...setup, toolSearch: e.target.checked })}
+              style={{ width: "auto" }}
+            />
+            <span className="muted" style={{ fontSize: 11 }}>
+              Let the model search for more tools
+            </span>
+          </label>
         </div>
       )}
     </div>

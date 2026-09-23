@@ -13,14 +13,16 @@ Chat-shaped, but not a chat: one message can mean a dozen iterations and
 thirty tool calls against real documents, so the work is shown rather than
 hidden, and anything destructive stops for a decision.
 
-**One action.** `/packages/solx-agent/agent-widget` returns a
+**Two actions.** `/packages/solx-agent/agent-widget` returns a
 `WidgetDescriptor`; everything else is a document. The harness runs in the
 widget bundle, not behind an action — see [DESIGN.md](DESIGN.md) for why.
+`/packages/solx-agent/agent-loop` is the exception: the same harness with no
+UI, for testing prompts from the CLI — see "Headless: agent-loop" below.
 
 ## Install
 
 ```sh
-npm install && npm run build
+npm install && npm run build && npm run build:headless
 solx install-package ./solx-agent
 ```
 
@@ -28,8 +30,40 @@ solx install-package ./solx-agent
 
 Then exec the action from solx-web's action runner and the widget mounts.
 `solx exec /packages/solx-agent/agent-widget` on its own just returns the
-descriptor — there is no CLI entry point, which is the one thing this
-package gave up by folding (see DESIGN.md, "What this costs").
+descriptor.
+
+## Headless: agent-loop
+
+`/packages/solx-agent/agent-loop` runs one turn of the harness with no UI —
+built separately from the widget (`npm run build:headless`, a plain esbuild
+bundle of `src/headless/agentLoopEntry.ts`, no React) and registered as a
+`Command` action. It talks to `solx-server` over HTTP exactly like
+`tests/live.test.ts` does, using the same session documents under
+`/agent/sessions` the widget reads and writes — so a session started here is
+inspectable with `solx get doc` and continuable from either side.
+
+```sh
+solx exec /packages/solx-agent/agent-loop --json '{"message":"search documents","model":"qwen3:4b","max_iterations":4}'
+```
+
+The result carries `session_id`. Pass it back to continue the same
+conversation across repeated calls:
+
+- `{"session_id": "...", "message": "..."}` — the next turn.
+- `{"session_id": "...", "approve": ["call-id-1"]}` — resolve a suspended
+  call (the result's `pending[].call_id`); anything not named is denied.
+- `{"session_id": "..."}` alone — resume a run left `running` mid-turn (e.g.
+  the process was killed); a no-op for any other status.
+
+The grant is always `*` — there is no grant parameter, matching the widget's
+own pinned grant (see "The gate" below). `model` is required on every call,
+including resumed ones.
+
+Connecting to `solx-server` needs `SOLX_SERVER_URL` (set on the action's
+`actionConfig.env` by `install.solx`) and a bearer token, resolved the same
+way `solx-quickjs`'s build action resolves one: `SOLX_SERVER_TOKEN` (or
+`SOLX_TOKEN`) from the environment, falling back to `server_token` in
+`solx-config.json`.
 
 ## Three kinds of document
 

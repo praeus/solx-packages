@@ -1,0 +1,28 @@
+[package]
+name = "solx-git"
+version = "0.1.0"
+edition = "2021"
+description = "Git operations action package for solx-core (checkout/clone a repository, produce a patch of current changes) using git2/libgit2"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+# git2/libgit2-sys ship with `default = []` -- neither HTTPS nor SSH remote
+# support is compiled in unless asked for explicitly, even on Windows (the
+# WinHTTP backend is still gated behind the `https` feature). `https` pulls
+# in `openssl-sys` as a *Rust-level* dependency regardless of platform (the
+# actual Windows transport is WinHTTP/schannel, no OpenSSL linkage needed at
+# the C level, but the crate still requires the crate to be buildable) --
+# `vendored-openssl` builds it from source so this doesn't also require a
+# system OpenSSL/vcpkg install on every machine that builds this package.
+git2 = { version = "0.21", features = ["https", "ssh", "vendored-openssl"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+solx-package-log = { package = "solx-package-lib", path = "../solx-package-lib" }
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3"
+
+[workspace]

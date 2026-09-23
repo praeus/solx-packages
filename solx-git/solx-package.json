@@ -1,0 +1,23 @@
+{
+  "name": "solx-git",
+  "version": "0.1.0",
+  "description": "Git operations action package for solx-core using git2/libgit2 (clone/checkout a repository, create/switch branches, commit, produce a patch of current changes)",
+  "command_actions": {
+    "git-clone": {
+      "command": ".\\solx-git.exe clone",
+      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+    },
+    "git-patch": {
+      "command": ".\\solx-git.exe patch",
+      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+    },
+    "git-branch": {
+      "command": ".\\solx-git.exe branch",
+      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+    },
+    "git-commit": {
+      "command": ".\\solx-git.exe commit",
+      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+    }
+  }
+}

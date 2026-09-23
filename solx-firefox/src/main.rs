@@ -54,27 +54,7 @@ enum Commands {
     Status,
 }
 
-fn print_json(value: &Value) {
-    println!("{}", serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
-}
-
-/// Read the caller-supplied message/arguments from **stdin**.
-///
-/// solx-core's `run_command` (in `solx-actions/src/exec.rs`) writes the
-/// params JSON to the child's stdin — no `SOL_PARAMS` env var exists in
-/// solx. This is the primary difference from sol-firefox.
-fn stdin_params() -> Value {
-    use std::io::Read;
-    let mut raw = String::new();
-    if std::io::stdin().read_to_string(&mut raw).is_err() {
-        return json!({});
-    }
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return json!({});
-    }
-    serde_json::from_str(trimmed).unwrap_or_else(|_| json!({}))
-}
+use solx_package_log::{print_json, stdin_params};
 
 const DEFAULT_PORT: u16 = 2828;
 const DEFAULT_START_TIMEOUT_SECS: u64 = 20;

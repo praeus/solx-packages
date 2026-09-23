@@ -53,7 +53,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 static PACKAGE_NAME: OnceLock<String> = OnceLock::new();
 
@@ -196,6 +196,33 @@ async fn fetch_cancelled() -> bool {
         return false;
     };
     body.get("cancelled").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Read this process's stdin to end-of-input and parse it as JSON — the
+/// shape `run_command` (solx-core's `solx-actions/src/exec.rs`) writes
+/// params in for every Command action. A read error, empty/whitespace-only
+/// input, or invalid JSON are all treated as "no params" (`{}`) rather than
+/// failing the caller. Previously hand-rolled identically in solx-firefox
+/// and solx-mcp-actions; promoted here rather than duplicated a third time.
+pub fn stdin_params() -> Value {
+    use std::io::Read;
+    let mut raw = String::new();
+    if std::io::stdin().read_to_string(&mut raw).is_err() {
+        return json!({});
+    }
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return json!({});
+    }
+    serde_json::from_str(trimmed).unwrap_or_else(|_| json!({}))
+}
+
+/// Print one line of JSON to stdout — the result contract every Command
+/// action returns to solx-core. Falls back to `{}` on a serialize failure
+/// (shouldn't happen for any `Value`, but matches what each package already
+/// did independently before this was promoted here).
+pub fn print_json(value: &Value) {
+    println!("{}", serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
 }
 
 /// Sync entry points for a caller with no ambient tokio runtime (as of this

@@ -70,7 +70,11 @@ impl ServerConfig {
 /// here — this crate stays dependency-light — but a Command child and the
 /// solx-core process that spawned it must resolve to the same directory for
 /// the config-file fallback above to find anything).
-fn appdata_dir() -> PathBuf {
+///
+/// `pub`: also used directly by `solx-git`, which reads its own
+/// `solx-git.json` (an absolute-path allowlist) from the same directory
+/// alongside `solx-config.json`.
+pub fn appdata_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("SOLX_APPDATA_DIR") {
         if !dir.trim().is_empty() {
             return PathBuf::from(dir);

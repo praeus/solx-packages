@@ -17,84 +17,1242 @@ endif
 
 save file files/actions/shared/solx-google-login.solx --file login.solx;
 
-save action /packages/solx-google/login-to-google --json '{"actionType":"script","binName":"solx-google-login.solx","files":[{"name":"solx-google-login.solx","relPath":"files/actions/shared/solx-google-login.solx","contentType":"text/x-solx"}],"caption":"Log in to Google (one-shot OAuth flow)","category":"google-workspace","description":"Drives the OAuth 2.0 authorization-code flow end-to-end. Binds the loopback listener, opens the system browser, awaits the callback, exchanges the code for tokens, persists the credentials via /builtin/secrets/set-secret, and releases the port.","capabilities":["google-workspace","oauth","orchestration","script"],"phrases":["log in to google","login to google","google login","sign in to google","google oauth","connect google"],"paramTypeRef":"/packages/solx-google/GoogleOAuthLoginParams","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'","GOOGLE_OAUTH_SCOPE":"'$key'"}}}';
+save action /packages/solx-google/login-to-google --json {
+    "actionType": "script",
+    "binName": "solx-google-login.solx",
+    "files": [
+        {
+            "name": "solx-google-login.solx",
+            "relPath": "files/actions/shared/solx-google-login.solx",
+            "contentType": "text/x-solx",
+        },
+    ],
+    "caption": "Log in to Google (one-shot OAuth flow)",
+    "category": "google-workspace",
+    "description": "Drives the OAuth 2.0 authorization-code flow end-to-end. Binds the loopback listener, opens the system browser, awaits the callback, exchanges the code for tokens, persists the credentials via /builtin/secrets/set-secret, and releases the port.",
+    "capabilities": ["google-workspace", "oauth", "orchestration", "script"],
+    "phrases": [
+        "log in to google",
+        "login to google",
+        "google login",
+        "sign in to google",
+        "google oauth",
+        "connect google",
+    ],
+    "paramTypeRef": "/packages/solx-google/GoogleOAuthLoginParams",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+            "GOOGLE_OAUTH_SCOPE": $key,
+        },
+    },
+};
 
 
-save type /packages/solx-google/GoogleDocsGetParams --json '{"description":"Input for get-google-doc (GET https://docs.googleapis.com/v1/documents/{documentId}).","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["documentId"],"properties":{"documentId":{"type":"string","description":"Google Docs document ID. Filled into the {documentId} URL template."},"format":{"type":"string","description":"Reserved; ignored by the current REST path."}}}}';
-save type /packages/solx-google/GoogleDocsPostParams --json '{"description":"Input for post-google-doc (documents.batchUpdate). documentId is stripped and substituted into the URL path; every other field is sent as-is as the request body, so requests (and optionally writeControl) must be top-level here -- NOT nested under a body key, since Google rejects an unrecognized top-level body field.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["documentId","requests"],"properties":{"documentId":{"type":"string"},"requests":{"type":"array","items":{"type":"object","additionalProperties":true},"description":"Array of Google Docs batchUpdate Request objects."},"writeControl":{"type":"object","additionalProperties":true,"description":"Optional batchUpdate writeControl."}},"additionalProperties":true}}';
-save type /packages/solx-google/GoogleDocsDoc --json '{"description":"Google Docs API document JSON.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","additionalProperties":true,"properties":{"documentId":{"type":"string"},"title":{"type":"string"},"body":{"type":"object","additionalProperties":true},"revisionId":{"type":"string"}}}}';
-save type /packages/solx-google/SolDocToGoogleDocParams --json '{"description":"Input for convert-sol-doc-to-google-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"sol_document":{"type":"object","additionalProperties":true,"description":"Optional full Sol document JSON."},"sol_document_name":{"type":"string","description":"Optional Sol document name to fetch via /builtin/document/entity-get-document."},"default_title":{"type":"string"},"text_field_hint":{"type":"string"},"rich_text_field_hint":{"type":"string","description":"Optional field name in contents holding the Tiptap RichTextDoc."}}}}';
-save type /packages/solx-google/SolDocToGoogleDocResult --json '{"description":"Result for convert-sol-doc-to-google-doc. create_body is shaped to match GoogleDriveCreateFileParams (name+mimeType) so it can be passed directly to create-google-file; batch_update_body is already {\"requests\":[...]} shaped to match GoogleDocsPostParams -- merge in the documentId from the create-google-file response and pass the result directly to post-google-doc (do not nest it under a body key).","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"title":{"type":"string"},"text":{"type":"string"},"create_body":{"type":"object","additionalProperties":true},"batch_update_body":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/UploadDocsToGoogleDocsParams --json '{"description":"Input for upload-documents-to-google-docs.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["path_prefix","count"],"properties":{"path_prefix":{"type":"string","description":"Folder (and descendants) to pull Sol documents from."},"count":{"type":"integer","minimum":1,"description":"Number of documents to upload (N)."},"order":{"type":"string","enum":["asc","desc"],"description":"Sort order by updated_at; defaults to desc (most recently updated first)."},"offset":{"type":"integer","minimum":0,"description":"Number of documents to skip before taking count; defaults to 0."},"parent_folder_id":{"type":"string","description":"Optional Google Drive folder ID to create the new Docs in; omitted creates at Drive root."}}}}';
-save type /packages/solx-google/UploadDocsToGoogleDocsResult --json '{"description":"Result for upload-documents-to-google-docs.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"requested":{"type":"integer"},"found":{"type":"integer"},"uploaded":{"type":"array","items":{"type":"object","properties":{"sol_document_path":{"type":"string"},"sol_document_name":{"type":"string"},"title":{"type":"string"},"google_doc_id":{"type":"string"},"google_doc_url":{"type":"string"},"action":{"type":"string","enum":["created","updated"],"description":"\u0027created\u0027 if this was a brand-new Google Doc; \u0027updated\u0027 if a doc already tagged with this Sol document\u0027s path was found and reposted into instead."}}}}}}}';
-save type /packages/solx-google/GoogleDocToSolDocParams --json '{"description":"Input for convert-google-doc-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["google_doc"],"properties":{"google_doc":{"type":"object","additionalProperties":true},"output_document_name":{"type":"string"},"output_type_name":{"type":"string"}}}}';
-save type /packages/solx-google/GoogleDocToSolDocResult --json '{"description":"Result for convert-google-doc-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"source_document_id":{"type":["string","null"]},"source_title":{"type":["string","null"]},"text":{"type":"string"},"suggested_document_name":{"type":"string"},"sol_document_payload":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/GoogleDriveFindFolderParams --json '{"description":"Input for find-google-drive-folder.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"q":{"type":"string"},"fields":{"type":"string"},"pageSize":{"type":"integer","minimum":1,"maximum":1000},"corpora":{"type":"string","enum":["user","drive","allDrives","domain"]},"supportsAllDrives":{"type":"boolean"},"includeItemsFromAllDrives":{"type":"boolean"}},"additionalProperties":true}}';
-save type /packages/solx-google/GoogleDriveCreateFileParams --json '{"description":"Input for create-google-file.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["name","mimeType"],"properties":{"name":{"type":"string"},"mimeType":{"type":"string"},"parents":{"type":"array","items":{"type":"string"}},"description":{"type":"string"},"fields":{"type":"string"},"appProperties":{"type":"object","additionalProperties":{"type":"string"},"description":"Private, app-only key/value tags on the created file, queryable later via find-google-drive-folder\u0027s q (appProperties has {key:...}). upload-documents-to-google-docs uses this to avoid recreating a Google Doc it already made for the same Sol document."}},"additionalProperties":true}}';
-save type /packages/solx-google/GoogleDriveUploadImageParams --json '{"description":"Input for upload-google-drive-image (Drive files.create?uploadType=multipart). Uploads raw image bytes as a new Drive file.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["metadata","media_base64","media_content_type"],"properties":{"metadata":{"type":"object","additionalProperties":true,"description":"Drive file metadata, e.g. {\"name\": \"icon.png\"}."},"media_base64":{"type":"string","description":"Base64-encoded image bytes."},"media_content_type":{"type":"string","description":"MIME type of the image bytes, e.g. image/png."}}}}';
-save type /packages/solx-google/GoogleDriveShareFileParams --json '{"description":"Input for share-google-drive-file-public (Drive permissions.create).","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["fileId"],"properties":{"fileId":{"type":"string","description":"Google Drive file ID. Filled into the {fileId} URL template, not sent in the body."},"type":{"type":"string","description":"Defaults to \"anyone\" if omitted by the caller."},"role":{"type":"string","description":"Defaults to \"reader\" if omitted by the caller."}}}}';
-save type /packages/solx-google/GoogleOAuthLoginParams --json '{"description":"Input for login-to-google (and oauth-token-exchange).","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"client_id":{"type":"string"},"client_secret":{"type":"string"},"scope":{"type":"string"},"port":{"type":"integer"},"timeout_secs":{"type":"integer"},"code":{"type":"string"},"redirect_uri":{"type":"string"}}}}';
-save type /packages/solx-google/GmailListParams --json '{"description":"Input for list-gmail-messages.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"q":{"type":"string"},"labelIds":{"type":"array","items":{"type":"string"}},"maxResults":{"type":"integer","minimum":1,"maximum":500},"pageToken":{"type":"string"}},"additionalProperties":true}}';
-save type /packages/solx-google/GmailGetParams --json '{"description":"Input for get-gmail-message.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["id"],"properties":{"id":{"type":"string"},"format":{"type":"string","enum":["full","metadata","minimal","raw"]}}}}';
-save type /packages/solx-google/GmailMessage --json '{"description":"Gmail API Message resource JSON.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","additionalProperties":true,"properties":{"id":{"type":"string"},"threadId":{"type":"string"},"labelIds":{"type":"array","items":{"type":"string"}},"snippet":{"type":"string"},"payload":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/GmailSendParams --json '{"description":"Input for send-gmail-message.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["raw"],"properties":{"raw":{"type":"string"}}}}';
-save type /packages/solx-google/SolDocToGmailParams --json '{"description":"Input for convert-sol-doc-to-gmail-message.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["to"],"properties":{"to":{"type":"string"},"cc":{"type":"string"},"bcc":{"type":"string"},"subject":{"type":"string"},"sol_document":{"type":"object","additionalProperties":true},"sol_document_name":{"type":"string"},"text_field_hint":{"type":"string"},"rich_text_field_hint":{"type":"string"}}}}';
-save type /packages/solx-google/SolDocToGmailResult --json '{"description":"Result for convert-sol-doc-to-gmail-message.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"to":{"type":"string"},"cc":{"type":["string","null"]},"bcc":{"type":["string","null"]},"subject":{"type":"string"},"text":{"type":"string"},"raw":{"type":"string"},"send_body":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/GmailMessageToSolDocParams --json '{"description":"Input for convert-gmail-message-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["gmail_message"],"properties":{"gmail_message":{"type":"object","additionalProperties":true},"output_document_name":{"type":"string"},"output_type_name":{"type":"string"}}}}';
-save type /packages/solx-google/GmailMessageToSolDocResult --json '{"description":"Result for convert-gmail-message-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"message_id":{"type":["string","null"]},"thread_id":{"type":["string","null"]},"subject":{"type":"string"},"from":{"type":["string","null"]},"to":{"type":["string","null"]},"date":{"type":["string","null"]},"text":{"type":"string"},"suggested_document_name":{"type":"string"},"sol_document_payload":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/GoogleTasklistsListParams --json '{"description":"Input for list-google-tasklists.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"maxResults":{"type":"integer","minimum":1,"maximum":100},"pageToken":{"type":"string"}},"additionalProperties":true}}';
-save type /packages/solx-google/GoogleTaskListParams --json '{"description":"Input for list-google-tasks.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["tasklist"],"properties":{"tasklist":{"type":"string"},"showCompleted":{"type":"boolean"},"showHidden":{"type":"boolean"},"dueMin":{"type":"string"},"dueMax":{"type":"string"},"maxResults":{"type":"integer","minimum":1,"maximum":100},"pageToken":{"type":"string"}},"additionalProperties":true}}';
-save type /packages/solx-google/GoogleTaskGetParams --json '{"description":"Input for get-google-task.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["tasklist","task"],"properties":{"tasklist":{"type":"string"},"task":{"type":"string"}}}}';
-save type /packages/solx-google/GoogleTaskCreateParams --json '{"description":"Input for create-google-task.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["tasklist","title"],"properties":{"tasklist":{"type":"string"},"title":{"type":"string"},"notes":{"type":"string"},"due":{"type":"string"},"status":{"type":"string","enum":["needsAction","completed"]}},"additionalProperties":true}}';
-save type /packages/solx-google/GoogleTask --json '{"description":"Google Tasks API Task resource JSON.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","additionalProperties":true,"properties":{"id":{"type":"string"},"title":{"type":"string"},"notes":{"type":"string"},"status":{"type":"string"},"due":{"type":"string"},"selfLink":{"type":"string"}}}}';
-save type /packages/solx-google/SolDocToGoogleTaskParams --json '{"description":"Input for convert-sol-doc-to-google-task.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"sol_document":{"type":"object","additionalProperties":true},"sol_document_name":{"type":"string"},"default_title":{"type":"string"},"text_field_hint":{"type":"string"},"due":{"type":"string"},"status":{"type":"string","enum":["needsAction","completed"]}}}}';
-save type /packages/solx-google/SolDocToGoogleTaskResult --json '{"description":"Result for convert-sol-doc-to-google-task.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"title":{"type":"string"},"notes":{"type":"string"},"due":{"type":["string","null"]},"status":{"type":"string"},"create_body":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/GoogleTaskToSolDocParams --json '{"description":"Input for convert-google-task-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["google_task"],"properties":{"google_task":{"type":"object","additionalProperties":true},"output_document_name":{"type":"string"},"output_type_name":{"type":"string"}}}}';
-save type /packages/solx-google/GoogleTaskToSolDocResult --json '{"description":"Result for convert-google-task-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"task_id":{"type":["string","null"]},"title":{"type":"string"},"notes":{"type":"string"},"due":{"type":["string","null"]},"status":{"type":["string","null"]},"suggested_document_name":{"type":"string"},"sol_document_payload":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/CalendarEventsListParams --json '{"description":"Input for list-calendar-events.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["calendarId"],"properties":{"calendarId":{"type":"string"},"q":{"type":"string"},"timeMin":{"type":"string"},"timeMax":{"type":"string"},"maxResults":{"type":"integer","minimum":1,"maximum":2500},"singleEvents":{"type":"boolean"},"pageToken":{"type":"string"}},"additionalProperties":true}}';
-save type /packages/solx-google/CalendarEventGetParams --json '{"description":"Input for get-calendar-event.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["calendarId","eventId"],"properties":{"calendarId":{"type":"string"},"eventId":{"type":"string"}}}}';
-save type /packages/solx-google/CalendarEventCreateParams --json '{"description":"Input for create-calendar-event.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["calendarId","summary","start","end"],"properties":{"calendarId":{"type":"string"},"summary":{"type":"string"},"description":{"type":"string"},"start":{"type":"object","additionalProperties":true},"end":{"type":"object","additionalProperties":true},"location":{"type":"string"},"attendees":{"type":"array","items":{"type":"object","additionalProperties":true}}}}}';
-save type /packages/solx-google/CalendarEvent --json '{"description":"Google Calendar API Event resource JSON.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","additionalProperties":true,"properties":{"id":{"type":"string"},"summary":{"type":"string"},"description":{"type":"string"},"start":{"type":"object","additionalProperties":true},"end":{"type":"object","additionalProperties":true},"location":{"type":"string"},"htmlLink":{"type":"string"}}}}';
-save type /packages/solx-google/SolDocToCalendarEventParams --json '{"description":"Input for convert-sol-doc-to-calendar-event.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["start","end"],"properties":{"summary":{"type":"string"},"start":{"type":"string"},"end":{"type":"string"},"all_day":{"type":"boolean"},"time_zone":{"type":"string"},"location":{"type":"string"},"attendees":{"type":"array","items":{"type":"string"}},"sol_document":{"type":"object","additionalProperties":true},"sol_document_name":{"type":"string"},"text_field_hint":{"type":"string"}}}}';
-save type /packages/solx-google/SolDocToCalendarEventResult --json '{"description":"Result for convert-sol-doc-to-calendar-event.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"summary":{"type":"string"},"description":{"type":"string"},"start":{"type":"object","additionalProperties":true},"end":{"type":"object","additionalProperties":true},"create_body":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-google/CalendarEventToSolDocParams --json '{"description":"Input for convert-calendar-event-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["calendar_event"],"properties":{"calendar_event":{"type":"object","additionalProperties":true},"output_document_name":{"type":"string"},"output_type_name":{"type":"string"}}}}';
-save type /packages/solx-google/CalendarEventToSolDocResult --json '{"description":"Result for convert-calendar-event-to-sol-doc.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"event_id":{"type":["string","null"]},"summary":{"type":"string"},"description":{"type":"string"},"start":{"type":"object","additionalProperties":true},"end":{"type":"object","additionalProperties":true},"location":{"type":["string","null"]},"suggested_document_name":{"type":"string"},"sol_document_payload":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
+save type /packages/solx-google/GoogleDocsGetParams --json {
+    "description": "Input for get-google-doc (GET https://docs.googleapis.com/v1/documents/{documentId}).",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["documentId"],
+        "properties": {
+            "documentId": {
+                "type": "string",
+                "description": "Google Docs document ID. Filled into the {documentId} URL template.",
+            },
+            "format": {
+                "type": "string",
+                "description": "Reserved; ignored by the current REST path.",
+            },
+        },
+    },
+};
+save type /packages/solx-google/GoogleDocsPostParams --json {
+    "description": "Input for post-google-doc (documents.batchUpdate). documentId is stripped and substituted into the URL path; every other field is sent as-is as the request body, so requests (and optionally writeControl) must be top-level here -- NOT nested under a body key, since Google rejects an unrecognized top-level body field.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["documentId", "requests"],
+        "properties": {
+            "documentId": {"type": "string"},
+            "requests": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": true},
+                "description": "Array of Google Docs batchUpdate Request objects.",
+            },
+            "writeControl": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Optional batchUpdate writeControl.",
+            },
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/GoogleDocsDoc --json {
+    "description": "Google Docs API document JSON.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "documentId": {"type": "string"},
+            "title": {"type": "string"},
+            "body": {"type": "object", "additionalProperties": true},
+            "revisionId": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/SolDocToGoogleDocParams --json {
+    "description": "Input for convert-sol-doc-to-google-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "sol_document": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Optional full Sol document JSON.",
+            },
+            "sol_document_name": {
+                "type": "string",
+                "description": "Optional Sol document name to fetch via /builtin/document/entity-get-document.",
+            },
+            "default_title": {"type": "string"},
+            "text_field_hint": {"type": "string"},
+            "rich_text_field_hint": {
+                "type": "string",
+                "description": "Optional field name in contents holding the Tiptap RichTextDoc.",
+            },
+        },
+    },
+};
+save type /packages/solx-google/SolDocToGoogleDocResult --json {
+    "description": "Result for convert-sol-doc-to-google-doc. create_body is shaped to match GoogleDriveCreateFileParams (name+mimeType) so it can be passed directly to create-google-file; batch_update_body is already {\"requests\":[...]} shaped to match GoogleDocsPostParams -- merge in the documentId from the create-google-file response and pass the result directly to post-google-doc (do not nest it under a body key).",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "text": {"type": "string"},
+            "create_body": {"type": "object", "additionalProperties": true},
+            "batch_update_body": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/UploadDocsToGoogleDocsParams --json {
+    "description": "Input for upload-documents-to-google-docs.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["path_prefix", "count"],
+        "properties": {
+            "path_prefix": {
+                "type": "string",
+                "description": "Folder (and descendants) to pull Sol documents from.",
+            },
+            "count": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of documents to upload (N).",
+            },
+            "order": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "description": "Sort order by updated_at; defaults to desc (most recently updated first).",
+            },
+            "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Number of documents to skip before taking count; defaults to 0.",
+            },
+            "parent_folder_id": {
+                "type": "string",
+                "description": "Optional Google Drive folder ID to create the new Docs in; omitted creates at Drive root.",
+            },
+        },
+    },
+};
+save type /packages/solx-google/UploadDocsToGoogleDocsResult --json {
+    "description": "Result for upload-documents-to-google-docs.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "requested": {"type": "integer"},
+            "found": {"type": "integer"},
+            "uploaded": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "sol_document_path": {"type": "string"},
+                        "sol_document_name": {"type": "string"},
+                        "title": {"type": "string"},
+                        "google_doc_id": {"type": "string"},
+                        "google_doc_url": {"type": "string"},
+                        "action": {
+                            "type": "string",
+                            "enum": ["created", "updated"],
+                            "description": "'created' if this was a brand-new Google Doc; 'updated' if a doc already tagged with this Sol document's path was found and reposted into instead.",
+                        },
+                    },
+                },
+            },
+        },
+    },
+};
+save type /packages/solx-google/GoogleDocToSolDocParams --json {
+    "description": "Input for convert-google-doc-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["google_doc"],
+        "properties": {
+            "google_doc": {"type": "object", "additionalProperties": true},
+            "output_document_name": {"type": "string"},
+            "output_type_name": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/GoogleDocToSolDocResult --json {
+    "description": "Result for convert-google-doc-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "source_document_id": {"type": ["string", "null"]},
+            "source_title": {"type": ["string", "null"]},
+            "text": {"type": "string"},
+            "suggested_document_name": {"type": "string"},
+            "sol_document_payload": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/GoogleDriveFindFolderParams --json {
+    "description": "Input for find-google-drive-folder.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "q": {"type": "string"},
+            "fields": {"type": "string"},
+            "pageSize": {"type": "integer", "minimum": 1, "maximum": 1000},
+            "corpora": {"type": "string", "enum": ["user", "drive", "allDrives", "domain"]},
+            "supportsAllDrives": {"type": "boolean"},
+            "includeItemsFromAllDrives": {"type": "boolean"},
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/GoogleDriveCreateFileParams --json {
+    "description": "Input for create-google-file.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["name", "mimeType"],
+        "properties": {
+            "name": {"type": "string"},
+            "mimeType": {"type": "string"},
+            "parents": {"type": "array", "items": {"type": "string"}},
+            "description": {"type": "string"},
+            "fields": {"type": "string"},
+            "appProperties": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": "Private, app-only key/value tags on the created file, queryable later via find-google-drive-folder's q (appProperties has {key:...}). upload-documents-to-google-docs uses this to avoid recreating a Google Doc it already made for the same Sol document.",
+            },
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/GoogleDriveUploadImageParams --json {
+    "description": "Input for upload-google-drive-image (Drive files.create?uploadType=multipart). Uploads raw image bytes as a new Drive file.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["metadata", "media_base64", "media_content_type"],
+        "properties": {
+            "metadata": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Drive file metadata, e.g. {\"name\": \"icon.png\"}.",
+            },
+            "media_base64": {"type": "string", "description": "Base64-encoded image bytes."},
+            "media_content_type": {
+                "type": "string",
+                "description": "MIME type of the image bytes, e.g. image/png.",
+            },
+        },
+    },
+};
+save type /packages/solx-google/GoogleDriveShareFileParams --json {
+    "description": "Input for share-google-drive-file-public (Drive permissions.create).",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["fileId"],
+        "properties": {
+            "fileId": {
+                "type": "string",
+                "description": "Google Drive file ID. Filled into the {fileId} URL template, not sent in the body.",
+            },
+            "type": {
+                "type": "string",
+                "description": "Defaults to \"anyone\" if omitted by the caller.",
+            },
+            "role": {
+                "type": "string",
+                "description": "Defaults to \"reader\" if omitted by the caller.",
+            },
+        },
+    },
+};
+save type /packages/solx-google/GoogleOAuthLoginParams --json {
+    "description": "Input for login-to-google (and oauth-token-exchange).",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "client_id": {"type": "string"},
+            "client_secret": {"type": "string"},
+            "scope": {"type": "string"},
+            "port": {"type": "integer"},
+            "timeout_secs": {"type": "integer"},
+            "code": {"type": "string"},
+            "redirect_uri": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/GmailListParams --json {
+    "description": "Input for list-gmail-messages.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "q": {"type": "string"},
+            "labelIds": {"type": "array", "items": {"type": "string"}},
+            "maxResults": {"type": "integer", "minimum": 1, "maximum": 500},
+            "pageToken": {"type": "string"},
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/GmailGetParams --json {
+    "description": "Input for get-gmail-message.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+            "id": {"type": "string"},
+            "format": {"type": "string", "enum": ["full", "metadata", "minimal", "raw"]},
+        },
+    },
+};
+save type /packages/solx-google/GmailMessage --json {
+    "description": "Gmail API Message resource JSON.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "id": {"type": "string"},
+            "threadId": {"type": "string"},
+            "labelIds": {"type": "array", "items": {"type": "string"}},
+            "snippet": {"type": "string"},
+            "payload": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/GmailSendParams --json {
+    "description": "Input for send-gmail-message.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["raw"],
+        "properties": {"raw": {"type": "string"}},
+    },
+};
+save type /packages/solx-google/SolDocToGmailParams --json {
+    "description": "Input for convert-sol-doc-to-gmail-message.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["to"],
+        "properties": {
+            "to": {"type": "string"},
+            "cc": {"type": "string"},
+            "bcc": {"type": "string"},
+            "subject": {"type": "string"},
+            "sol_document": {"type": "object", "additionalProperties": true},
+            "sol_document_name": {"type": "string"},
+            "text_field_hint": {"type": "string"},
+            "rich_text_field_hint": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/SolDocToGmailResult --json {
+    "description": "Result for convert-sol-doc-to-gmail-message.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "to": {"type": "string"},
+            "cc": {"type": ["string", "null"]},
+            "bcc": {"type": ["string", "null"]},
+            "subject": {"type": "string"},
+            "text": {"type": "string"},
+            "raw": {"type": "string"},
+            "send_body": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/GmailMessageToSolDocParams --json {
+    "description": "Input for convert-gmail-message-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["gmail_message"],
+        "properties": {
+            "gmail_message": {"type": "object", "additionalProperties": true},
+            "output_document_name": {"type": "string"},
+            "output_type_name": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/GmailMessageToSolDocResult --json {
+    "description": "Result for convert-gmail-message-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "message_id": {"type": ["string", "null"]},
+            "thread_id": {"type": ["string", "null"]},
+            "subject": {"type": "string"},
+            "from": {"type": ["string", "null"]},
+            "to": {"type": ["string", "null"]},
+            "date": {"type": ["string", "null"]},
+            "text": {"type": "string"},
+            "suggested_document_name": {"type": "string"},
+            "sol_document_payload": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/GoogleTasklistsListParams --json {
+    "description": "Input for list-google-tasklists.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "maxResults": {"type": "integer", "minimum": 1, "maximum": 100},
+            "pageToken": {"type": "string"},
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/GoogleTaskListParams --json {
+    "description": "Input for list-google-tasks.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["tasklist"],
+        "properties": {
+            "tasklist": {"type": "string"},
+            "showCompleted": {"type": "boolean"},
+            "showHidden": {"type": "boolean"},
+            "dueMin": {"type": "string"},
+            "dueMax": {"type": "string"},
+            "maxResults": {"type": "integer", "minimum": 1, "maximum": 100},
+            "pageToken": {"type": "string"},
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/GoogleTaskGetParams --json {
+    "description": "Input for get-google-task.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["tasklist", "task"],
+        "properties": {"tasklist": {"type": "string"}, "task": {"type": "string"}},
+    },
+};
+save type /packages/solx-google/GoogleTaskCreateParams --json {
+    "description": "Input for create-google-task.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["tasklist", "title"],
+        "properties": {
+            "tasklist": {"type": "string"},
+            "title": {"type": "string"},
+            "notes": {"type": "string"},
+            "due": {"type": "string"},
+            "status": {"type": "string", "enum": ["needsAction", "completed"]},
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/GoogleTask --json {
+    "description": "Google Tasks API Task resource JSON.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "id": {"type": "string"},
+            "title": {"type": "string"},
+            "notes": {"type": "string"},
+            "status": {"type": "string"},
+            "due": {"type": "string"},
+            "selfLink": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/SolDocToGoogleTaskParams --json {
+    "description": "Input for convert-sol-doc-to-google-task.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "sol_document": {"type": "object", "additionalProperties": true},
+            "sol_document_name": {"type": "string"},
+            "default_title": {"type": "string"},
+            "text_field_hint": {"type": "string"},
+            "due": {"type": "string"},
+            "status": {"type": "string", "enum": ["needsAction", "completed"]},
+        },
+    },
+};
+save type /packages/solx-google/SolDocToGoogleTaskResult --json {
+    "description": "Result for convert-sol-doc-to-google-task.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "notes": {"type": "string"},
+            "due": {"type": ["string", "null"]},
+            "status": {"type": "string"},
+            "create_body": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/GoogleTaskToSolDocParams --json {
+    "description": "Input for convert-google-task-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["google_task"],
+        "properties": {
+            "google_task": {"type": "object", "additionalProperties": true},
+            "output_document_name": {"type": "string"},
+            "output_type_name": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/GoogleTaskToSolDocResult --json {
+    "description": "Result for convert-google-task-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "task_id": {"type": ["string", "null"]},
+            "title": {"type": "string"},
+            "notes": {"type": "string"},
+            "due": {"type": ["string", "null"]},
+            "status": {"type": ["string", "null"]},
+            "suggested_document_name": {"type": "string"},
+            "sol_document_payload": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/CalendarEventsListParams --json {
+    "description": "Input for list-calendar-events.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["calendarId"],
+        "properties": {
+            "calendarId": {"type": "string"},
+            "q": {"type": "string"},
+            "timeMin": {"type": "string"},
+            "timeMax": {"type": "string"},
+            "maxResults": {"type": "integer", "minimum": 1, "maximum": 2500},
+            "singleEvents": {"type": "boolean"},
+            "pageToken": {"type": "string"},
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-google/CalendarEventGetParams --json {
+    "description": "Input for get-calendar-event.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["calendarId", "eventId"],
+        "properties": {"calendarId": {"type": "string"}, "eventId": {"type": "string"}},
+    },
+};
+save type /packages/solx-google/CalendarEventCreateParams --json {
+    "description": "Input for create-calendar-event.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["calendarId", "summary", "start", "end"],
+        "properties": {
+            "calendarId": {"type": "string"},
+            "summary": {"type": "string"},
+            "description": {"type": "string"},
+            "start": {"type": "object", "additionalProperties": true},
+            "end": {"type": "object", "additionalProperties": true},
+            "location": {"type": "string"},
+            "attendees": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": true},
+            },
+        },
+    },
+};
+save type /packages/solx-google/CalendarEvent --json {
+    "description": "Google Calendar API Event resource JSON.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "id": {"type": "string"},
+            "summary": {"type": "string"},
+            "description": {"type": "string"},
+            "start": {"type": "object", "additionalProperties": true},
+            "end": {"type": "object", "additionalProperties": true},
+            "location": {"type": "string"},
+            "htmlLink": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/SolDocToCalendarEventParams --json {
+    "description": "Input for convert-sol-doc-to-calendar-event.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["start", "end"],
+        "properties": {
+            "summary": {"type": "string"},
+            "start": {"type": "string"},
+            "end": {"type": "string"},
+            "all_day": {"type": "boolean"},
+            "time_zone": {"type": "string"},
+            "location": {"type": "string"},
+            "attendees": {"type": "array", "items": {"type": "string"}},
+            "sol_document": {"type": "object", "additionalProperties": true},
+            "sol_document_name": {"type": "string"},
+            "text_field_hint": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/SolDocToCalendarEventResult --json {
+    "description": "Result for convert-sol-doc-to-calendar-event.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "description": {"type": "string"},
+            "start": {"type": "object", "additionalProperties": true},
+            "end": {"type": "object", "additionalProperties": true},
+            "create_body": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-google/CalendarEventToSolDocParams --json {
+    "description": "Input for convert-calendar-event-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["calendar_event"],
+        "properties": {
+            "calendar_event": {"type": "object", "additionalProperties": true},
+            "output_document_name": {"type": "string"},
+            "output_type_name": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-google/CalendarEventToSolDocResult --json {
+    "description": "Result for convert-calendar-event-to-sol-doc.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "event_id": {"type": ["string", "null"]},
+            "summary": {"type": "string"},
+            "description": {"type": "string"},
+            "start": {"type": "object", "additionalProperties": true},
+            "end": {"type": "object", "additionalProperties": true},
+            "location": {"type": ["string", "null"]},
+            "suggested_document_name": {"type": "string"},
+            "sol_document_payload": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
 
 
-save action /packages/solx-google/get-google-doc --json '{"actionType":"webhook","fnName":"https://docs.googleapis.com/v1/documents/{documentId}","caption":"Get Google Doc (REST)","category":"google-workspace","description":"Fetches a Google Doc via GET https://docs.googleapis.com/v1/documents/{documentId}.","capabilities":["google-workspace","docs","rest","webhook","read"],"phrases":["get google doc","read google doc","fetch google docs document"],"paramTypeRef":"/packages/solx-google/GoogleDocsGetParams","resultTypeRef":"/packages/solx-google/GoogleDocsDoc","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"documentId":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/documents.readonly"}}}';
-save action /packages/solx-google/post-google-doc --json '{"actionType":"webhook","fnName":"https://docs.googleapis.com/v1/documents/{documentId}:batchUpdate","caption":"Post Google Doc (REST)","category":"google-workspace","description":"Updates a Google Doc via documents.batchUpdate.","capabilities":["google-workspace","docs","rest","webhook","write"],"phrases":["post google doc","write google doc","update google doc"],"paramTypeRef":"/packages/solx-google/GoogleDocsPostParams","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":60,"path_params":{"documentId":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/documents"}}}';
+save action /packages/solx-google/get-google-doc --json {
+    "actionType": "webhook",
+    "fnName": "https://docs.googleapis.com/v1/documents/{documentId}",
+    "caption": "Get Google Doc (REST)",
+    "category": "google-workspace",
+    "description": "Fetches a Google Doc via GET https://docs.googleapis.com/v1/documents/{documentId}.",
+    "capabilities": ["google-workspace", "docs", "rest", "webhook", "read"],
+    "phrases": ["get google doc", "read google doc", "fetch google docs document"],
+    "paramTypeRef": "/packages/solx-google/GoogleDocsGetParams",
+    "resultTypeRef": "/packages/solx-google/GoogleDocsDoc",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"documentId": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/documents.readonly",
+        },
+    },
+};
+save action /packages/solx-google/post-google-doc --json {
+    "actionType": "webhook",
+    "fnName": "https://docs.googleapis.com/v1/documents/{documentId}:batchUpdate",
+    "caption": "Post Google Doc (REST)",
+    "category": "google-workspace",
+    "description": "Updates a Google Doc via documents.batchUpdate.",
+    "capabilities": ["google-workspace", "docs", "rest", "webhook", "write"],
+    "phrases": ["post google doc", "write google doc", "update google doc"],
+    "paramTypeRef": "/packages/solx-google/GoogleDocsPostParams",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 60,
+        "path_params": {"documentId": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/documents",
+        },
+    },
+};
 
 # WASM converters (solx-google-actions.wasm, uploaded above): the Sol <->
 # Google Docs pair plus the batch uploader built on the same converter.
 # Each calls create-google-file/post-google-doc/upload-google-drive-image
 # via its own action-exec recursion, so no OAuth secrets are needed here
 # -- the callee actions above already carry their own action_config.secrets.
-save action /packages/solx-google/convert-sol-doc-to-google-doc --json '{"actionType":"wasm","binName":"solx-google-actions.wasm","files":[{"name":"solx-google-actions.wasm","relPath":"files/actions/shared/solx-google-actions.wasm","contentType":"application/wasm"}],"fnName":"convert-sol-doc-to-google-doc","caption":"Convert Sol document to Google Docs payload","category":"google-workspace","description":"Converts a Sol document (Tiptap rich text) into a Google Docs create_body + batchUpdate body, ready to pass to create-google-file and post-google-doc.","capabilities":["google-workspace","docs","convert"],"phrases":["convert sol document to google doc","turn document into google doc"],"paramTypeRef":"/packages/solx-google/SolDocToGoogleDocParams","resultTypeRef":"/packages/solx-google/SolDocToGoogleDocResult","actionConfig":{"timeout_secs":60}}';
-save action /packages/solx-google/convert-google-doc-to-sol-doc --json '{"actionType":"wasm","binName":"solx-google-actions.wasm","files":[{"name":"solx-google-actions.wasm","relPath":"files/actions/shared/solx-google-actions.wasm","contentType":"application/wasm"}],"fnName":"convert-google-doc-to-sol-doc","caption":"Convert Google Doc to Sol document","category":"google-workspace","description":"Converts a fetched Google Docs API document JSON into a Sol document payload.","capabilities":["google-workspace","docs","convert"],"phrases":["convert google doc to sol document","import google doc"],"paramTypeRef":"/packages/solx-google/GoogleDocToSolDocParams","resultTypeRef":"/packages/solx-google/GoogleDocToSolDocResult","actionConfig":{"timeout_secs":30}}';
-save action /packages/solx-google/upload-documents-to-google-docs --json '{"actionType":"wasm","binName":"solx-google-actions.wasm","files":[{"name":"solx-google-actions.wasm","relPath":"files/actions/shared/solx-google-actions.wasm","contentType":"application/wasm"}],"fnName":"upload-documents-to-google-docs","caption":"Upload documents to Google Docs","category":"google-workspace","description":"Lists the N most/least-recently-updated Sol documents under a path, converts each to Google Docs format, and creates a populated Google Doc for each one via create-google-file and post-google-doc. Fail-fast: stops on the first failing document.","capabilities":["google-workspace","docs","batch","write"],"phrases":["upload documents to google docs","export documents to google docs","batch upload to google docs"],"paramTypeRef":"/packages/solx-google/UploadDocsToGoogleDocsParams","resultTypeRef":"/packages/solx-google/UploadDocsToGoogleDocsResult","actionConfig":{"timeout_secs":300}}';
+save action /packages/solx-google/convert-sol-doc-to-google-doc --json {
+    "actionType": "wasm",
+    "binName": "solx-google-actions.wasm",
+    "files": [
+        {
+            "name": "solx-google-actions.wasm",
+            "relPath": "files/actions/shared/solx-google-actions.wasm",
+            "contentType": "application/wasm",
+        },
+    ],
+    "fnName": "convert-sol-doc-to-google-doc",
+    "caption": "Convert Sol document to Google Docs payload",
+    "category": "google-workspace",
+    "description": "Converts a Sol document (Tiptap rich text) into a Google Docs create_body + batchUpdate body, ready to pass to create-google-file and post-google-doc.",
+    "capabilities": ["google-workspace", "docs", "convert"],
+    "phrases": ["convert sol document to google doc", "turn document into google doc"],
+    "paramTypeRef": "/packages/solx-google/SolDocToGoogleDocParams",
+    "resultTypeRef": "/packages/solx-google/SolDocToGoogleDocResult",
+    "actionConfig": {"timeout_secs": 60},
+};
+save action /packages/solx-google/convert-google-doc-to-sol-doc --json {
+    "actionType": "wasm",
+    "binName": "solx-google-actions.wasm",
+    "files": [
+        {
+            "name": "solx-google-actions.wasm",
+            "relPath": "files/actions/shared/solx-google-actions.wasm",
+            "contentType": "application/wasm",
+        },
+    ],
+    "fnName": "convert-google-doc-to-sol-doc",
+    "caption": "Convert Google Doc to Sol document",
+    "category": "google-workspace",
+    "description": "Converts a fetched Google Docs API document JSON into a Sol document payload.",
+    "capabilities": ["google-workspace", "docs", "convert"],
+    "phrases": ["convert google doc to sol document", "import google doc"],
+    "paramTypeRef": "/packages/solx-google/GoogleDocToSolDocParams",
+    "resultTypeRef": "/packages/solx-google/GoogleDocToSolDocResult",
+    "actionConfig": {"timeout_secs": 30},
+};
+save action /packages/solx-google/upload-documents-to-google-docs --json {
+    "actionType": "wasm",
+    "binName": "solx-google-actions.wasm",
+    "files": [
+        {
+            "name": "solx-google-actions.wasm",
+            "relPath": "files/actions/shared/solx-google-actions.wasm",
+            "contentType": "application/wasm",
+        },
+    ],
+    "fnName": "upload-documents-to-google-docs",
+    "caption": "Upload documents to Google Docs",
+    "category": "google-workspace",
+    "description": "Lists the N most/least-recently-updated Sol documents under a path, converts each to Google Docs format, and creates a populated Google Doc for each one via create-google-file and post-google-doc. Fail-fast: stops on the first failing document.",
+    "capabilities": ["google-workspace", "docs", "batch", "write"],
+    "phrases": [
+        "upload documents to google docs",
+        "export documents to google docs",
+        "batch upload to google docs",
+    ],
+    "paramTypeRef": "/packages/solx-google/UploadDocsToGoogleDocsParams",
+    "resultTypeRef": "/packages/solx-google/UploadDocsToGoogleDocsResult",
+    "actionConfig": {"timeout_secs": 300},
+};
 
 
-save action /packages/solx-google/find-google-drive-folder --json '{"actionType":"webhook","fnName":"https://www.googleapis.com/drive/v3/files","caption":"Find Google Drive file or folder","category":"google-workspace","description":"GET https://www.googleapis.com/drive/v3/files.","capabilities":["google-workspace","drive","rest","webhook","read"],"phrases":["find google drive folder","search drive"],"paramTypeRef":"/packages/solx-google/GoogleDriveFindFolderParams","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/drive.file"}}}';
-save action /packages/solx-google/create-google-file --json '{"actionType":"webhook","fnName":"https://www.googleapis.com/drive/v3/files","caption":"Create Google Drive file or folder","category":"google-workspace","description":"POST https://www.googleapis.com/drive/v3/files.","capabilities":["google-workspace","drive","rest","webhook","write"],"phrases":["create google drive file","create google drive folder","create google doc"],"paramTypeRef":"/packages/solx-google/GoogleDriveCreateFileParams","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":60,"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/drive.file"}}}';
-save action /packages/solx-google/upload-google-drive-image --json '{"actionType":"webhook","fnName":"https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart","caption":"Upload image bytes to Google Drive","category":"google-workspace","description":"POST https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart (multipart/related: JSON metadata + raw media bytes). Used to give a solx-internal image (e.g. a BlogPostWithComments icon) a Drive-hosted, shareable file so it can be referenced by URL elsewhere (e.g. Google Docs insertInlineImage).","capabilities":["google-workspace","drive","rest","webhook","write"],"phrases":["upload image to google drive","upload icon to drive"],"paramTypeRef":"/packages/solx-google/GoogleDriveUploadImageParams","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":60,"body_mode":"multipart_related","auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/drive.file"}}}';
-save action /packages/solx-google/share-google-drive-file-public --json '{"actionType":"webhook","fnName":"https://www.googleapis.com/drive/v3/files/{fileId}/permissions","caption":"Share a Google Drive file with anyone who has the link","category":"google-workspace","description":"POST https://www.googleapis.com/drive/v3/files/{fileId}/permissions with {type, role}. Used after upload-google-drive-image so the resulting file can be fetched anonymously (e.g. by Google Docs insertInlineImage).","capabilities":["google-workspace","drive","rest","webhook","write"],"phrases":["share google drive file","make drive file public"],"paramTypeRef":"/packages/solx-google/GoogleDriveShareFileParams","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"fileId":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/drive.file"}}}';
+save action /packages/solx-google/find-google-drive-folder --json {
+    "actionType": "webhook",
+    "fnName": "https://www.googleapis.com/drive/v3/files",
+    "caption": "Find Google Drive file or folder",
+    "category": "google-workspace",
+    "description": "GET https://www.googleapis.com/drive/v3/files.",
+    "capabilities": ["google-workspace", "drive", "rest", "webhook", "read"],
+    "phrases": ["find google drive folder", "search drive"],
+    "paramTypeRef": "/packages/solx-google/GoogleDriveFindFolderParams",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        },
+    },
+};
+save action /packages/solx-google/create-google-file --json {
+    "actionType": "webhook",
+    "fnName": "https://www.googleapis.com/drive/v3/files",
+    "caption": "Create Google Drive file or folder",
+    "category": "google-workspace",
+    "description": "POST https://www.googleapis.com/drive/v3/files.",
+    "capabilities": ["google-workspace", "drive", "rest", "webhook", "write"],
+    "phrases": ["create google drive file", "create google drive folder", "create google doc"],
+    "paramTypeRef": "/packages/solx-google/GoogleDriveCreateFileParams",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 60,
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        },
+    },
+};
+save action /packages/solx-google/upload-google-drive-image --json {
+    "actionType": "webhook",
+    "fnName": "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+    "caption": "Upload image bytes to Google Drive",
+    "category": "google-workspace",
+    "description": "POST https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart (multipart/related: JSON metadata + raw media bytes). Used to give a solx-internal image (e.g. a BlogPostWithComments icon) a Drive-hosted, shareable file so it can be referenced by URL elsewhere (e.g. Google Docs insertInlineImage).",
+    "capabilities": ["google-workspace", "drive", "rest", "webhook", "write"],
+    "phrases": ["upload image to google drive", "upload icon to drive"],
+    "paramTypeRef": "/packages/solx-google/GoogleDriveUploadImageParams",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 60,
+        "body_mode": "multipart_related",
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        },
+    },
+};
+save action /packages/solx-google/share-google-drive-file-public --json {
+    "actionType": "webhook",
+    "fnName": "https://www.googleapis.com/drive/v3/files/{fileId}/permissions",
+    "caption": "Share a Google Drive file with anyone who has the link",
+    "category": "google-workspace",
+    "description": "POST https://www.googleapis.com/drive/v3/files/{fileId}/permissions with {type, role}. Used after upload-google-drive-image so the resulting file can be fetched anonymously (e.g. by Google Docs insertInlineImage).",
+    "capabilities": ["google-workspace", "drive", "rest", "webhook", "write"],
+    "phrases": ["share google drive file", "make drive file public"],
+    "paramTypeRef": "/packages/solx-google/GoogleDriveShareFileParams",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"fileId": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        },
+    },
+};
 
 
-save action /packages/solx-google/list-gmail-messages --json '{"actionType":"webhook","fnName":"https://gmail.googleapis.com/gmail/v1/users/me/messages","caption":"List/search Gmail messages","category":"google-workspace","description":"GET https://gmail.googleapis.com/gmail/v1/users/me/messages.","capabilities":["google-workspace","gmail","rest","webhook","read"],"phrases":["list gmail messages","search gmail","search email"],"paramTypeRef":"/packages/solx-google/GmailListParams","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/gmail.modify"}}}';
-save action /packages/solx-google/get-gmail-message --json '{"actionType":"webhook","fnName":"https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}","caption":"Get Gmail message","category":"google-workspace","description":"GET https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}.","capabilities":["google-workspace","gmail","rest","webhook","read"],"phrases":["get gmail message","read email"],"paramTypeRef":"/packages/solx-google/GmailGetParams","resultTypeRef":"/packages/solx-google/GmailMessage","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"id":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/gmail.modify"}}}';
-save action /packages/solx-google/send-gmail-message --json '{"actionType":"webhook","fnName":"https://gmail.googleapis.com/gmail/v1/users/me/messages/send","caption":"Send Gmail message","category":"google-workspace","description":"POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send.","capabilities":["google-workspace","gmail","rest","webhook","write"],"phrases":["send gmail","send email"],"paramTypeRef":"/packages/solx-google/GmailSendParams","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/gmail.send"}}}';
+save action /packages/solx-google/list-gmail-messages --json {
+    "actionType": "webhook",
+    "fnName": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+    "caption": "List/search Gmail messages",
+    "category": "google-workspace",
+    "description": "GET https://gmail.googleapis.com/gmail/v1/users/me/messages.",
+    "capabilities": ["google-workspace", "gmail", "rest", "webhook", "read"],
+    "phrases": ["list gmail messages", "search gmail", "search email"],
+    "paramTypeRef": "/packages/solx-google/GmailListParams",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/gmail.modify",
+        },
+    },
+};
+save action /packages/solx-google/get-gmail-message --json {
+    "actionType": "webhook",
+    "fnName": "https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}",
+    "caption": "Get Gmail message",
+    "category": "google-workspace",
+    "description": "GET https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}.",
+    "capabilities": ["google-workspace", "gmail", "rest", "webhook", "read"],
+    "phrases": ["get gmail message", "read email"],
+    "paramTypeRef": "/packages/solx-google/GmailGetParams",
+    "resultTypeRef": "/packages/solx-google/GmailMessage",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"id": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/gmail.modify",
+        },
+    },
+};
+save action /packages/solx-google/send-gmail-message --json {
+    "actionType": "webhook",
+    "fnName": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    "caption": "Send Gmail message",
+    "category": "google-workspace",
+    "description": "POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send.",
+    "capabilities": ["google-workspace", "gmail", "rest", "webhook", "write"],
+    "phrases": ["send gmail", "send email"],
+    "paramTypeRef": "/packages/solx-google/GmailSendParams",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/gmail.send",
+        },
+    },
+};
 
 
-save action /packages/solx-google/list-google-tasklists --json '{"actionType":"webhook","fnName":"https://tasks.googleapis.com/tasks/v1/users/@me/lists","caption":"List Google Task lists","category":"google-workspace","description":"GET https://tasks.googleapis.com/tasks/v1/users/@me/lists.","capabilities":["google-workspace","tasks","rest","webhook","read"],"phrases":["list google task lists"],"paramTypeRef":"/packages/solx-google/GoogleTasklistsListParams","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/tasks"}}}';
-save action /packages/solx-google/list-google-tasks --json '{"actionType":"webhook","fnName":"https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks","caption":"List Google Tasks","category":"google-workspace","description":"GET https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks.","capabilities":["google-workspace","tasks","rest","webhook","read"],"phrases":["list google tasks","search google tasks"],"paramTypeRef":"/packages/solx-google/GoogleTaskListParams","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"tasklist":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/tasks"}}}';
-save action /packages/solx-google/get-google-task --json '{"actionType":"webhook","fnName":"https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks/{task}","caption":"Get Google Task","category":"google-workspace","description":"GET https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks/{task}.","capabilities":["google-workspace","tasks","rest","webhook","read"],"phrases":["get google task"],"paramTypeRef":"/packages/solx-google/GoogleTaskGetParams","resultTypeRef":"/packages/solx-google/GoogleTask","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"tasklist":"","task":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/tasks"}}}';
-save action /packages/solx-google/create-google-task --json '{"actionType":"webhook","fnName":"https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks","caption":"Create Google Task","category":"google-workspace","description":"POST https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks.","capabilities":["google-workspace","tasks","rest","webhook","write"],"phrases":["create google task","add task"],"paramTypeRef":"/packages/solx-google/GoogleTaskCreateParams","resultTypeRef":"/packages/solx-google/GoogleTask","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"tasklist":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/tasks"}}}';
+save action /packages/solx-google/list-google-tasklists --json {
+    "actionType": "webhook",
+    "fnName": "https://tasks.googleapis.com/tasks/v1/users/@me/lists",
+    "caption": "List Google Task lists",
+    "category": "google-workspace",
+    "description": "GET https://tasks.googleapis.com/tasks/v1/users/@me/lists.",
+    "capabilities": ["google-workspace", "tasks", "rest", "webhook", "read"],
+    "phrases": ["list google task lists"],
+    "paramTypeRef": "/packages/solx-google/GoogleTasklistsListParams",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/tasks",
+        },
+    },
+};
+save action /packages/solx-google/list-google-tasks --json {
+    "actionType": "webhook",
+    "fnName": "https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks",
+    "caption": "List Google Tasks",
+    "category": "google-workspace",
+    "description": "GET https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks.",
+    "capabilities": ["google-workspace", "tasks", "rest", "webhook", "read"],
+    "phrases": ["list google tasks", "search google tasks"],
+    "paramTypeRef": "/packages/solx-google/GoogleTaskListParams",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"tasklist": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/tasks",
+        },
+    },
+};
+save action /packages/solx-google/get-google-task --json {
+    "actionType": "webhook",
+    "fnName": "https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks/{task}",
+    "caption": "Get Google Task",
+    "category": "google-workspace",
+    "description": "GET https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks/{task}.",
+    "capabilities": ["google-workspace", "tasks", "rest", "webhook", "read"],
+    "phrases": ["get google task"],
+    "paramTypeRef": "/packages/solx-google/GoogleTaskGetParams",
+    "resultTypeRef": "/packages/solx-google/GoogleTask",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"tasklist": "", "task": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/tasks",
+        },
+    },
+};
+save action /packages/solx-google/create-google-task --json {
+    "actionType": "webhook",
+    "fnName": "https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks",
+    "caption": "Create Google Task",
+    "category": "google-workspace",
+    "description": "POST https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks.",
+    "capabilities": ["google-workspace", "tasks", "rest", "webhook", "write"],
+    "phrases": ["create google task", "add task"],
+    "paramTypeRef": "/packages/solx-google/GoogleTaskCreateParams",
+    "resultTypeRef": "/packages/solx-google/GoogleTask",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"tasklist": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/tasks",
+        },
+    },
+};
 
 
-save action /packages/solx-google/list-calendar-events --json '{"actionType":"webhook","fnName":"https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events","caption":"List Google Calendar events","category":"google-workspace","description":"GET https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events.","capabilities":["google-workspace","calendar","rest","webhook","read"],"phrases":["list calendar events","search calendar"],"paramTypeRef":"/packages/solx-google/CalendarEventsListParams","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"calendarId":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/calendar.events"}}}';
-save action /packages/solx-google/get-calendar-event --json '{"actionType":"webhook","fnName":"https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events/{eventId}","caption":"Get Google Calendar event","category":"google-workspace","description":"GET https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events/{eventId}.","capabilities":["google-workspace","calendar","rest","webhook","read"],"phrases":["get calendar event"],"paramTypeRef":"/packages/solx-google/CalendarEventGetParams","resultTypeRef":"/packages/solx-google/CalendarEvent","actionConfig":{"method":"GET","secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"calendarId":"","eventId":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/calendar.events"}}}';
-save action /packages/solx-google/create-calendar-event --json '{"actionType":"webhook","fnName":"https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events","caption":"Create Google Calendar event","category":"google-workspace","description":"POST https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events.","capabilities":["google-workspace","calendar","rest","webhook","write"],"phrases":["create calendar event"],"paramTypeRef":"/packages/solx-google/CalendarEventCreateParams","resultTypeRef":"/packages/solx-google/CalendarEvent","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_REFRESH_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"calendarId":""},"auth":{"type":"oauth_refresh","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","refresh_token_secret":"GOOGLE_OAUTH_REFRESH_TOKEN","token_uri":"https://oauth2.googleapis.com/token","scope":"https://www.googleapis.com/auth/calendar.events"}}}';
+save action /packages/solx-google/list-calendar-events --json {
+    "actionType": "webhook",
+    "fnName": "https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events",
+    "caption": "List Google Calendar events",
+    "category": "google-workspace",
+    "description": "GET https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events.",
+    "capabilities": ["google-workspace", "calendar", "rest", "webhook", "read"],
+    "phrases": ["list calendar events", "search calendar"],
+    "paramTypeRef": "/packages/solx-google/CalendarEventsListParams",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"calendarId": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/calendar.events",
+        },
+    },
+};
+save action /packages/solx-google/get-calendar-event --json {
+    "actionType": "webhook",
+    "fnName": "https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events/{eventId}",
+    "caption": "Get Google Calendar event",
+    "category": "google-workspace",
+    "description": "GET https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events/{eventId}.",
+    "capabilities": ["google-workspace", "calendar", "rest", "webhook", "read"],
+    "phrases": ["get calendar event"],
+    "paramTypeRef": "/packages/solx-google/CalendarEventGetParams",
+    "resultTypeRef": "/packages/solx-google/CalendarEvent",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"calendarId": "", "eventId": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/calendar.events",
+        },
+    },
+};
+save action /packages/solx-google/create-calendar-event --json {
+    "actionType": "webhook",
+    "fnName": "https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events",
+    "caption": "Create Google Calendar event",
+    "category": "google-workspace",
+    "description": "POST https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events.",
+    "capabilities": ["google-workspace", "calendar", "rest", "webhook", "write"],
+    "phrases": ["create calendar event"],
+    "paramTypeRef": "/packages/solx-google/CalendarEventCreateParams",
+    "resultTypeRef": "/packages/solx-google/CalendarEvent",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
+        },
+        "timeout_secs": 30,
+        "path_params": {"calendarId": ""},
+        "auth": {
+            "type": "oauth_refresh",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "refresh_token_secret": "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/calendar.events",
+        },
+    },
+};
 
 
-save action /packages/solx-google/_private/oauth-token-exchange --json '{"actionType":"webhook","fnName":"https://oauth2.googleapis.com/token","caption":"Google OAuth 2.0 token exchange","category":"google-workspace","description":"Internal step of login-to-google: exchanges an OAuth 2.0 code (already obtained via the loopback listener) for access/refresh tokens at https://oauth2.googleapis.com/token. Not meant to be invoked standalone.","capabilities":["google-workspace","oauth","rest","webhook","internal"],"phrases":["google oauth token exchange","exchange oauth code"],"paramTypeRef":"/packages/solx-google/GoogleOAuthLoginParams","actionConfig":{"secrets":{"GOOGLE_OAUTH_CLIENT_ID":"'$key'","GOOGLE_OAUTH_CLIENT_SECRET":"'$key'","GOOGLE_OAUTH_SCOPE":"'$key'"},"timeout_secs":30,"auth":{"type":"oauth_authorization_code","client_id_secret":"GOOGLE_OAUTH_CLIENT_ID","client_secret_secret":"GOOGLE_OAUTH_CLIENT_SECRET","scope_secret":"GOOGLE_OAUTH_SCOPE","grant_type":"authorization_code"}}}';
+save action /packages/solx-google/_private/oauth-token-exchange --json {
+    "actionType": "webhook",
+    "fnName": "https://oauth2.googleapis.com/token",
+    "caption": "Google OAuth 2.0 token exchange",
+    "category": "google-workspace",
+    "description": "Internal step of login-to-google: exchanges an OAuth 2.0 code (already obtained via the loopback listener) for access/refresh tokens at https://oauth2.googleapis.com/token. Not meant to be invoked standalone.",
+    "capabilities": ["google-workspace", "oauth", "rest", "webhook", "internal"],
+    "phrases": ["google oauth token exchange", "exchange oauth code"],
+    "paramTypeRef": "/packages/solx-google/GoogleOAuthLoginParams",
+    "actionConfig": {
+        "secrets": {
+            "GOOGLE_OAUTH_CLIENT_ID": $key,
+            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
+            "GOOGLE_OAUTH_SCOPE": $key,
+        },
+        "timeout_secs": 30,
+        "auth": {
+            "type": "oauth_authorization_code",
+            "client_id_secret": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "scope_secret": "GOOGLE_OAUTH_SCOPE",
+            "grant_type": "authorization_code",
+        },
+    },
+};
 

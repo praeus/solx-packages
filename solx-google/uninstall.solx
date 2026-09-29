@@ -58,8 +58,8 @@ delete action /packages/solx-google/_internal/oauth-token-exchange --if-exists;
 # "files/actions/shared/<binName>"). A bare "shared/..." here silently
 # deleted nothing.
 
-exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-google-login.solx"}';
-exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-google-actions.wasm"}';
+exec /builtin/file/file-delete --json {"rel_path": "files/actions/shared/solx-google-login.solx"};
+exec /builtin/file/file-delete --json {"rel_path": "files/actions/shared/solx-google-actions.wasm"};
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 

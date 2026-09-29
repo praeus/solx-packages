@@ -6,21 +6,193 @@
 # Command action that runs the same harness with no UI, for testing prompts
 # from the CLI. Nothing here compiles through solx-quickjs.
 
-save type /packages/solx-agent/AgentSession --json '''{"description": "The stored state of one agent session: transcript, the tools resolved for the current turn, the grant, the context index, pending calls, and the tool call audit log. Written when the session is created and rewritten several times per turn, so a browser tab closed mid-turn still leaves a true record. Deliberately permissive - the shape evolves with the package, and a session that fails validation mid-loop would strand the run. messages and calls are undeclared on purpose: the full-text index walks only declared fields, so leaving them out keeps the whole transcript out of FTS while still storing it.", "schema": {"$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "properties": {"model": {"type": "string"}, "title": {"type": "string", "description": "Taken from the first user message. Titles the document so a session list says what each one was about."}, "status": {"type": "string", "description": "running, awaiting_approval, idle, blocked, exhausted, or cancelled. idle means the model handed the turn back - to answer or to ask - not that the session is over."}, "iteration": {"type": "integer", "description": "Monotonic across the session: the audit trail."}, "turn_iteration": {"type": "integer", "description": "Reset each user turn, and what max_iterations is checked against."}, "grant": {"type": "array", "description": "What this session may reach. The model can never widen it; an operator can, from the setup panel, which appends a system turn saying so. Re-checked at dispatch, so editing it in the document buys nothing."}, "tools": {"type": "object", "description": "Tool name to action reference, re-resolved from the newest user message at the top of every turn. The dispatch table, but not the authority: every call is gated again against grant at the moment it runs."}, "memory": {"type": ["object", "null"], "description": "The memory scope and its budgets, fixed when the session is created."}, "memories_written": {"type": "integer"}, "context": {"type": "array", "description": "The context index. sys__context_read can open these and nothing else."}, "skills": {"type": ["object", "null"], "description": "Where skills are read from."}, "pending": {"type": "array", "description": "The calls of the turn in flight. Non-empty while awaiting approval, and also while a turn is mid-dispatch - a half-filled pending list is how a crashed turn is resumed. Cleared at the end of every iteration, so an approval never survives into the next one."}, "answer": {"type": ["string", "null"], "description": "The model reply that handed the turn back, set when status is idle."}}}}''';
+save type /packages/solx-agent/AgentSession --json {
+    "description": "The stored state of one agent session: transcript, the tools resolved for the current turn, the grant, the context index, pending calls, and the tool call audit log. Written when the session is created and rewritten several times per turn, so a browser tab closed mid-turn still leaves a true record. Deliberately permissive - the shape evolves with the package, and a session that fails validation mid-loop would strand the run. messages and calls are undeclared on purpose: the full-text index walks only declared fields, so leaving them out keeps the whole transcript out of FTS while still storing it.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "model": {"type": "string"},
+            "title": {
+                "type": "string",
+                "description": "Taken from the first user message. Titles the document so a session list says what each one was about.",
+            },
+            "status": {
+                "type": "string",
+                "description": "running, awaiting_approval, idle, blocked, exhausted, or cancelled. idle means the model handed the turn back - to answer or to ask - not that the session is over.",
+            },
+            "iteration": {
+                "type": "integer",
+                "description": "Monotonic across the session: the audit trail.",
+            },
+            "turn_iteration": {
+                "type": "integer",
+                "description": "Reset each user turn, and what max_iterations is checked against.",
+            },
+            "grant": {
+                "type": "array",
+                "description": "What this session may reach. The model can never widen it; an operator can, from the setup panel, which appends a system turn saying so. Re-checked at dispatch, so editing it in the document buys nothing.",
+            },
+            "tools": {
+                "type": "object",
+                "description": "Tool name to action reference, re-resolved from the newest user message at the top of every turn. The dispatch table, but not the authority: every call is gated again against grant at the moment it runs.",
+            },
+            "memory": {
+                "type": ["object", "null"],
+                "description": "The memory scope and its budgets, fixed when the session is created.",
+            },
+            "memories_written": {"type": "integer"},
+            "context": {
+                "type": "array",
+                "description": "The context index. sys__context_read can open these and nothing else.",
+            },
+            "skills": {"type": ["object", "null"], "description": "Where skills are read from."},
+            "pending": {
+                "type": "array",
+                "description": "The calls of the turn in flight. Non-empty while awaiting approval, and also while a turn is mid-dispatch - a half-filled pending list is how a crashed turn is resumed. Cleared at the end of every iteration, so an approval never survives into the next one.",
+            },
+            "answer": {
+                "type": ["string", "null"],
+                "description": "The model reply that handed the turn back, set when status is idle.",
+            },
+        },
+    },
+};
 
-save type /packages/solx-agent/AgentMemory --json '''{"description": "One thing an agent session learned, written by the model through sys__memory_save and recalled by later sessions in the same scope. The text is capped at 1000 characters and stored in the document summary as well as here, which is what lets recall be a single search with no follow-up reads. Treat the text as model output, not as fact: a memory scope is a trust boundary, so keep unrelated tasks in separate scopes.", "schema": {"$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "required": ["text"], "properties": {"text": {"type": "string", "description": "The note itself."}, "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional keywords, indexed for search."}, "scope": {"type": "string", "description": "The memory scope this was written in."}, "sourceSession": {"type": ["string", "null"], "description": "The session that wrote it."}}}}''';
+save type /packages/solx-agent/AgentMemory --json {
+    "description": "One thing an agent session learned, written by the model through sys__memory_save and recalled by later sessions in the same scope. The text is capped at 1000 characters and stored in the document summary as well as here, which is what lets recall be a single search with no follow-up reads. Treat the text as model output, not as fact: a memory scope is a trust boundary, so keep unrelated tasks in separate scopes.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+            "text": {"type": "string", "description": "The note itself."},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional keywords, indexed for search.",
+            },
+            "scope": {"type": "string", "description": "The memory scope this was written in."},
+            "sourceSession": {
+                "type": ["string", "null"],
+                "description": "The session that wrote it.",
+            },
+        },
+    },
+};
 
-save type /packages/solx-agent/AgentSkill --json '''{"description": "Operator guidance for using particular tools. Bound to action references by glob, so one skill can cover a whole family. It is injected only when a matching tool is in the resolved catalogue, which means a skill never grants reach - it only explains reach that was already granted. Write one with: solx save document /agent/skills/NAME --type /packages/solx-agent/AgentSkill", "schema": {"$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "required": ["tools", "instructions"], "properties": {"tools": {"type": "array", "items": {"type": "string"}, "description": "Action reference globs, for example /builtin/document/* or /packages/solx-media/transcode. * matches any characters including /."}, "instructions": {"type": "string", "description": "What the model should know about these tools. Capped at 4000 characters, and 8000 across all skills in one turn."}}}}''';
+save type /packages/solx-agent/AgentSkill --json {
+    "description": "Operator guidance for using particular tools. Bound to action references by glob, so one skill can cover a whole family. It is injected only when a matching tool is in the resolved catalogue, which means a skill never grants reach - it only explains reach that was already granted. Write one with: solx save document /agent/skills/NAME --type /packages/solx-agent/AgentSkill",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["tools", "instructions"],
+        "properties": {
+            "tools": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Action reference globs, for example /builtin/document/* or /packages/solx-media/transcode. * matches any characters including /.",
+            },
+            "instructions": {
+                "type": "string",
+                "description": "What the model should know about these tools. Capped at 4000 characters, and 8000 across all skills in one turn.",
+            },
+        },
+    },
+};
 
 save file files/actions/shared/solx-agent-widget-descriptor.solx --file agent-widget-descriptor.solx;
 
 save file widgets/solx-agent.js --file dist/solx-agent.js;
 
-save action /packages/solx-agent/agent-widget --json '''{"actionType": "script", "binName": "solx-agent-widget-descriptor.solx", "files": [{"name": "solx-agent-widget-descriptor.solx", "relPath": "files/actions/shared/solx-agent-widget-descriptor.solx", "contentType": "text/x-solx"}], "caption": "Agent", "category": "widgets", "description": "A supervised agent thread over the solx action catalogue. Chat-shaped but not a chat: one message can mean a dozen iterations and thirty tool calls against real documents, so the work is rendered rather than hidden, and anything destructive stops for a decision. The harness runs in the widget; sessions, memories and skills are ordinary documents under /agent.", "capabilities": ["agent", "widget", "ui", "llm", "tools", "chat"], "phrases": ["open the agent", "show the agent", "start an agent", "run an agent", "give the model tools", "open chat"], "resultTypeRef": "/builtin/types/WidgetDescriptor"}''';
+save action /packages/solx-agent/agent-widget --json {
+    "actionType": "script",
+    "binName": "solx-agent-widget-descriptor.solx",
+    "files": [
+        {
+            "name": "solx-agent-widget-descriptor.solx",
+            "relPath": "files/actions/shared/solx-agent-widget-descriptor.solx",
+            "contentType": "text/x-solx",
+        },
+    ],
+    "caption": "Agent",
+    "category": "widgets",
+    "description": "A supervised agent thread over the solx action catalogue. Chat-shaped but not a chat: one message can mean a dozen iterations and thirty tool calls against real documents, so the work is rendered rather than hidden, and anything destructive stops for a decision. The harness runs in the widget; sessions, memories and skills are ordinary documents under /agent.",
+    "capabilities": ["agent", "widget", "ui", "llm", "tools", "chat"],
+    "phrases": [
+        "open the agent",
+        "show the agent",
+        "start an agent",
+        "run an agent",
+        "give the model tools",
+        "open chat",
+    ],
+    "resultTypeRef": "/builtin/types/WidgetDescriptor",
+};
 
-save type /packages/solx-agent/AgentLoopParams --json '''{"description": "Parameters for the headless agent-loop action: the same harness AgentWidget.tsx drives, with no UI. Starts a session or continues one across repeated calls -- pass back session_id (from a previous call's result) with a new message to continue the conversation, with approve to resolve a suspended call, or alone to resume a run left mid-turn.", "schema": {"$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "required": ["model"], "properties": {"message": {"type": "string", "description": "Required to start a new session (session_id absent). Also how you continue an existing one: pass session_id plus a new message for the next turn."}, "model": {"type": "string", "description": "The Ollama model to drive the session with. Always required, even when resuming."}, "session_id": {"type": "string", "description": "Continues an existing session instead of starting a new one. Comes back as session_id in every result."}, "approve": {"type": "array", "items": {"type": "string"}, "description": "call_ids to approve when session_id points at a session awaiting_approval. Anything not named is denied -- an empty list denies everything. Requires session_id; ignored if message is also set."}, "system": {"type": "string", "description": "An optional system message, seeded once when the session is created. Has no effect on session_id calls."}, "max_iterations": {"type": "integer", "description": "Per-turn iteration cap. Defaults to the harness default (24) when omitted."}, "memory": {"type": "object", "description": "Partial memory spec (scope, query, limit, read, write, max_writes). Memory is off unless scope is set."}, "skills": {"type": "object", "description": "Partial skill spec (enabled, path, limit)."}, "context": {"type": "array", "description": "Context documents to seed or add: entries of {ref} or {query, path, typeRef, limit}."}, "chat_timeout_secs": {"type": "integer", "description": "Per-model-call timeout, seconds."}}}}''';
+save type /packages/solx-agent/AgentLoopParams --json {
+    "description": "Parameters for the headless agent-loop action: the same harness AgentWidget.tsx drives, with no UI. Starts a session or continues one across repeated calls -- pass back session_id (from a previous call's result) with a new message to continue the conversation, with approve to resolve a suspended call, or alone to resume a run left mid-turn.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["model"],
+        "properties": {
+            "message": {
+                "type": "string",
+                "description": "Required to start a new session (session_id absent). Also how you continue an existing one: pass session_id plus a new message for the next turn.",
+            },
+            "model": {
+                "type": "string",
+                "description": "The Ollama model to drive the session with. Always required, even when resuming.",
+            },
+            "session_id": {
+                "type": "string",
+                "description": "Continues an existing session instead of starting a new one. Comes back as session_id in every result.",
+            },
+            "approve": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "call_ids to approve when session_id points at a session awaiting_approval. Anything not named is denied -- an empty list denies everything. Requires session_id; ignored if message is also set.",
+            },
+            "system": {
+                "type": "string",
+                "description": "An optional system message, seeded once when the session is created. Has no effect on session_id calls.",
+            },
+            "max_iterations": {
+                "type": "integer",
+                "description": "Per-turn iteration cap. Defaults to the harness default (24) when omitted.",
+            },
+            "memory": {
+                "type": "object",
+                "description": "Partial memory spec (scope, query, limit, read, write, max_writes). Memory is off unless scope is set.",
+            },
+            "skills": {
+                "type": "object",
+                "description": "Partial skill spec (enabled, path, limit).",
+            },
+            "context": {
+                "type": "array",
+                "description": "Context documents to seed or add: entries of {ref} or {query, path, typeRef, limit}.",
+            },
+            "chat_timeout_secs": {
+                "type": "integer",
+                "description": "Per-model-call timeout, seconds.",
+            },
+        },
+    },
+};
 
-save action /packages/solx-agent/agent-loop --json '''{"actionType": "command", "fnName": "agent-loop", "paramTypeRef": "/packages/solx-agent/AgentLoopParams", "actionConfig": {"env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"}, "timeout_secs": 900}, "caption": "Agent loop (headless)", "category": "development", "description": "Runs one turn of the agent harness with no UI -- the same code AgentWidget.tsx drives. For testing prompts, skills and catalogue tuning from the CLI: solx exec /packages/solx-agent/agent-loop --json {\"message\":\"...\",\"model\":\"...\"}. Pass back the result's session_id to continue the conversation, approve a suspended call, or resume a run left mid-turn.", "capabilities": ["agent", "headless", "development"], "phrases": ["run the agent headless", "test a prompt", "agent loop"]}''';
+save action /packages/solx-agent/agent-loop --json {
+    "actionType": "command",
+    "fnName": "agent-loop",
+    "paramTypeRef": "/packages/solx-agent/AgentLoopParams",
+    "actionConfig": {"env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"}, "timeout_secs": 900},
+    "caption": "Agent loop (headless)",
+    "category": "development",
+    "description": "Runs one turn of the agent harness with no UI -- the same code AgentWidget.tsx drives. For testing prompts, skills and catalogue tuning from the CLI: solx exec /packages/solx-agent/agent-loop --json {\"message\":\"...\",\"model\":\"...\"}. Pass back the result's session_id to continue the conversation, approve a suspended call, or resume a run left mid-turn.",
+    "capabilities": ["agent", "headless", "development"],
+    "phrases": ["run the agent headless", "test a prompt", "agent loop"],
+};
 
 # ── Seeded skills ────────────────────────────────────────────────────────────
 #
@@ -40,24 +212,98 @@ save action /packages/solx-agent/agent-loop --json '''{"actionType": "command", 
 #      turn, so each of these is kept under a thousand. A skill that does not
 #      fit the remaining budget is skipped, not truncated.
 
-save doc /agent/skills/wire-keys --type /packages/solx-agent/AgentSkill --json '''{"title":"Parameter names and null","contents":{"tools":["/builtin/*"],"instructions":"Parameter spelling is not uniform across solx and the schemas are open, so a key you misspell is dropped in silence rather than refused. You get a wrong answer, not an error.\nEntity and search parameters are camelCase: typeRef, pathPrefix, paramTypeRef, resultTypeRef, excludeHidden, linkedTo.\nSome handlers read raw keys and take snake_case instead: rel_path, doc_path, state_value, stream_id, action_ref, invocation_id, timeout_secs, from_seq, wait_secs.\nWhen you are unsure which a tool wants, read its parameter schema rather than guessing.\nNever send null for an optional parameter. An optional string is typed as a string, so an explicit null fails validation and errors the whole call. Omit the key instead."}}''';
+save doc /agent/skills/wire-keys --type /packages/solx-agent/AgentSkill --json {
+    "title": "Parameter names and null",
+    "contents": {
+        "tools": ["/builtin/*"],
+        "instructions": "Parameter spelling is not uniform across solx and the schemas are open, so a key you misspell is dropped in silence rather than refused. You get a wrong answer, not an error.\nEntity and search parameters are camelCase: typeRef, pathPrefix, paramTypeRef, resultTypeRef, excludeHidden, linkedTo.\nSome handlers read raw keys and take snake_case instead: rel_path, doc_path, state_value, stream_id, action_ref, invocation_id, timeout_secs, from_seq, wait_secs.\nWhen you are unsure which a tool wants, read its parameter schema rather than guessing.\nNever send null for an optional parameter. An optional string is typed as a string, so an explicit null fails validation and errors the whole call. Omit the key instead.",
+    },
+};
 
-save doc /agent/skills/documents --type /packages/solx-agent/AgentSkill --json '''{"title":"Working with documents","contents":{"tools":["/builtin/document/*"],"instructions":"A document is identified by its path and its name together. The full reference is the two joined, for example /research/ai/note.\nentity-save-document is an upsert keyed on that pair, so saving with a name that already exists replaces that document rather than failing. Search or get first, unless you mean to replace it.\ntypeRef is required when creating a document and names the type its contents are validated against. /types/docs/Document is the permissive base when you have nothing more specific.\ntitle and summary are what search returns and ranks on, so put the gist there rather than only in contents.\nsearch-documents takes q, pathPrefix, typeRef, linkedTo, limit and offset. Terms are ANDed and prefix-matched, so pass two or three distinctive words, never a sentence. Omit q entirely to list by path or type alone."}}''';
+save doc /agent/skills/documents --type /packages/solx-agent/AgentSkill --json {
+    "title": "Working with documents",
+    "contents": {
+        "tools": ["/builtin/document/*"],
+        "instructions": "A document is identified by its path and its name together. The full reference is the two joined, for example /research/ai/note.\nentity-save-document is an upsert keyed on that pair, so saving with a name that already exists replaces that document rather than failing. Search or get first, unless you mean to replace it.\ntypeRef is required when creating a document and names the type its contents are validated against. /types/docs/Document is the permissive base when you have nothing more specific.\ntitle and summary are what search returns and ranks on, so put the gist there rather than only in contents.\nsearch-documents takes q, pathPrefix, typeRef, linkedTo, limit and offset. Terms are ANDed and prefix-matched, so pass two or three distinctive words, never a sentence. Omit q entirely to list by path or type alone.",
+    },
+};
 
-save doc /agent/skills/document-fields --type /packages/solx-agent/AgentSkill --json '''{"title":"Reading and writing one field","contents":{"tools":["/builtin/document/*field*"],"instructions":"There are two pairs and they do not take the same parameters.\nget-field and set-field are top-level only: path, name, field, and for the setter a value. They read and write one key of contents.\nget-field-at-path and set-field-at-path go deeper, and the trap is that they name the document with doc_path, not path. Their path parameter is the slash-separated pointer inside contents, such as metadata/tags/0. Passing the document path as path silently targets the wrong thing.\nA pointer that matches nothing reads back as null rather than erroring.\nset-field-at-path with create true synthesizes missing parents: an object for a text segment, an array for a numeric one. Without it, a write below a parent that does not exist fails."}}''';
+save doc /agent/skills/document-fields --type /packages/solx-agent/AgentSkill --json {
+    "title": "Reading and writing one field",
+    "contents": {
+        "tools": ["/builtin/document/*field*"],
+        "instructions": "There are two pairs and they do not take the same parameters.\nget-field and set-field are top-level only: path, name, field, and for the setter a value. They read and write one key of contents.\nget-field-at-path and set-field-at-path go deeper, and the trap is that they name the document with doc_path, not path. Their path parameter is the slash-separated pointer inside contents, such as metadata/tags/0. Passing the document path as path silently targets the wrong thing.\nA pointer that matches nothing reads back as null rather than erroring.\nset-field-at-path with create true synthesizes missing parents: an object for a text segment, an array for a numeric one. Without it, a write below a parent that does not exist fails.",
+    },
+};
 
-save doc /agent/skills/types --type /packages/solx-agent/AgentSkill --json '''{"title":"Types are JSON Schemas","contents":{"tools":["/builtin/type/*"],"instructions":"A type is a named JSON Schema stored at a path, and it is what a document is validated against on save. The type has to exist before any document can reference it, so create the type first.\nentity-save-type takes path, name, description, schema and groups. schema is required when creating.\nSome already exist. /types/docs/Document is a permissive base that accepts almost any contents. /types/core/String and its siblings are the scalars. /builtin/types holds the parameter schemas backing the builtin actions.\nThat last group is how you learn a tool signature: read an action row, take its paramTypeRef, and get that type to see exactly what the action accepts.\nFull-text indexing walks only the fields a schema declares, so a field left undeclared is still stored but is never searchable."}}''';
+save doc /agent/skills/types --type /packages/solx-agent/AgentSkill --json {
+    "title": "Types are JSON Schemas",
+    "contents": {
+        "tools": ["/builtin/type/*"],
+        "instructions": "A type is a named JSON Schema stored at a path, and it is what a document is validated against on save. The type has to exist before any document can reference it, so create the type first.\nentity-save-type takes path, name, description, schema and groups. schema is required when creating.\nSome already exist. /types/docs/Document is a permissive base that accepts almost any contents. /types/core/String and its siblings are the scalars. /builtin/types holds the parameter schemas backing the builtin actions.\nThat last group is how you learn a tool signature: read an action row, take its paramTypeRef, and get that type to see exactly what the action accepts.\nFull-text indexing walks only the fields a schema declares, so a field left undeclared is still stored but is never searchable.",
+    },
+};
 
-save doc /agent/skills/files --type /packages/solx-agent/AgentSkill --json '''{"title":"The file store","contents":{"tools":["/builtin/file/*"],"instructions":"The file store is a flat byte store addressed by rel_path, which is snake_case here rather than the camelCase used by entity parameters.\nfile-put takes rel_path, content, and encoding of either utf8 or base64. Use base64 for anything that is not text, and note that content is the bytes themselves, not the name of a local file.\nfile-get and file-delete take rel_path. file-list takes prefix. file-copy and dir-copy take source and dest. dir-delete takes rel_path and returns the list of what it removed.\nTwo conventions worth following: action artifacts, meaning wasm components and .solx scripts, live under files/actions/shared/, and widget bundles under widgets/.\nThere is no directory entity. A directory is only a shared prefix, which is why dir-delete is a prefix sweep and is worth being careful with."}}''';
+save doc /agent/skills/files --type /packages/solx-agent/AgentSkill --json {
+    "title": "The file store",
+    "contents": {
+        "tools": ["/builtin/file/*"],
+        "instructions": "The file store is a flat byte store addressed by rel_path, which is snake_case here rather than the camelCase used by entity parameters.\nfile-put takes rel_path, content, and encoding of either utf8 or base64. Use base64 for anything that is not text, and note that content is the bytes themselves, not the name of a local file.\nfile-get and file-delete take rel_path. file-list takes prefix. file-copy and dir-copy take source and dest. dir-delete takes rel_path and returns the list of what it removed.\nTwo conventions worth following: action artifacts, meaning wasm components and .solx scripts, live under files/actions/shared/, and widget bundles under widgets/.\nThere is no directory entity. A directory is only a shared prefix, which is why dir-delete is a prefix sweep and is worth being careful with.",
+    },
+};
 
-save doc /agent/skills/action-catalogue --type /packages/solx-agent/AgentSkill --json '''{"title":"Reading the action catalogue","contents":{"tools":["/builtin/action/entity-get-action","/builtin/action/entity-list-actions","/builtin/action/search-actions"],"instructions":"The action registry is the tool catalogue. Every tool anything in solx can call is a row here, so this is how you find out what the system can do rather than assuming.\nsearch-actions takes q, pathPrefix, limit and offset, and indexes path, name, caption, description, category and phrases. Terms are ANDed and prefix-matched, so use two or three distinctive words.\nTo learn how to call what you found: entity-get-action for the row, then get the type its paramTypeRef names. That gives you the exact parameter schema instead of a guess.\nA row tells you more than its description does. actionType says how it runs. capabilities may carry solx:destructive, meaning a call will stop for a human decision. paramTypeRef is validated on every call, while resultTypeRef is only a declaration and is not enforced.\nYou can read the catalogue but not write it."}}''';
+save doc /agent/skills/action-catalogue --type /packages/solx-agent/AgentSkill --json {
+    "title": "Reading the action catalogue",
+    "contents": {
+        "tools": [
+            "/builtin/action/entity-get-action",
+            "/builtin/action/entity-list-actions",
+            "/builtin/action/search-actions",
+        ],
+        "instructions": "The action registry is the tool catalogue. Every tool anything in solx can call is a row here, so this is how you find out what the system can do rather than assuming.\nsearch-actions takes q, pathPrefix, limit and offset, and indexes path, name, caption, description, category and phrases. Terms are ANDed and prefix-matched, so use two or three distinctive words.\nTo learn how to call what you found: entity-get-action for the row, then get the type its paramTypeRef names. That gives you the exact parameter schema instead of a guess.\nA row tells you more than its description does. actionType says how it runs. capabilities may carry solx:destructive, meaning a call will stop for a human decision. paramTypeRef is validated on every call, while resultTypeRef is only a declaration and is not enforced.\nYou can read the catalogue but not write it.",
+    },
+};
 
-save doc /agent/skills/authoring-actions --type /packages/solx-agent/AgentSkill --json '''{"title":"Defining a new action","contents":{"tools":["/builtin/action/entity-get-action","/builtin/action/entity-list-actions","/builtin/action/search-actions"],"instructions":"You cannot register an action yourself. Creating and deleting action rows is refused for you whatever else you have been granted, because an action registered under a path you can already reach would then run outside the limits set for this session. So the way to deliver a new action is to write the definition out and hand it to the person you are talking to, who runs it from the command line as solx save action.\nThe fields that matter: actionType picks how it runs. fnName is a URL for webhook, an allowlist key for command, an export name for wasm, and a handler name for internal. binName names the artifact for wasm and script.\nFill in description and phrases too, because they are what make the action findable in search, and paramTypeRef, which is validated on every call, so create that type first.\nSay plainly what the action would do before proposing it."}}''';
+save doc /agent/skills/authoring-actions --type /packages/solx-agent/AgentSkill --json {
+    "title": "Defining a new action",
+    "contents": {
+        "tools": [
+            "/builtin/action/entity-get-action",
+            "/builtin/action/entity-list-actions",
+            "/builtin/action/search-actions",
+        ],
+        "instructions": "You cannot register an action yourself. Creating and deleting action rows is refused for you whatever else you have been granted, because an action registered under a path you can already reach would then run outside the limits set for this session. So the way to deliver a new action is to write the definition out and hand it to the person you are talking to, who runs it from the command line as solx save action.\nThe fields that matter: actionType picks how it runs. fnName is a URL for webhook, an allowlist key for command, an export name for wasm, and a handler name for internal. binName names the artifact for wasm and script.\nFill in description and phrases too, because they are what make the action findable in search, and paramTypeRef, which is validated on every call, so create that type first.\nSay plainly what the action would do before proposing it.",
+    },
+};
 
-save doc /agent/skills/javascript-actions --type /packages/solx-agent/AgentSkill --json '''{"title":"Building a JavaScript action","contents":{"tools":["/packages/solx-quickjs/*"],"instructions":"A JavaScript action is compiled into a wasm component. The source must export a named runner object, because the build binds the interface to that identifier and a bare top-level run function does not bind. It looks like this:\nexport const runner = { run(actionName, params) { return { success: true, message: null, output: JSON.stringify(result) }; } };\nparams arrives as a JSON string and output must be a JSON string, so parse and stringify at the boundary. Import exec from sol:actions/action-exec@0.1.0 to call other actions; it takes a reference and a JSON string.\nStage the source with file-put first, then build. build-javascript-file compiles and uploads the artifact and never touches an action row. build-javascript-action does the same and also upserts the action named by path and action_name.\nBoth stop for a human decision, and what you build runs with more reach than you have. Say what it will do, in plain terms, before you ask."}}''';
+save doc /agent/skills/javascript-actions --type /packages/solx-agent/AgentSkill --json {
+    "title": "Building a JavaScript action",
+    "contents": {
+        "tools": ["/packages/solx-quickjs/*"],
+        "instructions": "A JavaScript action is compiled into a wasm component. The source must export a named runner object, because the build binds the interface to that identifier and a bare top-level run function does not bind. It looks like this:\nexport const runner = { run(actionName, params) { return { success: true, message: null, output: JSON.stringify(result) }; } };\nparams arrives as a JSON string and output must be a JSON string, so parse and stringify at the boundary. Import exec from sol:actions/action-exec@0.1.0 to call other actions; it takes a reference and a JSON string.\nStage the source with file-put first, then build. build-javascript-file compiles and uploads the artifact and never touches an action row. build-javascript-action does the same and also upserts the action named by path and action_name.\nBoth stop for a human decision, and what you build runs with more reach than you have. Say what it will do, in plain terms, before you ask.",
+    },
+};
 
-save doc /agent/skills/packages --type /packages/solx-agent/AgentSkill --json '''{"title":"Building an installable package","contents":{"tools":["/builtin/file/*","/packages/solx-quickjs/*"],"instructions":"A package is a directory holding solx-package.json and an install.solx script, installed from the command line with solx install-package. You cannot install one, so produce the files and hand them over.\nsolx-package.json needs name and version. It also declares what the package needs permission for, and installing grants exactly that: allowed_base_urls for outbound hosts, and command_actions mapping an opaque key to a command and a working directory. Both are deny-by-default, so an undeclared host or command simply will not run.\ninstall.solx registers everything with ordinary CLI verbs, one statement per line, each ending in a semicolon: save type, save file, save action. Write an uninstall.solx that removes what install added.\nWrap a --json argument in three consecutive single-quote characters on each side, not just one: the content is then taken completely raw, so a description containing an apostrophe or a quote needs no escaping and cannot silently truncate the argument."}}''';
+save doc /agent/skills/packages --type /packages/solx-agent/AgentSkill --json {
+    "title": "Building an installable package",
+    "contents": {
+        "tools": ["/builtin/file/*", "/packages/solx-quickjs/*"],
+        "instructions": "A package is a directory holding solx-package.json and an install.solx script, installed from the command line with solx install-package. You cannot install one, so produce the files and hand them over.\nsolx-package.json needs name and version. It also declares what the package needs permission for, and installing grants exactly that: allowed_base_urls for outbound hosts, and command_actions mapping an opaque key to a command and a working directory. Both are deny-by-default, so an undeclared host or command simply will not run.\ninstall.solx registers everything with ordinary CLI verbs, one statement per line, each ending in a semicolon: save type, save file, save action. Write an uninstall.solx that removes what install added.\nWrite each --json argument as the JSON object itself, unquoted, for example save type /packages/my-pkg/MyParams --json {\"description\": \"...\", \"schema\": {...}}; It may span lines, and its strings follow normal JSON rules, so apostrophes need no escaping. Upload any script or other file the package needs with save file <store path> --file <local file> rather than embedding its text.",
+    },
+};
 
-save doc /agent/skills/solx-scripts --type /packages/solx-agent/AgentSkill --json '''{"title":"Writing a .solx script","contents":{"tools":["/builtin/file/*"],"instructions":"A .solx script is a pipeline language, not a general one, and enough of it is unusual that intuition will get it wrong.\nStatements are separated by semicolons and newlines are only cosmetic, so every statement needs its own semicolon, including if, elseif, else, endif, for and endfor.\nComments run from a hash to the end of the line and are stripped before the split.\nA vertical bar pipes one stage into the next. A value is captured with a name and an equals sign and read back with a dollar sign, including dotted paths into a result.\nSubstitution is textual. A variable holding a string is inserted as raw unquoted text, while numbers and objects insert as valid JSON, and a missing field inserts the four characters null. There is no interpolation operator, so build a template inside a single json stage.\nWrap a JSON body in three consecutive single-quote characters on each side rather than one: that content is taken completely raw, so an apostrophe or a quote inside it needs no escaping.\nAn action of type script supports only exec and json stages, not the full command line grammar, and has no return: the value of the last statement is the result."}}''';
+save doc /agent/skills/solx-scripts --type /packages/solx-agent/AgentSkill --json {
+    "title": "Writing a .solx script",
+    "contents": {
+        "tools": ["/builtin/file/*"],
+        "instructions": "A .solx script is a pipeline language, not a general one, and enough of it is unusual that intuition will get it wrong.\nA command such as exec, or an assignment, ends with a semicolon and may wrap across lines. The keywords if, else if, else, endif, for and endfor end at the end of their line instead, and an if condition may end with then: if $x == null then ... endif.\nComments run from a hash to the end of the line.\nA vertical bar pipes one stage into the next. Capture a result with $name = exec ... and read it back as $name, including dotted paths such as $name.result.id.\nA value needs no stage: $port = $params.port || 8765; assigns directly. || yields the left side unless it is null, false, 0 or empty, so it doubles as a default.\nWrite JSON as the object itself, never inside quotes: exec /some/action --json {\"id\": $doc.id, \"tags\": [\"a\", \"b\"]}; Values keep their types, so a missing field is a real null, and a long object may span several lines. Pasted JSON is taken literally: normal JSON escapes apply, and a dollar sign inside a string, as in $schema, is just a character.\nTo put a value inside a string, write a dollar sign followed by the variable name in curly braces, inside double quotes, for example to build a URL. Use this only for text; build JSON as an object.\nAn action of type script supports only exec and json stages, not the full command line grammar, and has no return: the value of the last statement is the result.",
+    },
+};
 
-save doc /agent/skills/web --type /packages/solx-agent/AgentSkill --json '''{"title":"Making HTTP requests","contents":{"tools":["/builtin/web/*"],"instructions":"Outbound requests are deny-by-default. Every URL has to match a prefix the instance has already allowed, so a refusal usually means the host was never granted rather than that you called it wrongly, and adding a host is something a human does.\nhttp-request takes url, method defaulting to GET, headers, body, body_encoding of utf8 or base64, and timeout_secs defaulting to 30.\nA non-2xx response is not an error. You get back status, lowercased headers and body, and a 404 or a 500 arrives looking exactly like a success, so check status before trusting body.\nTo read a response as it arrives, start returns a stream_id once the headers land, poll drains the chunks buffered since a cursor and can wait for more, and close ends it. Always close a stream you started.\nOnly http and https are ever accepted, whatever the allowlist says."}}''';
+save doc /agent/skills/web --type /packages/solx-agent/AgentSkill --json {
+    "title": "Making HTTP requests",
+    "contents": {
+        "tools": ["/builtin/web/*"],
+        "instructions": "Outbound requests are deny-by-default. Every URL has to match a prefix the instance has already allowed, so a refusal usually means the host was never granted rather than that you called it wrongly, and adding a host is something a human does.\nhttp-request takes url, method defaulting to GET, headers, body, body_encoding of utf8 or base64, and timeout_secs defaulting to 30.\nA non-2xx response is not an error. You get back status, lowercased headers and body, and a 404 or a 500 arrives looking exactly like a success, so check status before trusting body.\nTo read a response as it arrives, start returns a stream_id once the headers land, poll drains the chunks buffered since a cursor and can wait for more, and close ends it. Always close a stream you started.\nOnly http and https are ever accepted, whatever the allowlist says.",
+    },
+};

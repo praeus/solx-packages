@@ -1,2 +1,7 @@
-exec /packages/solx-ollama/ollama-list-models --json '{}';
-exec /packages/solx-ollama/ollama-chat --json '{"model":"qwen3:4b","messages":[{"role":"user","content":"Reply with the single word OK."}],"think":false,"options":{"num_predict":8,"temperature":0}}'
+exec /packages/solx-ollama/ollama-list-models --json {};
+exec /packages/solx-ollama/ollama-chat --json {
+    "model": "qwen3:4b",
+    "messages": [{"role": "user", "content": "Reply with the single word OK."}],
+    "think": false,
+    "options": {"num_predict": 8, "temperature": 0},
+}

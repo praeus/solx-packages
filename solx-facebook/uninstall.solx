@@ -34,8 +34,10 @@ delete action /packages/solx-facebook/import-facebook-posts --if-exists;
 # Imported documents and their pictures (files/docs/shared/fb-*) are user
 # data, not package files, and are left in place.
 
-exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-facebook-login.solx"}';
-exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-facebook-actions.wasm"}';
+exec /builtin/file/file-delete --json {"rel_path": "files/actions/shared/solx-facebook-login.solx"};
+exec /builtin/file/file-delete --json {
+    "rel_path": "files/actions/shared/solx-facebook-actions.wasm",
+};
 
 # ── Types ────────────────────────────────────────────────────────────────────
 

@@ -59,19 +59,17 @@ they're the two that work with what solx already has:
   never needs to — it just threads back whatever the previous poll returned:
 
   ```
-  $s = exec /packages/solx-ollama/ollama-chat-start --json '{"model":"llama3.2:1b","messages":[...]}';
-  for $i in 0..600;
-    $p = exec /packages/solx-ollama/ollama-chat-poll --json '{"stream_id":"$s.result.stream_id","cursor":"$p.result.next_cursor"}';
-    if $p.result.done == true; ... endif;
-    wait 0.5;
+  $s = exec /packages/solx-ollama/ollama-chat-start --json {"model": "llama3.2:1b", "messages": [...]};
+  for $i in 0..600
+    $p = exec /packages/solx-ollama/ollama-chat-poll --json {"stream_id": $s.result.stream_id, "cursor": $p.result.next_cursor};
+    if $p.result.done == true then ... endif
+    wait 0.5
   endfor
   ```
 
-  The first iteration's `$p` is unresolved and passes through literally
-  (`substitute_vars_in_token` in `solx-scripts/src/lib.rs`), so `cursor` needs
-  to explicitly treat a missing or unresolved value as "from the start" —
-  this must be handled in the built-in rather than relied on as an accident
-  of the substitution rules.
+  On the first iteration `$p` isn't set yet, so `cursor` is sent as a real
+  `null` — the built-in must treat a missing or null cursor as "from the
+  start".
 
 - **`solx-server` / SSE.** The server drains the registry and re-emits over
   SSE to an HTTP client. This needs multiple readers to be able to attach

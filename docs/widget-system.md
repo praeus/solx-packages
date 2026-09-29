@@ -251,18 +251,13 @@ widget package needs:
   dist/<name>.js`) and register a `Script`-type action whose
   `resultTypeRef` is `/builtin/types/WidgetDescriptor`. The action's
   `binName` points at a tiny `.solx` script uploaded separately, whose only
-  job is `json '{"tag_name":...,"bin_name":...,"fields":...}'`.
+  job is to evaluate to the descriptor object:
+  `{"tag_name": ..., "bin_name": ..., "fields": ...};`.
 
-  **Upload that descriptor script with `save file <path> --file
-  <local-file>`, not `exec /builtin/file/file-put --json '...'` with the
-  script text embedded as a JSON string.** The latter needs the script's
-  own `'...'` shell-quoted arguments re-escaped as `'` inside the outer
-  JSON string (see `solx-firefox/install.solx` for that pattern done
-  correctly) — easy to get wrong, and it *silently* fails with a generic
-  `parse --json params` error that doesn't point at which line. Writing the
-  descriptor as a real local `.solx` file and uploading it with `save file`
-  sidesteps the whole problem: no nested-quote escaping, because there's no
-  JSON string wrapping a JSON string.
+  **Keep that descriptor script as a real local `.solx` file and upload it
+  with `save file <path> --file <local-file>`**, rather than embedding its
+  text as a JSON string in a `file-put` call — every package's scripts are
+  uploaded this way, so they stay readable and editable in place.
 - `uninstall.solx` — `delete action ... --if-exists`.
 - Register the package in `solx-packages/README.md`'s table and
   `solx-packages/scripts/reinstall-all.sh`'s `PACKAGES` array.

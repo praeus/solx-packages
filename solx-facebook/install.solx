@@ -17,51 +17,628 @@ endif
 
 save file files/actions/shared/solx-facebook-login.solx --file login.solx;
 
-save action /packages/solx-facebook/login-to-facebook --json '{"actionType":"script","binName":"solx-facebook-login.solx","files":[{"name":"solx-facebook-login.solx","relPath":"files/actions/shared/solx-facebook-login.solx","contentType":"text/x-solx"}],"caption":"Log in to Facebook (store a Page access token)","category":"facebook","description":"Obtains a Facebook Page access token and persists it via /builtin/secrets/set-secret. Either pass page_access_token directly, or pass app_id/app_secret to run the Facebook Login OAuth flow (loopback listener + system browser), exchange for a long-lived user token, and pick the managed Page matching page_id (first Page if omitted). Page tokens derived this way do not expire.","capabilities":["facebook","oauth","orchestration","script"],"phrases":["log in to facebook","login to facebook","facebook login","connect facebook page","set facebook page token"],"paramTypeRef":"/packages/solx-facebook/FacebookLoginParams","actionConfig":{"secrets":{"FACEBOOK_APP_ID":"'$key'","FACEBOOK_APP_SECRET":"'$key'","FACEBOOK_PAGE_ACCESS_TOKEN":"'$key'"}}}';
+save action /packages/solx-facebook/login-to-facebook --json {
+    "actionType": "script",
+    "binName": "solx-facebook-login.solx",
+    "files": [
+        {
+            "name": "solx-facebook-login.solx",
+            "relPath": "files/actions/shared/solx-facebook-login.solx",
+            "contentType": "text/x-solx",
+        },
+    ],
+    "caption": "Log in to Facebook (store a Page access token)",
+    "category": "facebook",
+    "description": "Obtains a Facebook Page access token and persists it via /builtin/secrets/set-secret. Either pass page_access_token directly, or pass app_id/app_secret to run the Facebook Login OAuth flow (loopback listener + system browser), exchange for a long-lived user token, and pick the managed Page matching page_id (first Page if omitted). Page tokens derived this way do not expire.",
+    "capabilities": ["facebook", "oauth", "orchestration", "script"],
+    "phrases": [
+        "log in to facebook",
+        "login to facebook",
+        "facebook login",
+        "connect facebook page",
+        "set facebook page token",
+    ],
+    "paramTypeRef": "/packages/solx-facebook/FacebookLoginParams",
+    "actionConfig": {
+        "secrets": {
+            "FACEBOOK_APP_ID": $key,
+            "FACEBOOK_APP_SECRET": $key,
+            "FACEBOOK_PAGE_ACCESS_TOKEN": $key,
+        },
+    },
+};
 
 
-save type /packages/solx-facebook/FacebookLoginParams --json '{"description":"Input for login-to-facebook (and its internal token-exchange steps). Supply either page_access_token (manual mode) or app_id + app_secret (OAuth mode; persisted, so later runs may omit them).","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"page_access_token":{"type":"string","description":"Manual mode: an existing Page access token (e.g. from the Graph API Explorer). Skips OAuth entirely."},"app_id":{"type":"string","description":"Meta app ID (OAuth mode)."},"app_secret":{"type":"string","description":"Meta app secret (OAuth mode)."},"page_id":{"type":"string","description":"OAuth mode: which managed Page to connect. Defaults to the first Page returned by /me/accounts."},"scope":{"type":"string","description":"Comma-separated permissions. Defaults to pages_show_list,pages_read_engagement,pages_read_user_content,pages_manage_posts."},"port":{"type":"integer","description":"Loopback port for the OAuth redirect (default 8765)."},"timeout_secs":{"type":"integer","description":"How long to wait for the browser callback (default 300)."},"code":{"type":"string"},"redirect_uri":{"type":"string"}}}}';
-save type /packages/solx-facebook/FacebookPostGetParams --json '{"description":"Input for get-facebook-post (GET https://graph.facebook.com/v25.0/{post_id}).","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["post_id"],"properties":{"post_id":{"type":"string","description":"Page post ID ({page_id}_{post_id} form, as returned by create/list). Filled into the URL, not sent as a query param."},"fields":{"type":"string","description":"Comma-separated fields to return, e.g. id,message,created_time,updated_time,permalink_url,full_picture,is_published,status_type. Without it Graph returns only id, message, created_time."}}}}';
-save type /packages/solx-facebook/FacebookPostCreateParams --json '{"description":"Input for create-facebook-post (POST https://graph.facebook.com/v25.0/me/feed as the connected Page). At least one of message or link is required.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"message":{"type":"string","description":"Post text."},"link":{"type":"string","description":"URL to attach as a link preview."},"published":{"type":"boolean","description":"false creates an unpublished post; required (false) when scheduled_publish_time is set."},"scheduled_publish_time":{"type":["integer","string"],"description":"UNIX timestamp or ISO 8601 string, 10 minutes to 30 days in the future. Requires published=false."}},"additionalProperties":true}}';
-save type /packages/solx-facebook/FacebookPostUpdateParams --json '{"description":"Input for update-facebook-post (POST https://graph.facebook.com/v25.0/{post_id}). Only posts created by this app can be updated.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["post_id"],"properties":{"post_id":{"type":"string","description":"Page post ID. Filled into the URL, not sent in the body."},"message":{"type":"string","description":"Replacement post text."},"is_published":{"type":"boolean","description":"true publishes a previously unpublished post."}},"additionalProperties":true}}';
-save type /packages/solx-facebook/FacebookPostListParams --json '{"description":"Input for list-facebook-posts (GET https://graph.facebook.com/v25.0/me/posts). Paginate by passing the previous response paging.cursors.after as after (older posts) or paging.cursors.before as before (newer posts); a response with no paging.next is the last page. The Graph API has no keyword search on Page posts: narrow by date with since/until.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"fields":{"type":"string","description":"Comma-separated fields per post, e.g. id,message,created_time,permalink_url,full_picture."},"limit":{"type":"integer","minimum":1,"maximum":100,"description":"Posts per page (Graph default 25)."},"after":{"type":"string","description":"Cursor from paging.cursors.after of the previous page."},"before":{"type":"string","description":"Cursor from paging.cursors.before of the previous page."},"since":{"type":["integer","string"],"description":"Only posts created at or after this time (UNIX timestamp or strtotime-style string, e.g. 2026-01-01)."},"until":{"type":["integer","string"],"description":"Only posts created before this time (UNIX timestamp or strtotime-style string)."}},"additionalProperties":true}}';
-save type /packages/solx-facebook/FacebookPost --json '{"description":"Graph API Page post (PagePost) JSON. Which fields are present depends on the fields requested.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","additionalProperties":true,"properties":{"id":{"type":"string"},"message":{"type":"string"},"created_time":{"type":"string"},"updated_time":{"type":"string"},"permalink_url":{"type":"string"},"full_picture":{"type":"string"},"is_published":{"type":"boolean"},"status_type":{"type":"string"}}}}';
-save type /packages/solx-facebook/FacebookPostList --json '{"description":"Graph API paged list of Page posts.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","additionalProperties":true,"properties":{"data":{"type":"array","items":{"type":"object","additionalProperties":true}},"paging":{"type":"object","additionalProperties":true,"properties":{"cursors":{"type":"object","properties":{"before":{"type":"string"},"after":{"type":"string"}}},"next":{"type":"string"},"previous":{"type":"string"}}}}}}';
-save type /packages/solx-facebook/FacebookCommentListParams --json '{"description":"Input for list-facebook-comments (GET https://graph.facebook.com/v25.0/{object_id}/comments). Paginate with after/before cursors from the previous response paging.cursors.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["object_id"],"properties":{"object_id":{"type":"string","description":"Post ID for its top-level comments, or a comment ID for its replies. Filled into the URL."},"fields":{"type":"string","description":"Comma-separated fields, e.g. id,message,created_time,from{id,name},comment_count. Commenter from needs pages_read_user_content."},"filter":{"type":"string","enum":["toplevel","stream"],"description":"toplevel (default) or stream (all comments flattened, replies included)."},"order":{"type":"string","enum":["chronological","reverse_chronological"]},"limit":{"type":"integer","minimum":1,"maximum":100},"after":{"type":"string"},"before":{"type":"string"}},"additionalProperties":true}}';
-save type /packages/solx-facebook/FacebookPostToSolDocParams --json '{"description":"Input for convert-facebook-post-to-sol-doc. Makes no network calls: comments come from the post own comments.data (requested via field expansion), and the picture is referenced, not downloaded.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["facebook_post"],"properties":{"facebook_post":{"type":"object","additionalProperties":true,"description":"A Graph API post, e.g. from get-facebook-post. Useful fields: id,message,story,created_time,updated_time,permalink_url,full_picture,from{id,name},attachments{type,title,url,unshimmed_url},comments{message,created_time,from,comments{message,created_time,from}}."},"path":{"type":"string","description":"Document path. Defaults to /blogs/facebook/<page-name-slug>."},"output_document_name":{"type":"string","description":"Document name. Defaults to the post ID."},"output_type_ref":{"type":"string","description":"Document type. Defaults to /types/docs/BlogPostWithComments."}}}}';
-save type /packages/solx-facebook/FacebookPostToSolDocResult --json '{"description":"Result for convert-facebook-post-to-sol-doc. sol_document_payload is shaped for /builtin/document/entity-save-document and can be passed to it directly.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"post_id":{"type":["string","null"]},"title":{"type":"string"},"text":{"type":"string"},"suggested_document_path":{"type":"string"},"suggested_document_name":{"type":"string"},"sol_document_payload":{"type":"object","additionalProperties":true},"metadata":{"type":"object","additionalProperties":true}}}}';
-save type /packages/solx-facebook/ImportFacebookPostParams --json '{"description":"Input for import-facebook-post.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","required":["post_id"],"properties":{"post_id":{"type":"string","description":"Page post ID ({page_id}_{post_id})."},"path":{"type":"string","description":"Document path. Defaults to /blogs/facebook/<page-name-slug>."},"include_comments":{"type":"boolean","description":"Import the comment thread (comments and their replies). Default true."},"max_comments":{"type":"integer","minimum":0,"description":"Cap on comments + replies imported for the post. Default 500."},"download_picture":{"type":"boolean","description":"Store the post full_picture in the files store as the document icon. Default true; best-effort."}}}}';
-save type /packages/solx-facebook/ImportFacebookPostResult --json '{"description":"Result for import-facebook-post: the saved document.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"post_id":{"type":"string"},"document_path":{"type":"string"},"document_name":{"type":"string"},"title":{"type":"string"},"comments":{"type":"integer"},"comments_truncated":{"type":"boolean"},"icon":{"type":["string","null"]}}}}';
-save type /packages/solx-facebook/ImportFacebookPostsParams --json '{"description":"Input for import-facebook-posts. Imports the connected Page own posts, newest first. To continue a previous run, pass its next_after as after.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"count":{"type":"integer","minimum":1,"description":"Maximum number of posts to import. Default 25."},"since":{"type":["integer","string"],"description":"Only posts created at or after this time (UNIX timestamp or strtotime-style string)."},"until":{"type":["integer","string"],"description":"Only posts created before this time."},"after":{"type":"string","description":"Resume cursor: next_after from a previous run."},"path":{"type":"string","description":"Document path. Defaults to /blogs/facebook/<page-name-slug>."},"include_comments":{"type":"boolean","description":"Default true."},"max_comments":{"type":"integer","minimum":0,"description":"Per-post cap on comments + replies. Default 500."},"download_picture":{"type":"boolean","description":"Default true; best-effort."}}}}';
-save type /packages/solx-facebook/ImportFacebookPostsResult --json '{"description":"Result for import-facebook-posts. Individual post failures do not stop the batch; they are listed in failed. next_after is null once there are no more posts.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"requested":{"type":"integer"},"imported":{"type":"array","items":{"type":"object","additionalProperties":true}},"failed":{"type":"array","items":{"type":"object","properties":{"post_id":{"type":"string"},"error":{"type":"string"}}}},"cancelled":{"type":"boolean"},"next_after":{"type":["string","null"]}}}}';
-save type /packages/solx-facebook/FacebookWriteResult --json '{"description":"Graph API write response: {id} for a new post, {success} for an update.","schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","additionalProperties":true,"properties":{"id":{"type":"string"},"success":{"type":"boolean"}}}}';
+save type /packages/solx-facebook/FacebookLoginParams --json {
+    "description": "Input for login-to-facebook (and its internal token-exchange steps). Supply either page_access_token (manual mode) or app_id + app_secret (OAuth mode; persisted, so later runs may omit them).",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "page_access_token": {
+                "type": "string",
+                "description": "Manual mode: an existing Page access token (e.g. from the Graph API Explorer). Skips OAuth entirely.",
+            },
+            "app_id": {"type": "string", "description": "Meta app ID (OAuth mode)."},
+            "app_secret": {"type": "string", "description": "Meta app secret (OAuth mode)."},
+            "page_id": {
+                "type": "string",
+                "description": "OAuth mode: which managed Page to connect. Defaults to the first Page returned by /me/accounts.",
+            },
+            "scope": {
+                "type": "string",
+                "description": "Comma-separated permissions. Defaults to pages_show_list,pages_read_engagement,pages_read_user_content,pages_manage_posts.",
+            },
+            "port": {
+                "type": "integer",
+                "description": "Loopback port for the OAuth redirect (default 8765).",
+            },
+            "timeout_secs": {
+                "type": "integer",
+                "description": "How long to wait for the browser callback (default 300).",
+            },
+            "code": {"type": "string"},
+            "redirect_uri": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-facebook/FacebookPostGetParams --json {
+    "description": "Input for get-facebook-post (GET https://graph.facebook.com/v25.0/{post_id}).",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["post_id"],
+        "properties": {
+            "post_id": {
+                "type": "string",
+                "description": "Page post ID ({page_id}_{post_id} form, as returned by create/list). Filled into the URL, not sent as a query param.",
+            },
+            "fields": {
+                "type": "string",
+                "description": "Comma-separated fields to return, e.g. id,message,created_time,updated_time,permalink_url,full_picture,is_published,status_type. Without it Graph returns only id, message, created_time.",
+            },
+        },
+    },
+};
+save type /packages/solx-facebook/FacebookPostCreateParams --json {
+    "description": "Input for create-facebook-post (POST https://graph.facebook.com/v25.0/me/feed as the connected Page). At least one of message or link is required.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "Post text."},
+            "link": {"type": "string", "description": "URL to attach as a link preview."},
+            "published": {
+                "type": "boolean",
+                "description": "false creates an unpublished post; required (false) when scheduled_publish_time is set.",
+            },
+            "scheduled_publish_time": {
+                "type": ["integer", "string"],
+                "description": "UNIX timestamp or ISO 8601 string, 10 minutes to 30 days in the future. Requires published=false.",
+            },
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-facebook/FacebookPostUpdateParams --json {
+    "description": "Input for update-facebook-post (POST https://graph.facebook.com/v25.0/{post_id}). Only posts created by this app can be updated.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["post_id"],
+        "properties": {
+            "post_id": {
+                "type": "string",
+                "description": "Page post ID. Filled into the URL, not sent in the body.",
+            },
+            "message": {"type": "string", "description": "Replacement post text."},
+            "is_published": {
+                "type": "boolean",
+                "description": "true publishes a previously unpublished post.",
+            },
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-facebook/FacebookPostListParams --json {
+    "description": "Input for list-facebook-posts (GET https://graph.facebook.com/v25.0/me/posts). Paginate by passing the previous response paging.cursors.after as after (older posts) or paging.cursors.before as before (newer posts); a response with no paging.next is the last page. The Graph API has no keyword search on Page posts: narrow by date with since/until.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "fields": {
+                "type": "string",
+                "description": "Comma-separated fields per post, e.g. id,message,created_time,permalink_url,full_picture.",
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "Posts per page (Graph default 25).",
+            },
+            "after": {
+                "type": "string",
+                "description": "Cursor from paging.cursors.after of the previous page.",
+            },
+            "before": {
+                "type": "string",
+                "description": "Cursor from paging.cursors.before of the previous page.",
+            },
+            "since": {
+                "type": ["integer", "string"],
+                "description": "Only posts created at or after this time (UNIX timestamp or strtotime-style string, e.g. 2026-01-01).",
+            },
+            "until": {
+                "type": ["integer", "string"],
+                "description": "Only posts created before this time (UNIX timestamp or strtotime-style string).",
+            },
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-facebook/FacebookPost --json {
+    "description": "Graph API Page post (PagePost) JSON. Which fields are present depends on the fields requested.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "id": {"type": "string"},
+            "message": {"type": "string"},
+            "created_time": {"type": "string"},
+            "updated_time": {"type": "string"},
+            "permalink_url": {"type": "string"},
+            "full_picture": {"type": "string"},
+            "is_published": {"type": "boolean"},
+            "status_type": {"type": "string"},
+        },
+    },
+};
+save type /packages/solx-facebook/FacebookPostList --json {
+    "description": "Graph API paged list of Page posts.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "data": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+            "paging": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                    "cursors": {
+                        "type": "object",
+                        "properties": {"before": {"type": "string"}, "after": {"type": "string"}},
+                    },
+                    "next": {"type": "string"},
+                    "previous": {"type": "string"},
+                },
+            },
+        },
+    },
+};
+save type /packages/solx-facebook/FacebookCommentListParams --json {
+    "description": "Input for list-facebook-comments (GET https://graph.facebook.com/v25.0/{object_id}/comments). Paginate with after/before cursors from the previous response paging.cursors.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["object_id"],
+        "properties": {
+            "object_id": {
+                "type": "string",
+                "description": "Post ID for its top-level comments, or a comment ID for its replies. Filled into the URL.",
+            },
+            "fields": {
+                "type": "string",
+                "description": "Comma-separated fields, e.g. id,message,created_time,from{id,name},comment_count. Commenter from needs pages_read_user_content.",
+            },
+            "filter": {
+                "type": "string",
+                "enum": ["toplevel", "stream"],
+                "description": "toplevel (default) or stream (all comments flattened, replies included).",
+            },
+            "order": {"type": "string", "enum": ["chronological", "reverse_chronological"]},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            "after": {"type": "string"},
+            "before": {"type": "string"},
+        },
+        "additionalProperties": true,
+    },
+};
+save type /packages/solx-facebook/FacebookPostToSolDocParams --json {
+    "description": "Input for convert-facebook-post-to-sol-doc. Makes no network calls: comments come from the post own comments.data (requested via field expansion), and the picture is referenced, not downloaded.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["facebook_post"],
+        "properties": {
+            "facebook_post": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "A Graph API post, e.g. from get-facebook-post. Useful fields: id,message,story,created_time,updated_time,permalink_url,full_picture,from{id,name},attachments{type,title,url,unshimmed_url},comments{message,created_time,from,comments{message,created_time,from}}.",
+            },
+            "path": {
+                "type": "string",
+                "description": "Document path. Defaults to /blogs/facebook/<page-name-slug>.",
+            },
+            "output_document_name": {
+                "type": "string",
+                "description": "Document name. Defaults to the post ID.",
+            },
+            "output_type_ref": {
+                "type": "string",
+                "description": "Document type. Defaults to /types/docs/BlogPostWithComments.",
+            },
+        },
+    },
+};
+save type /packages/solx-facebook/FacebookPostToSolDocResult --json {
+    "description": "Result for convert-facebook-post-to-sol-doc. sol_document_payload is shaped for /builtin/document/entity-save-document and can be passed to it directly.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "post_id": {"type": ["string", "null"]},
+            "title": {"type": "string"},
+            "text": {"type": "string"},
+            "suggested_document_path": {"type": "string"},
+            "suggested_document_name": {"type": "string"},
+            "sol_document_payload": {"type": "object", "additionalProperties": true},
+            "metadata": {"type": "object", "additionalProperties": true},
+        },
+    },
+};
+save type /packages/solx-facebook/ImportFacebookPostParams --json {
+    "description": "Input for import-facebook-post.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["post_id"],
+        "properties": {
+            "post_id": {"type": "string", "description": "Page post ID ({page_id}_{post_id})."},
+            "path": {
+                "type": "string",
+                "description": "Document path. Defaults to /blogs/facebook/<page-name-slug>.",
+            },
+            "include_comments": {
+                "type": "boolean",
+                "description": "Import the comment thread (comments and their replies). Default true.",
+            },
+            "max_comments": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Cap on comments + replies imported for the post. Default 500.",
+            },
+            "download_picture": {
+                "type": "boolean",
+                "description": "Store the post full_picture in the files store as the document icon. Default true; best-effort.",
+            },
+        },
+    },
+};
+save type /packages/solx-facebook/ImportFacebookPostResult --json {
+    "description": "Result for import-facebook-post: the saved document.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "post_id": {"type": "string"},
+            "document_path": {"type": "string"},
+            "document_name": {"type": "string"},
+            "title": {"type": "string"},
+            "comments": {"type": "integer"},
+            "comments_truncated": {"type": "boolean"},
+            "icon": {"type": ["string", "null"]},
+        },
+    },
+};
+save type /packages/solx-facebook/ImportFacebookPostsParams --json {
+    "description": "Input for import-facebook-posts. Imports the connected Page own posts, newest first. To continue a previous run, pass its next_after as after.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum number of posts to import. Default 25.",
+            },
+            "since": {
+                "type": ["integer", "string"],
+                "description": "Only posts created at or after this time (UNIX timestamp or strtotime-style string).",
+            },
+            "until": {
+                "type": ["integer", "string"],
+                "description": "Only posts created before this time.",
+            },
+            "after": {
+                "type": "string",
+                "description": "Resume cursor: next_after from a previous run.",
+            },
+            "path": {
+                "type": "string",
+                "description": "Document path. Defaults to /blogs/facebook/<page-name-slug>.",
+            },
+            "include_comments": {"type": "boolean", "description": "Default true."},
+            "max_comments": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Per-post cap on comments + replies. Default 500.",
+            },
+            "download_picture": {"type": "boolean", "description": "Default true; best-effort."},
+        },
+    },
+};
+save type /packages/solx-facebook/ImportFacebookPostsResult --json {
+    "description": "Result for import-facebook-posts. Individual post failures do not stop the batch; they are listed in failed. next_after is null once there are no more posts.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "requested": {"type": "integer"},
+            "imported": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": true},
+            },
+            "failed": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"post_id": {"type": "string"}, "error": {"type": "string"}},
+                },
+            },
+            "cancelled": {"type": "boolean"},
+            "next_after": {"type": ["string", "null"]},
+        },
+    },
+};
+save type /packages/solx-facebook/FacebookWriteResult --json {
+    "description": "Graph API write response: {id} for a new post, {success} for an update.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {"id": {"type": "string"}, "success": {"type": "boolean"}},
+    },
+};
 
 
 # Page post actions. All authenticate with the stored Page access token as a
 # Bearer header. With a Page token, /me resolves to the Page itself, so no
 # page_id is needed. ttl_secs keeps the in-memory token cache short so a
 # re-login (switching Pages) takes effect within minutes.
-save action /packages/solx-facebook/get-facebook-post --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/{post_id}","caption":"Get Facebook Page post","category":"facebook","description":"GET https://graph.facebook.com/v25.0/{post_id}. Pass fields to choose what is returned.","capabilities":["facebook","pages","rest","webhook","read"],"phrases":["get facebook post","read facebook post","fetch facebook page post"],"paramTypeRef":"/packages/solx-facebook/FacebookPostGetParams","resultTypeRef":"/packages/solx-facebook/FacebookPost","actionConfig":{"method":"GET","secrets":{"FACEBOOK_PAGE_ACCESS_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"post_id":""},"auth":{"type":"bearer","token_secret":"FACEBOOK_PAGE_ACCESS_TOKEN","ttl_secs":300}}}';
-save action /packages/solx-facebook/create-facebook-post --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/me/feed","caption":"Create Facebook Page post","category":"facebook","description":"POST https://graph.facebook.com/v25.0/me/feed as the connected Page. Publishes immediately, or schedules with published=false + scheduled_publish_time. Returns {id}.","capabilities":["facebook","pages","rest","webhook","write"],"phrases":["post to facebook","create facebook post","publish facebook post","schedule facebook post"],"paramTypeRef":"/packages/solx-facebook/FacebookPostCreateParams","resultTypeRef":"/packages/solx-facebook/FacebookWriteResult","actionConfig":{"secrets":{"FACEBOOK_PAGE_ACCESS_TOKEN":"'$key'"},"timeout_secs":60,"auth":{"type":"bearer","token_secret":"FACEBOOK_PAGE_ACCESS_TOKEN","ttl_secs":300}}}';
-save action /packages/solx-facebook/update-facebook-post --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/{post_id}","caption":"Update Facebook Page post","category":"facebook","description":"POST https://graph.facebook.com/v25.0/{post_id}. Edits the message of (or publishes) a post created by this app. Returns {success}.","capabilities":["facebook","pages","rest","webhook","write"],"phrases":["update facebook post","edit facebook post"],"paramTypeRef":"/packages/solx-facebook/FacebookPostUpdateParams","resultTypeRef":"/packages/solx-facebook/FacebookWriteResult","actionConfig":{"secrets":{"FACEBOOK_PAGE_ACCESS_TOKEN":"'$key'"},"timeout_secs":60,"path_params":{"post_id":""},"auth":{"type":"bearer","token_secret":"FACEBOOK_PAGE_ACCESS_TOKEN","ttl_secs":300}}}';
-save action /packages/solx-facebook/list-facebook-posts --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/me/posts","caption":"List/search Facebook Page posts","category":"facebook","description":"GET https://graph.facebook.com/v25.0/me/posts: the connected Page own posts, newest first. Filter by date with since/until; paginate with the after/before cursors from the previous response paging.cursors.","capabilities":["facebook","pages","rest","webhook","read"],"phrases":["list facebook posts","search facebook posts","facebook page posts","recent facebook posts"],"paramTypeRef":"/packages/solx-facebook/FacebookPostListParams","resultTypeRef":"/packages/solx-facebook/FacebookPostList","actionConfig":{"method":"GET","secrets":{"FACEBOOK_PAGE_ACCESS_TOKEN":"'$key'"},"timeout_secs":30,"auth":{"type":"bearer","token_secret":"FACEBOOK_PAGE_ACCESS_TOKEN","ttl_secs":300}}}';
-save action /packages/solx-facebook/list-facebook-comments --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/{object_id}/comments","caption":"List Facebook comments","category":"facebook","description":"GET https://graph.facebook.com/v25.0/{object_id}/comments: a post top-level comments, or a comment replies. Paginate with the after/before cursors from the previous response paging.cursors.","capabilities":["facebook","pages","rest","webhook","read"],"phrases":["list facebook comments","get facebook post comments"],"paramTypeRef":"/packages/solx-facebook/FacebookCommentListParams","actionConfig":{"method":"GET","secrets":{"FACEBOOK_PAGE_ACCESS_TOKEN":"'$key'"},"timeout_secs":30,"path_params":{"object_id":""},"auth":{"type":"bearer","token_secret":"FACEBOOK_PAGE_ACCESS_TOKEN","ttl_secs":300}}}';
+save action /packages/solx-facebook/get-facebook-post --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/{post_id}",
+    "caption": "Get Facebook Page post",
+    "category": "facebook",
+    "description": "GET https://graph.facebook.com/v25.0/{post_id}. Pass fields to choose what is returned.",
+    "capabilities": ["facebook", "pages", "rest", "webhook", "read"],
+    "phrases": ["get facebook post", "read facebook post", "fetch facebook page post"],
+    "paramTypeRef": "/packages/solx-facebook/FacebookPostGetParams",
+    "resultTypeRef": "/packages/solx-facebook/FacebookPost",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "timeout_secs": 30,
+        "path_params": {"post_id": ""},
+        "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
+    },
+};
+save action /packages/solx-facebook/create-facebook-post --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/me/feed",
+    "caption": "Create Facebook Page post",
+    "category": "facebook",
+    "description": "POST https://graph.facebook.com/v25.0/me/feed as the connected Page. Publishes immediately, or schedules with published=false + scheduled_publish_time. Returns {id}.",
+    "capabilities": ["facebook", "pages", "rest", "webhook", "write"],
+    "phrases": [
+        "post to facebook",
+        "create facebook post",
+        "publish facebook post",
+        "schedule facebook post",
+    ],
+    "paramTypeRef": "/packages/solx-facebook/FacebookPostCreateParams",
+    "resultTypeRef": "/packages/solx-facebook/FacebookWriteResult",
+    "actionConfig": {
+        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "timeout_secs": 60,
+        "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
+    },
+};
+save action /packages/solx-facebook/update-facebook-post --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/{post_id}",
+    "caption": "Update Facebook Page post",
+    "category": "facebook",
+    "description": "POST https://graph.facebook.com/v25.0/{post_id}. Edits the message of (or publishes) a post created by this app. Returns {success}.",
+    "capabilities": ["facebook", "pages", "rest", "webhook", "write"],
+    "phrases": ["update facebook post", "edit facebook post"],
+    "paramTypeRef": "/packages/solx-facebook/FacebookPostUpdateParams",
+    "resultTypeRef": "/packages/solx-facebook/FacebookWriteResult",
+    "actionConfig": {
+        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "timeout_secs": 60,
+        "path_params": {"post_id": ""},
+        "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
+    },
+};
+save action /packages/solx-facebook/list-facebook-posts --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/me/posts",
+    "caption": "List/search Facebook Page posts",
+    "category": "facebook",
+    "description": "GET https://graph.facebook.com/v25.0/me/posts: the connected Page own posts, newest first. Filter by date with since/until; paginate with the after/before cursors from the previous response paging.cursors.",
+    "capabilities": ["facebook", "pages", "rest", "webhook", "read"],
+    "phrases": [
+        "list facebook posts",
+        "search facebook posts",
+        "facebook page posts",
+        "recent facebook posts",
+    ],
+    "paramTypeRef": "/packages/solx-facebook/FacebookPostListParams",
+    "resultTypeRef": "/packages/solx-facebook/FacebookPostList",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "timeout_secs": 30,
+        "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
+    },
+};
+save action /packages/solx-facebook/list-facebook-comments --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/{object_id}/comments",
+    "caption": "List Facebook comments",
+    "category": "facebook",
+    "description": "GET https://graph.facebook.com/v25.0/{object_id}/comments: a post top-level comments, or a comment replies. Paginate with the after/before cursors from the previous response paging.cursors.",
+    "capabilities": ["facebook", "pages", "rest", "webhook", "read"],
+    "phrases": ["list facebook comments", "get facebook post comments"],
+    "paramTypeRef": "/packages/solx-facebook/FacebookCommentListParams",
+    "actionConfig": {
+        "method": "GET",
+        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "timeout_secs": 30,
+        "path_params": {"object_id": ""},
+        "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
+    },
+};
 
 
 # WASM converters (solx-facebook-actions.wasm, uploaded above). They call the
 # webhook actions above through action-exec, so no secrets are needed here --
 # the callees carry their own action_config.secrets.
-save action /packages/solx-facebook/convert-facebook-post-to-sol-doc --json '{"actionType":"wasm","binName":"solx-facebook-actions.wasm","files":[{"name":"solx-facebook-actions.wasm","relPath":"files/actions/shared/solx-facebook-actions.wasm","contentType":"application/wasm"}],"fnName":"convert-facebook-post-to-sol-doc","caption":"Convert Facebook post to Sol document","category":"facebook","description":"Converts a fetched Graph API post (with any comments requested via field expansion) into a BlogPostWithComments document payload, ready to pass to /builtin/document/entity-save-document. Makes no network calls and saves nothing.","capabilities":["facebook","pages","convert"],"phrases":["convert facebook post to sol document","convert facebook post to document"],"paramTypeRef":"/packages/solx-facebook/FacebookPostToSolDocParams","resultTypeRef":"/packages/solx-facebook/FacebookPostToSolDocResult","actionConfig":{"timeout_secs":30}}';
-save action /packages/solx-facebook/import-facebook-post --json '{"actionType":"wasm","binName":"solx-facebook-actions.wasm","files":[{"name":"solx-facebook-actions.wasm","relPath":"files/actions/shared/solx-facebook-actions.wasm","contentType":"application/wasm"}],"fnName":"import-facebook-post","caption":"Import Facebook post as a document","category":"facebook","description":"Fetches one Page post, its comment thread, and its picture, and saves it as a BlogPostWithComments document (default path /blogs/facebook/<page>, name = post ID, so re-importing updates the same document).","capabilities":["facebook","pages","import","write"],"phrases":["import facebook post","save facebook post as document","import facebook post with comments"],"paramTypeRef":"/packages/solx-facebook/ImportFacebookPostParams","resultTypeRef":"/packages/solx-facebook/ImportFacebookPostResult","actionConfig":{"timeout_secs":300}}';
-save action /packages/solx-facebook/import-facebook-posts --json '{"actionType":"wasm","binName":"solx-facebook-actions.wasm","files":[{"name":"solx-facebook-actions.wasm","relPath":"files/actions/shared/solx-facebook-actions.wasm","contentType":"application/wasm"}],"fnName":"import-facebook-posts","caption":"Import Facebook posts as documents","category":"facebook","description":"Pages through the connected Page posts (newest first, optionally within since/until) and saves up to count of them as BlogPostWithComments documents. Per-post failures are collected rather than stopping the batch; next_after resumes a later run.","capabilities":["facebook","pages","import","batch","write"],"phrases":["import facebook posts","import facebook page","archive facebook page posts","save facebook posts as documents"],"paramTypeRef":"/packages/solx-facebook/ImportFacebookPostsParams","resultTypeRef":"/packages/solx-facebook/ImportFacebookPostsResult","actionConfig":{"timeout_secs":1800}}';
+save action /packages/solx-facebook/convert-facebook-post-to-sol-doc --json {
+    "actionType": "wasm",
+    "binName": "solx-facebook-actions.wasm",
+    "files": [
+        {
+            "name": "solx-facebook-actions.wasm",
+            "relPath": "files/actions/shared/solx-facebook-actions.wasm",
+            "contentType": "application/wasm",
+        },
+    ],
+    "fnName": "convert-facebook-post-to-sol-doc",
+    "caption": "Convert Facebook post to Sol document",
+    "category": "facebook",
+    "description": "Converts a fetched Graph API post (with any comments requested via field expansion) into a BlogPostWithComments document payload, ready to pass to /builtin/document/entity-save-document. Makes no network calls and saves nothing.",
+    "capabilities": ["facebook", "pages", "convert"],
+    "phrases": ["convert facebook post to sol document", "convert facebook post to document"],
+    "paramTypeRef": "/packages/solx-facebook/FacebookPostToSolDocParams",
+    "resultTypeRef": "/packages/solx-facebook/FacebookPostToSolDocResult",
+    "actionConfig": {"timeout_secs": 30},
+};
+save action /packages/solx-facebook/import-facebook-post --json {
+    "actionType": "wasm",
+    "binName": "solx-facebook-actions.wasm",
+    "files": [
+        {
+            "name": "solx-facebook-actions.wasm",
+            "relPath": "files/actions/shared/solx-facebook-actions.wasm",
+            "contentType": "application/wasm",
+        },
+    ],
+    "fnName": "import-facebook-post",
+    "caption": "Import Facebook post as a document",
+    "category": "facebook",
+    "description": "Fetches one Page post, its comment thread, and its picture, and saves it as a BlogPostWithComments document (default path /blogs/facebook/<page>, name = post ID, so re-importing updates the same document).",
+    "capabilities": ["facebook", "pages", "import", "write"],
+    "phrases": [
+        "import facebook post",
+        "save facebook post as document",
+        "import facebook post with comments",
+    ],
+    "paramTypeRef": "/packages/solx-facebook/ImportFacebookPostParams",
+    "resultTypeRef": "/packages/solx-facebook/ImportFacebookPostResult",
+    "actionConfig": {"timeout_secs": 300},
+};
+save action /packages/solx-facebook/import-facebook-posts --json {
+    "actionType": "wasm",
+    "binName": "solx-facebook-actions.wasm",
+    "files": [
+        {
+            "name": "solx-facebook-actions.wasm",
+            "relPath": "files/actions/shared/solx-facebook-actions.wasm",
+            "contentType": "application/wasm",
+        },
+    ],
+    "fnName": "import-facebook-posts",
+    "caption": "Import Facebook posts as documents",
+    "category": "facebook",
+    "description": "Pages through the connected Page posts (newest first, optionally within since/until) and saves up to count of them as BlogPostWithComments documents. Per-post failures are collected rather than stopping the batch; next_after resumes a later run.",
+    "capabilities": ["facebook", "pages", "import", "batch", "write"],
+    "phrases": [
+        "import facebook posts",
+        "import facebook page",
+        "archive facebook page posts",
+        "save facebook posts as documents",
+    ],
+    "paramTypeRef": "/packages/solx-facebook/ImportFacebookPostsParams",
+    "resultTypeRef": "/packages/solx-facebook/ImportFacebookPostsResult",
+    "actionConfig": {"timeout_secs": 1800},
+};
 
 
 # Internal steps of login-to-facebook. Not meant to be invoked standalone.
 # The token-passing ones take access_token as a query param (the Graph API
 # accepts it there) because the token being inspected is not yet stored;
 # webhook console logs record the URL without its query string.
-save action /packages/solx-facebook/_private/oauth-token-exchange --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/oauth/access_token","caption":"Facebook OAuth code exchange","category":"facebook","description":"Internal step of login-to-facebook: exchanges an OAuth code (already obtained via the loopback listener) for a short-lived user access token. Not meant to be invoked standalone.","capabilities":["facebook","oauth","rest","webhook","internal"],"phrases":["facebook oauth token exchange"],"paramTypeRef":"/packages/solx-facebook/FacebookLoginParams","actionConfig":{"secrets":{"FACEBOOK_APP_ID":"'$key'","FACEBOOK_APP_SECRET":"'$key'"},"timeout_secs":30,"auth":{"type":"oauth_authorization_code","client_id_secret":"FACEBOOK_APP_ID","client_secret_secret":"FACEBOOK_APP_SECRET","grant_type":"authorization_code"}}}';
-save action /packages/solx-facebook/_private/check-app-credentials --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/{app_id}","caption":"Validate Facebook app credentials","category":"facebook","description":"Internal preflight of login-to-facebook: GET /{app_id} with an app access token (app_id|app_secret), so a wrong app id or secret fails before the login dialog opens. Not meant to be invoked standalone.","capabilities":["facebook","oauth","rest","webhook","internal"],"phrases":["check facebook app credentials"],"actionConfig":{"method":"GET","timeout_secs":30,"path_params":{"app_id":""}}}';
-save action /packages/solx-facebook/_private/exchange-long-lived-token --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/oauth/access_token","caption":"Facebook long-lived token exchange","category":"facebook","description":"Internal step of login-to-facebook: trades a short-lived user token for a long-lived one (grant_type=fb_exchange_token). Not meant to be invoked standalone.","capabilities":["facebook","oauth","rest","webhook","internal"],"phrases":["facebook long lived token"],"actionConfig":{"method":"GET","timeout_secs":30}}';
-save action /packages/solx-facebook/_private/list-managed-pages --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/me/accounts","caption":"List Pages managed by a Facebook user","category":"facebook","description":"Internal step of login-to-facebook: GET /me/accounts with a user access_token, returning each managed Page and its Page access token. Not meant to be invoked standalone.","capabilities":["facebook","oauth","rest","webhook","internal"],"phrases":["list facebook managed pages"],"actionConfig":{"method":"GET","timeout_secs":30}}';
-save action /packages/solx-facebook/_private/get-token-identity --json '{"actionType":"webhook","fnName":"https://graph.facebook.com/v25.0/me","caption":"Identify a Facebook access token","category":"facebook","description":"Internal step of login-to-facebook: GET /me with an access_token to validate it and return the Page (or user) it belongs to. Not meant to be invoked standalone.","capabilities":["facebook","oauth","rest","webhook","internal"],"phrases":["facebook token identity"],"actionConfig":{"method":"GET","timeout_secs":30}}';
+save action /packages/solx-facebook/_private/oauth-token-exchange --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/oauth/access_token",
+    "caption": "Facebook OAuth code exchange",
+    "category": "facebook",
+    "description": "Internal step of login-to-facebook: exchanges an OAuth code (already obtained via the loopback listener) for a short-lived user access token. Not meant to be invoked standalone.",
+    "capabilities": ["facebook", "oauth", "rest", "webhook", "internal"],
+    "phrases": ["facebook oauth token exchange"],
+    "paramTypeRef": "/packages/solx-facebook/FacebookLoginParams",
+    "actionConfig": {
+        "secrets": {"FACEBOOK_APP_ID": $key, "FACEBOOK_APP_SECRET": $key},
+        "timeout_secs": 30,
+        "auth": {
+            "type": "oauth_authorization_code",
+            "client_id_secret": "FACEBOOK_APP_ID",
+            "client_secret_secret": "FACEBOOK_APP_SECRET",
+            "grant_type": "authorization_code",
+        },
+    },
+};
+save action /packages/solx-facebook/_private/check-app-credentials --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/{app_id}",
+    "caption": "Validate Facebook app credentials",
+    "category": "facebook",
+    "description": "Internal preflight of login-to-facebook: GET /{app_id} with an app access token (app_id|app_secret), so a wrong app id or secret fails before the login dialog opens. Not meant to be invoked standalone.",
+    "capabilities": ["facebook", "oauth", "rest", "webhook", "internal"],
+    "phrases": ["check facebook app credentials"],
+    "actionConfig": {"method": "GET", "timeout_secs": 30, "path_params": {"app_id": ""}},
+};
+save action /packages/solx-facebook/_private/exchange-long-lived-token --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/oauth/access_token",
+    "caption": "Facebook long-lived token exchange",
+    "category": "facebook",
+    "description": "Internal step of login-to-facebook: trades a short-lived user token for a long-lived one (grant_type=fb_exchange_token). Not meant to be invoked standalone.",
+    "capabilities": ["facebook", "oauth", "rest", "webhook", "internal"],
+    "phrases": ["facebook long lived token"],
+    "actionConfig": {"method": "GET", "timeout_secs": 30},
+};
+save action /packages/solx-facebook/_private/list-managed-pages --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/me/accounts",
+    "caption": "List Pages managed by a Facebook user",
+    "category": "facebook",
+    "description": "Internal step of login-to-facebook: GET /me/accounts with a user access_token, returning each managed Page and its Page access token. Not meant to be invoked standalone.",
+    "capabilities": ["facebook", "oauth", "rest", "webhook", "internal"],
+    "phrases": ["list facebook managed pages"],
+    "actionConfig": {"method": "GET", "timeout_secs": 30},
+};
+save action /packages/solx-facebook/_private/get-token-identity --json {
+    "actionType": "webhook",
+    "fnName": "https://graph.facebook.com/v25.0/me",
+    "caption": "Identify a Facebook access token",
+    "category": "facebook",
+    "description": "Internal step of login-to-facebook: GET /me with an access_token to validate it and return the Page (or user) it belongs to. Not meant to be invoked standalone.",
+    "capabilities": ["facebook", "oauth", "rest", "webhook", "internal"],
+    "phrases": ["facebook token identity"],
+    "actionConfig": {"method": "GET", "timeout_secs": 30},
+};

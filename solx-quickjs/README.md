@@ -138,7 +138,11 @@ imports between your own files just work:
 ```
 save file names.js --file src/names.js;
 save file main.js  --file src/main.js;
-exec /packages/solx-quickjs/build-javascript-file --json '{"entry_artifact_name":"main.js","source_artifact_names":["main.js","names.js"],"output_artifact_name":"thing.wasm"}';
+exec /packages/solx-quickjs/build-javascript-file --json {
+    "entry_artifact_name": "main.js",
+    "source_artifact_names": ["main.js", "names.js"],
+    "output_artifact_name": "thing.wasm",
+};
 ```
 
 ```js

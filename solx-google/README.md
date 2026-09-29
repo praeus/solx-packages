@@ -75,9 +75,8 @@ This:
    at `shared/solx-google-actions.wasm`.
 2. Generates a fresh random 32-byte encryption key (`solx random 32`).
 3. Posts 35 JSON-schema types under `/packages/solx-google/`.
-4. Uploads the login script content via `/builtin/file/file-put` at
-   `shared/solx-google-login.solx` (the script body is inlined into
-   `install.solx` — no separate template / build step required).
+4. Uploads `login.solx` as-is with `save file` at
+   `shared/solx-google-login.solx` — no template or build step required.
 5. Posts the `login-to-google` Script action pointing at the uploaded
    file.
 6. Posts 14 webhook actions (Docs, Drive, Gmail, Tasks, Calendar) plus

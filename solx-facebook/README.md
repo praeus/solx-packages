@@ -162,10 +162,9 @@ Notes:
 - **2 files**: `files/actions/shared/solx-facebook-login.solx`,
   `files/actions/shared/solx-facebook-actions.wasm`
 
-`install.solx` inlines the login script via `/builtin/file/file-put`.
-`login.solx` is its readable source: after editing it, regenerate the
-`file-put` line in `install.solx` (JSON-encode the file contents and
-replace `'` with `'`).
+`install.solx` uploads `login.solx` as-is with
+`save file ... --file login.solx`, so edits to `login.solx` take effect on
+the next install with no regeneration step.
 
 ## Install / uninstall
 

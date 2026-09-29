@@ -1,0 +1,6 @@
+# solx-firefox MCP teardown: remove the imported MCP tools, then stop the
+# managed Firefox. Runs as the firefox-mcp-teardown Script action (uploaded
+# during install via `save file`).
+$remove = exec /packages/solx-mcp-actions/remove --json {"server": "firefox"};
+$stop = exec /packages/solx-firefox/firefox-stop --json {};
+{"remove": $remove, "stop": $stop};

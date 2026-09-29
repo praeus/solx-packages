@@ -2,7 +2,7 @@
 #
 # Drives the OAuth 2.0 authorization-code flow end-to-end through the
 # dispatcher. Runs as a Script-type action whose bin_name points at this
-# file (uploaded during install via file-put).
+# file (uploaded during install via `save file`).
 #
 # Steps (parallels the old sol-google-login-script.json):
 #   1. Read previously-persisted client_id, client_secret, scope (if any).

@@ -3,7 +3,7 @@
 # Obtains a Facebook Page access token and persists it to the scoped secret
 # store as FACEBOOK_PAGE_ACCESS_TOKEN, where every Page post action picks it
 # up as a Bearer token. Runs as a Script-type action whose bin_name points at
-# this file (uploaded during install via file-put).
+# this file (uploaded during install via `save file`).
 #
 # Two modes:
 #

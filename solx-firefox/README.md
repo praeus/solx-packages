@@ -30,8 +30,8 @@ as JSON on **stdin**, not via the `SOL_PARAMS` env var. There is no
 `command_actions` registry in solx — `fn_name` is the literal shell command,
 and `action_config.cwd` is set on the action itself.
 
-The setup/teardown orchestrators are `Script`-type actions (`.solx` files
-uploaded via `file-put`) rather than `Actions`-type (ActionScript JSON
+The setup/teardown orchestrators are `Script`-type actions
+(`mcp-setup.solx` / `mcp-teardown.solx`, uploaded with `save file`) rather than `Actions`-type (ActionScript JSON
 artifacts). This avoids the artifact signing requirement that `Actions`-type
 actions have in solx.
 

@@ -1,0 +1,6 @@
+# solx-firefox MCP setup: start the managed Firefox, then import its MCP
+# server's tools. Runs as the firefox-mcp-setup Script action (uploaded
+# during install via `save file`).
+$start = exec /packages/solx-firefox/firefox-start --json {};
+$import = exec /packages/solx-mcp-actions/import --json {"server": "firefox"};
+{"firefox": $start, "import": $import};

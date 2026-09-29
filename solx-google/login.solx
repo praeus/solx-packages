@@ -54,7 +54,7 @@ else
     # all strings at this point. (Every `exec` result is wrapped as
     # {"action","result","success"} -- the actual action output lives under
     # .result.)
-    $auth_url = "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&access_type=offline&prompt=consent&include_granted_scopes=true&client_id=$client_id&redirect_uri=$loopback.result.redirect_uri&scope=$scope&state=$loopback.result.state_value";
+    $auth_url = "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&access_type=offline&prompt=consent&include_granted_scopes=true&client_id=${client_id}&redirect_uri=${loopback.result.redirect_uri}&scope=${scope}&state=${loopback.result.state_value}";
 
     exec /builtin/web/open-url --json {"url": $auth_url};
 

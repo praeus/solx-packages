@@ -47,7 +47,7 @@ else
     # with an app access token ("<app_id>|<app_secret>"). A wrong app_id or
     # app_secret fails here with Facebook's own error message, instead of
     # the login dialog's opaque "Invalid App ID" page.
-    $app_token = "$app_id|$app_secret";
+    $app_token = "${app_id}|${app_secret}";
     $app = exec /packages/solx-facebook/_private/check-app-credentials --json {
         "app_id": $app_id,
         "access_token": $app_token,
@@ -67,7 +67,7 @@ else
     # redirect_uri must match byte-for-byte between this dialog URL and the
     # token exchange below, and must be listed under the app's Facebook
     # Login "Valid OAuth Redirect URIs".
-    $auth_url = "https://www.facebook.com/v25.0/dialog/oauth?response_type=code&client_id=$app_id&redirect_uri=$loopback.result.redirect_uri&scope=$scope&state=$loopback.result.state_value";
+    $auth_url = "https://www.facebook.com/v25.0/dialog/oauth?response_type=code&client_id=${app_id}&redirect_uri=${loopback.result.redirect_uri}&scope=${scope}&state=${loopback.result.state_value}";
 
     exec /builtin/web/open-url --json {"url": $auth_url};
 

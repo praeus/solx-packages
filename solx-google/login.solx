@@ -25,46 +25,26 @@ $existing_scope = exec /builtin/secrets/get-secret --json '{"name":"GOOGLE_OAUTH
 
 # Prefer caller's params over the persisted secrets — lets the user re-enter
 # credentials on a fresh install or rotate them. client_secret/scope don't
-# need a null-guard (only client_id does, below), so a plain per-var
-# if/else picking whichever source is non-null is enough for them.
-if $params.client_secret == null;
-    $client_secret = json '"$existing_client_secret.result.value"';
-else;
-    $client_secret = json '"$params.client_secret"';
-endif;
-if $params.scope == null;
-    $scope = json '"$existing_scope.result.value"';
-else;
-    $scope = json '"$params.scope"';
-endif;
+# need a null-guard (only client_id does, below), so a plain `||` fallback
+# picking whichever source is set is enough for them.
+$client_secret = $params.client_secret || $existing_client_secret.result.value;
+$scope = $params.scope || $existing_scope.result.value;
 
 # Guard: if the caller did not provide credentials on first run (and none are
 # persisted from a previous run), fail loud rather than handing Google an
 # empty client_id. The condition below evaluates the real typed values (not
 # their string form), so it works whether either field is absent or null.
-if $params.client_id == null && $existing_client_id.result.value == null;
+if $params.client_id == null && $existing_client_id.result.value == null then
     $result = json '{"succeeded":false,"error":"missing_client_id","error_description":"supply client_id, client_secret, and scope in params on first run"}';
-else;
-    if $params.client_id == null;
-        $client_id = json '"$existing_client_id.result.value"';
-    else;
-        $client_id = json '"$params.client_id"';
-    endif;
+else
+    $client_id = $params.client_id || $existing_client_id.result.value;
 
-    # 0 is treated the same as absent: neither a loopback port nor an await
+    # 0 is treated the same as absent (`||` falls back on any falsy value): neither a loopback port nor an await
     # timeout can meaningfully be 0, and callers whose UI form defaults a
     # blank optional integer field to 0 (rather than omitting it) would
     # otherwise cause an instant oauth-await timeout.
-    if $params.port == null || $params.port == 0;
-        $port = json '8765';
-    else;
-        $port = json '$params.port';
-    endif;
-    if $params.timeout_secs == null || $params.timeout_secs == 0;
-        $timeout = json '300';
-    else;
-        $timeout = json '$params.timeout_secs';
-    endif;
+    $port = $params.port || 8765;
+    $timeout = $params.timeout_secs || 300;
 
     $loopback = exec /builtin/oauth/oauth-start --json '{"port":'$port'}';
 
@@ -73,7 +53,7 @@ else;
     # all strings at this point. (Every `exec` result is wrapped as
     # {"action","result","success"} -- the actual action output lives under
     # .result.)
-    $auth_url = json '"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&access_type=offline&prompt=consent&include_granted_scopes=true&client_id=$client_id&redirect_uri=$loopback.result.redirect_uri&scope=$scope&state=$loopback.result.state_value"';
+    $auth_url = "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&access_type=offline&prompt=consent&include_granted_scopes=true&client_id=$client_id&redirect_uri=$loopback.result.redirect_uri&scope=$scope&state=$loopback.result.state_value";
 
     exec /builtin/web/open-url --json '{"url":"'$auth_url'"}';
 
@@ -82,7 +62,7 @@ else;
     # Always release the loopback port, whether or not the callback succeeded.
     exec /builtin/oauth/oauth-stop --json '{"state_value":"'$loopback.result.state_value'"}';
 
-    if $callback.result.succeeded == true;
+    if $callback.result.succeeded == true then
         # The token-exchange action below resolves client_id/client_secret
         # itself, through its OWN configured secret store (action_config.secrets
         # + auth.client_id_secret/client_secret_secret) -- it does NOT read
@@ -101,7 +81,7 @@ else;
         exec /builtin/secrets/set-secret --json '{"name":"GOOGLE_OAUTH_REFRESH_TOKEN","value":"'$token.result.refresh_token'"}';
 
         $result = json '{"succeeded":true,"access_token":"'$token.result.access_token'","refresh_token":"'$token.result.refresh_token'","expires_in":'$token.result.expires_in',"scope":"'$token.result.scope'","token_type":"'$token.result.token_type'"}';
-    else;
+    else
         $result = json '{"succeeded":false,"error":"'$callback.result.error'","error_description":"'$callback.result.error_description'"}';
-    endif;
-endif;
+    endif
+endif

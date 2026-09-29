@@ -1,0 +1,63 @@
+# solx-facebook uninstall
+#
+# Deletes every action, type, and file registered by install.solx.
+#
+# Every delete carries `--if-exists`: a script aborts on the first failing
+# statement, so an entity an older version never registered would otherwise
+# leave the package half-uninstalled -- which also breaks the next install's
+# "reuse the existing encryption key" check.
+#
+# Keep this file in sync with install.solx: every `save action`/`save type`
+# there needs a matching delete here.
+
+# ── Actions ──────────────────────────────────────────────────────────────────
+
+delete action /packages/solx-facebook/login-to-facebook --if-exists;
+delete action /packages/solx-facebook/_private/oauth-token-exchange --if-exists;
+delete action /packages/solx-facebook/_private/check-app-credentials --if-exists;
+delete action /packages/solx-facebook/_private/exchange-long-lived-token --if-exists;
+delete action /packages/solx-facebook/_private/list-managed-pages --if-exists;
+delete action /packages/solx-facebook/_private/get-token-identity --if-exists;
+
+delete action /packages/solx-facebook/get-facebook-post --if-exists;
+delete action /packages/solx-facebook/create-facebook-post --if-exists;
+delete action /packages/solx-facebook/update-facebook-post --if-exists;
+delete action /packages/solx-facebook/list-facebook-posts --if-exists;
+delete action /packages/solx-facebook/list-facebook-comments --if-exists;
+
+delete action /packages/solx-facebook/convert-facebook-post-to-sol-doc --if-exists;
+delete action /packages/solx-facebook/import-facebook-post --if-exists;
+delete action /packages/solx-facebook/import-facebook-posts --if-exists;
+
+# ── Files (the login script source and the WASM binary) ─────────────────────
+#
+# Imported documents and their pictures (files/docs/shared/fb-*) are user
+# data, not package files, and are left in place.
+
+exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-facebook-login.solx"}';
+exec /builtin/file/file-delete --json '{"rel_path":"files/actions/shared/solx-facebook-actions.wasm"}';
+
+# ── Types ────────────────────────────────────────────────────────────────────
+
+delete type /packages/solx-facebook/FacebookLoginParams --if-exists;
+delete type /packages/solx-facebook/FacebookPostGetParams --if-exists;
+delete type /packages/solx-facebook/FacebookPostCreateParams --if-exists;
+delete type /packages/solx-facebook/FacebookPostUpdateParams --if-exists;
+delete type /packages/solx-facebook/FacebookPostListParams --if-exists;
+delete type /packages/solx-facebook/FacebookPost --if-exists;
+delete type /packages/solx-facebook/FacebookPostList --if-exists;
+delete type /packages/solx-facebook/FacebookWriteResult --if-exists;
+delete type /packages/solx-facebook/FacebookCommentListParams --if-exists;
+delete type /packages/solx-facebook/FacebookPostToSolDocParams --if-exists;
+delete type /packages/solx-facebook/FacebookPostToSolDocResult --if-exists;
+delete type /packages/solx-facebook/ImportFacebookPostParams --if-exists;
+delete type /packages/solx-facebook/ImportFacebookPostResult --if-exists;
+delete type /packages/solx-facebook/ImportFacebookPostsParams --if-exists;
+delete type /packages/solx-facebook/ImportFacebookPostsResult --if-exists;
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+#
+# FACEBOOK_APP_ID / FACEBOOK_APP_SECRET / FACEBOOK_PAGE_ACCESS_TOKEN are
+# encrypted with the key baked into the actions above; once those rows are
+# gone the secrets are unreachable and the scoped store garbage-collects
+# them. There is no delete_secret primitive, and none is needed here.

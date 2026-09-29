@@ -1,0 +1,9 @@
+{
+  "name": "solx-facebook",
+  "version": "0.1.0",
+  "description": "Facebook Pages post actions (get, create, update, list with pagination) over the Graph API for solx-core, including a login-to-facebook script that obtains and stores a Page access token.",
+  "allowed_base_urls": [
+    "https://graph.facebook.com/",
+    "https://www.facebook.com/"
+  ]
+}

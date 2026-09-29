@@ -1,0 +1,117 @@
+# solx-facebook login script
+#
+# Obtains a Facebook Page access token and persists it to the scoped secret
+# store as FACEBOOK_PAGE_ACCESS_TOKEN, where every Page post action picks it
+# up as a Bearer token. Runs as a Script-type action whose bin_name points at
+# this file (uploaded during install via file-put).
+#
+# Two modes:
+#
+#   A. Manual: the caller passes page_access_token (e.g. copied from the
+#      Graph API Explorer). It is validated against GET /me and stored.
+#
+#   B. OAuth (default):
+#      1. Read previously-persisted app_id / app_secret (if any).
+#      2. Bind the OAuth loopback listener on 127.0.0.1:{port} (default 8765).
+#      3. Open the Facebook Login dialog in the system browser.
+#      4. Await the OAuth callback (up to {timeout_secs} seconds).
+#      5. Exchange the code for a short-lived user token via the internal
+#         _private/oauth-token-exchange action, then trade it for a
+#         long-lived user token (fb_exchange_token grant).
+#      6. List the Pages the user manages (GET /me/accounts). A Page token
+#         derived from a long-lived user token does not expire, so no
+#         refresh flow is needed afterwards.
+#      7. Pick the Page matching page_id (or the first Page if page_id is
+#         omitted) and persist its access token.
+#      8. Always release the loopback port.
+#
+# Facebook has no refresh tokens: to switch Pages or recover from a revoked
+# token, just run this again.
+
+# The runner seeds $params from the caller's payload (see ActionCommandRunner).
+$existing_app_id = exec /builtin/secrets/get-secret --json '{"name":"FACEBOOK_APP_ID"}';
+$existing_app_secret = exec /builtin/secrets/get-secret --json '{"name":"FACEBOOK_APP_SECRET"}';
+
+$page_token = null;
+
+if $params.page_access_token != null then
+    $page_token = $params.page_access_token;
+else if $params.app_id == null && $existing_app_id.result.value == null then
+    $result = json '{"succeeded":false,"error":"missing_app_id","error_description":"supply app_id and app_secret (or page_access_token) in params on first run"}';
+else
+    $app_id = $params.app_id || $existing_app_id.result.value;
+    $app_secret = $params.app_secret || $existing_app_secret.result.value;
+    $scope = $params.scope || "pages_show_list,pages_read_engagement,pages_read_user_content,pages_manage_posts";
+
+    # Preflight, before any port is bound or browser opened: look the app up
+    # with an app access token ("<app_id>|<app_secret>"). A wrong app_id or
+    # app_secret fails here with Facebook's own error message, instead of
+    # the login dialog's opaque "Invalid App ID" page.
+    $app_token = "$app_id|$app_secret";
+    $app = exec /packages/solx-facebook/_private/check-app-credentials --json '{"app_id":"'$app_id'","access_token":"'$app_token'","fields":"id,name"}';
+
+    # 0 is treated the same as absent (`||` falls back on any falsy value): neither a loopback port nor an await
+    # timeout can meaningfully be 0, and callers whose UI form defaults a
+    # blank optional integer field to 0 (rather than omitting it) would
+    # otherwise cause an instant oauth-await timeout.
+    $port = $params.port || 8765;
+    $timeout = $params.timeout_secs || 300;
+
+    $loopback = exec /builtin/oauth/oauth-start --json '{"port":'$port'}';
+
+    # redirect_uri must match byte-for-byte between this dialog URL and the
+    # token exchange below, and must be listed under the app's Facebook
+    # Login "Valid OAuth Redirect URIs".
+    $auth_url = "https://www.facebook.com/v25.0/dialog/oauth?response_type=code&client_id=$app_id&redirect_uri=$loopback.result.redirect_uri&scope=$scope&state=$loopback.result.state_value";
+
+    exec /builtin/web/open-url --json '{"url":"'$auth_url'"}';
+
+    $callback = exec /builtin/oauth/oauth-await --json '{"state_value":"'$loopback.result.state_value'","timeout_secs":'$timeout'}';
+
+    # Always release the loopback port, whether or not the callback succeeded.
+    exec /builtin/oauth/oauth-stop --json '{"state_value":"'$loopback.result.state_value'"}';
+
+    if $callback.result.succeeded == true then
+        # The token-exchange action resolves client_id/client_secret through
+        # its OWN configured secret store, not from exec params, so they must
+        # be persisted *before* the exchange.
+        exec /builtin/secrets/set-secret --json '{"name":"FACEBOOK_APP_ID","value":"'$app_id'"}';
+        exec /builtin/secrets/set-secret --json '{"name":"FACEBOOK_APP_SECRET","value":"'$app_secret'"}';
+
+        $short = exec /packages/solx-facebook/_private/oauth-token-exchange --json '{"code":"'$callback.result.code'","redirect_uri":"'$loopback.result.redirect_uri'"}';
+
+        $long = exec /packages/solx-facebook/_private/exchange-long-lived-token --json '{"grant_type":"fb_exchange_token","client_id":"'$app_id'","client_secret":"'$app_secret'","fb_exchange_token":"'$short.result.access_token'"}';
+
+        $accounts = exec /packages/solx-facebook/_private/list-managed-pages --json '{"access_token":"'$long.result.access_token'","fields":"id,name,access_token","limit":100}';
+
+        if $params.page_id == null then
+            $page_token = $accounts.result.data.0.access_token;
+        else
+            for $candidate in $accounts.result.data
+                if $candidate.id == $params.page_id then
+                    $page_token = $candidate.access_token;
+                endif
+            endfor
+        endif
+
+        if $page_token == null || $page_token == "null" then
+            $result = json '{"succeeded":false,"error":"page_not_found","error_description":"the authorized user manages no Page matching page_id (or none at all); check the Pages granted in the login dialog"}';
+        endif
+    else
+        $result = json '{"succeeded":false,"error":"'$callback.result.error'","error_description":"'$callback.result.error_description'"}';
+    endif
+endif
+
+if $page_token != null && $page_token != "null" then
+    # Validates the token (a bad one fails the call) and tells the caller
+    # which Page it belongs to. With a Page token, /me is the Page itself.
+    $page = exec /packages/solx-facebook/_private/get-token-identity --json '{"access_token":"'$page_token'","fields":"id,name"}';
+
+    exec /builtin/secrets/set-secret --json '{"name":"FACEBOOK_PAGE_ACCESS_TOKEN","value":"'$page_token'"}';
+
+    $result = json '{"succeeded":true,"page":'$page.result'}';
+endif
+
+# A script's value is its last statement's, and the `if` above yields null
+# whenever it is skipped (every failure path), so emit $result explicitly.
+$result;

@@ -19,9 +19,9 @@
 #   7. Always release the loopback port.
 
 # The runner seeds $params from the caller's payload (see ActionCommandRunner).
-$existing_client_id = exec /builtin/secrets/get-secret --json '{"name":"GOOGLE_OAUTH_CLIENT_ID"}';
-$existing_client_secret = exec /builtin/secrets/get-secret --json '{"name":"GOOGLE_OAUTH_CLIENT_SECRET"}';
-$existing_scope = exec /builtin/secrets/get-secret --json '{"name":"GOOGLE_OAUTH_SCOPE"}';
+$existing_client_id = exec /builtin/secrets/get-secret --json {"name": "GOOGLE_OAUTH_CLIENT_ID"};
+$existing_client_secret = exec /builtin/secrets/get-secret --json {"name": "GOOGLE_OAUTH_CLIENT_SECRET"};
+$existing_scope = exec /builtin/secrets/get-secret --json {"name": "GOOGLE_OAUTH_SCOPE"};
 
 # Prefer caller's params over the persisted secrets — lets the user re-enter
 # credentials on a fresh install or rotate them. client_secret/scope don't
@@ -35,18 +35,19 @@ $scope = $params.scope || $existing_scope.result.value;
 # empty client_id. The condition below evaluates the real typed values (not
 # their string form), so it works whether either field is absent or null.
 if $params.client_id == null && $existing_client_id.result.value == null then
-    $result = json '{"succeeded":false,"error":"missing_client_id","error_description":"supply client_id, client_secret, and scope in params on first run"}';
+    $result = {"succeeded": false, "error": "missing_client_id", "error_description": "supply client_id, client_secret, and scope in params on first run"};
 else
     $client_id = $params.client_id || $existing_client_id.result.value;
 
-    # 0 is treated the same as absent (`||` falls back on any falsy value): neither a loopback port nor an await
-    # timeout can meaningfully be 0, and callers whose UI form defaults a
-    # blank optional integer field to 0 (rather than omitting it) would
-    # otherwise cause an instant oauth-await timeout.
+    # 0 is treated the same as absent (`||` falls back on any falsy value):
+    # neither a loopback port nor an await timeout can meaningfully be 0, and
+    # callers whose UI form defaults a blank optional integer field to 0
+    # (rather than omitting it) would otherwise cause an instant oauth-await
+    # timeout.
     $port = $params.port || 8765;
     $timeout = $params.timeout_secs || 300;
 
-    $loopback = exec /builtin/oauth/oauth-start --json '{"port":'$port'}';
+    $loopback = exec /builtin/oauth/oauth-start --json {"port": $port};
 
     # Build the Google authorization URL. $client_id, $scope,
     # $loopback.result.redirect_uri, and $loopback.result.state_value are
@@ -55,12 +56,12 @@ else
     # .result.)
     $auth_url = "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&access_type=offline&prompt=consent&include_granted_scopes=true&client_id=$client_id&redirect_uri=$loopback.result.redirect_uri&scope=$scope&state=$loopback.result.state_value";
 
-    exec /builtin/web/open-url --json '{"url":"'$auth_url'"}';
+    exec /builtin/web/open-url --json {"url": $auth_url};
 
-    $callback = exec /builtin/oauth/oauth-await --json '{"state_value":"'$loopback.result.state_value'","timeout_secs":'$timeout'}';
+    $callback = exec /builtin/oauth/oauth-await --json {"state_value": $loopback.result.state_value, "timeout_secs": $timeout};
 
     # Always release the loopback port, whether or not the callback succeeded.
-    exec /builtin/oauth/oauth-stop --json '{"state_value":"'$loopback.result.state_value'"}';
+    exec /builtin/oauth/oauth-stop --json {"state_value": $loopback.result.state_value};
 
     if $callback.result.succeeded == true then
         # The token-exchange action below resolves client_id/client_secret
@@ -71,17 +72,30 @@ else
         # GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_SCOPE *before* this call,
         # not after, or a first-time login (nothing persisted yet) fails with
         # "secret 'GOOGLE_OAUTH_CLIENT_ID' is not set".
-        exec /builtin/secrets/set-secret --json '{"name":"GOOGLE_OAUTH_CLIENT_ID","value":"'$client_id'"}';
-        exec /builtin/secrets/set-secret --json '{"name":"GOOGLE_OAUTH_CLIENT_SECRET","value":"'$client_secret'"}';
-        exec /builtin/secrets/set-secret --json '{"name":"GOOGLE_OAUTH_SCOPE","value":"'$scope'"}';
+        exec /builtin/secrets/set-secret --json {"name": "GOOGLE_OAUTH_CLIENT_ID", "value": $client_id};
+        exec /builtin/secrets/set-secret --json {"name": "GOOGLE_OAUTH_CLIENT_SECRET", "value": $client_secret};
+        exec /builtin/secrets/set-secret --json {"name": "GOOGLE_OAUTH_SCOPE", "value": $scope};
 
         # Exchange the auth code for tokens.
-        $token = exec /packages/solx-google/_private/oauth-token-exchange --json '{"code":"'$callback.result.code'","redirect_uri":"'$loopback.result.redirect_uri'","client_id":"'$client_id'","client_secret":"'$client_secret'","scope":"'$scope'"}';
+        $token = exec /packages/solx-google/_private/oauth-token-exchange --json {
+            "code": $callback.result.code,
+            "redirect_uri": $loopback.result.redirect_uri,
+            "client_id": $client_id,
+            "client_secret": $client_secret,
+            "scope": $scope,
+        };
 
-        exec /builtin/secrets/set-secret --json '{"name":"GOOGLE_OAUTH_REFRESH_TOKEN","value":"'$token.result.refresh_token'"}';
+        exec /builtin/secrets/set-secret --json {"name": "GOOGLE_OAUTH_REFRESH_TOKEN", "value": $token.result.refresh_token};
 
-        $result = json '{"succeeded":true,"access_token":"'$token.result.access_token'","refresh_token":"'$token.result.refresh_token'","expires_in":'$token.result.expires_in',"scope":"'$token.result.scope'","token_type":"'$token.result.token_type'"}';
+        $result = {
+            "succeeded": true,
+            "access_token": $token.result.access_token,
+            "refresh_token": $token.result.refresh_token,
+            "expires_in": $token.result.expires_in,
+            "scope": $token.result.scope,
+            "token_type": $token.result.token_type,
+        };
     else
-        $result = json '{"succeeded":false,"error":"'$callback.result.error'","error_description":"'$callback.result.error_description'"}';
+        $result = {"succeeded": false, "error": $callback.result.error, "error_description": $callback.result.error_description};
     endif
 endif

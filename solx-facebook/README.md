@@ -18,8 +18,17 @@ permissions: `pages_show_list`, `pages_read_engagement`,
 `pages_manage_posts`. While the app is in Development mode this works for
 anyone with a role on the app; publishing for other users needs App Review.
 
-For the OAuth login below, add `http://127.0.0.1:8765/callback` (or your
-chosen `port`) to **Facebook Login → Settings → Valid OAuth Redirect URIs**.
+The OAuth login below redirects to `http://localhost:8765/callback` (or
+your chosen `port`). Facebook enforces HTTPS on redirect URIs; the one
+exemption is `http://localhost`, and only while the app is in
+**Development mode**. Once the app goes Live, the loopback login stops
+working (Facebook shows "isn't using a secure connection"). Use manual mode
+below instead, or log in while the app is still in development: the Page
+token it stores doesn't expire.
+
+In development mode, localhost redirects are allowed without registering
+them. If Facebook still reports the redirect URI as blocked, add the URL
+to **Facebook Login → Settings → Valid OAuth Redirect URIs**.
 
 ## Quick start: log in once
 
@@ -62,8 +71,12 @@ Both modes return `{"succeeded": true, "page": {"id": "...", "name": "..."}}`.
   ID.
 - **`... Error validating client secret`**: `app_secret` doesn't match the app
   (App settings → Basic → App secret → Show).
+- **"Facebook has detected solx isn't using a secure connection"**: the
+  redirect URI isn't `http://localhost`, or the app isn't in Development
+  mode (see Prerequisites). The redirect uses `localhost` rather than
+  `127.0.0.1` for this reason: Facebook's HTTPS exemption goes by hostname.
 - **"URL blocked" / redirect URI errors in the browser**: add
-  `http://127.0.0.1:8765/callback` to Facebook Login → Settings → Valid
+  `http://localhost:8765/callback` to Facebook Login → Settings → Valid
   OAuth Redirect URIs, and make sure Client OAuth login and Web OAuth login
   are on.
 - **`failed to bind oauth loopback`**: another process holds the port. Pass

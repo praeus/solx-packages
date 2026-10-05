@@ -16,17 +16,13 @@ stream through `/builtin/web/stream/*`; `list_models` is a single blocking
 
 ## Build and install
 
-```powershell
-rustup target add wasm32-wasip2   # once
-.\build.ps1 -Install
-```
-
 ```bash
 rustup target add wasm32-wasip2   # once
-./build.sh --install
+# from solx-packages/
+scripts/build-wasm.sh solx-ollama --install
 ```
 
-`build.ps1` / `build.sh` compile the component and stage it at
+`scripts/build-wasm.sh` compiles the component and stages it at
 `bin/solx-ollama.wasm`. `install.solx` reads that path as its very **first**
 statement, so if you have not built yet the install aborts with a plain
 "cannot find the file" error before writing a single type or action row —

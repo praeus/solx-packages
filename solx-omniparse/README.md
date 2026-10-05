@@ -26,10 +26,8 @@ solx exec /packages/solx-omniparse/solx-omniparse-process --json '{"source_path"
 has **no grant/approval step** for `Command` actions — `fn_name` is the
 literal command solx-core runs, and it becomes executable the moment
 `install.solx` posts it. Before installing, build the binary
-(`cargo build --release` in this directory) and edit `install.solx`'s
-`action_config.cwd` to the absolute path of this package's `bin/` directory
-(there is no path templating in `.solx` scripts), or `solx save action` the
-same reference again afterward to correct it.
+(`cargo build --release` in this directory). The `command_actions` entry in
+`solx-package.json` uses `"cwd": "bin"`, which `install-package` resolves against this package's directory, so there is no path to edit.
 
 ## What it does
 

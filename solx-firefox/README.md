@@ -104,12 +104,14 @@ logins/cookies you care about.
 
 ## Install package
 
-1. Edit `install.solx` and replace `REPLACE_WITH_ABSOLUTE_PATH_TO` with the
-   actual absolute path to the solx-firefox package directory.
-2. Run:
-   ```bash
-   solx install-package ./solx-packages/solx-firefox
-   ```
+Build the binary first (it stages into `bin/`), then run:
+
+```bash
+solx install-package ./solx-packages/solx-firefox
+```
+
+The `command_actions` in `solx-package.json` use `"cwd": "bin"`,
+which `install-package` resolves against this package's directory, so there is no path to edit.
 
 This registers `firefox-start`, `firefox-stop`, `firefox-mcp-setup`,
 `firefox-mcp-teardown`, and uploads the two `.solx` script files to the

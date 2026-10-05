@@ -32,15 +32,13 @@ lost — the caller can persist it via `entity-save-document` themselves.
 
     The build script auto-stages the binary at `<package>/bin/solx-media.exe`.
 
-2. Edit `install.solx` — every `action_config.cwd` is hardcoded to `D:/Projects/solx-packages/solx-media/bin`. Update to your absolute path before installing.
-
-3. Install:
+2. Install. The `command_actions` in `solx-package.json` use `"cwd": "bin"`, which `install-package` resolves against this package's directory, so there is no path to edit:
 
     ```bash
-    solx install-package D:/Projects/solx-packages/solx-media
+    solx install-package ./solx-media
     ```
 
-4. Install a whisper model (one-time):
+3. Install a whisper model (one-time):
 
     ```bash
     solx exec /packages/solx-media/install-whisper-model --json '{}'
@@ -128,7 +126,7 @@ The SHA-256 of `tiny` and `tiny.en` are pinned in `src/whisper_models.rs`; the r
 cargo build --release -p solx-media
 
 # 2. Install
-solx install-package D:/Projects/solx-packages/solx-media
+solx install-package ./solx-media
 
 # 3. Install whisper model
 solx exec /packages/solx-media/install-whisper-model --json '{}'

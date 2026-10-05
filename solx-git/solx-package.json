@@ -5,19 +5,19 @@
   "command_actions": {
     "git-clone": {
       "command": ".\\solx-git.exe clone",
-      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+      "cwd": "target/release"
     },
     "git-patch": {
       "command": ".\\solx-git.exe patch",
-      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+      "cwd": "target/release"
     },
     "git-branch": {
       "command": ".\\solx-git.exe branch",
-      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+      "cwd": "target/release"
     },
     "git-commit": {
       "command": ".\\solx-git.exe commit",
-      "cwd": "D:/Projects/solx-packages/solx-git/target/release"
+      "cwd": "target/release"
     }
   }
 }

@@ -174,7 +174,8 @@ Build the WASM binary first: `install.solx` reads
 solx-packages).
 
 ```sh
-./build.sh          # or build.ps1 on Windows; --install / -Install also installs
+# from solx-packages/; --install also runs install-package
+scripts/build-wasm.sh solx-facebook
 solx install-package ../solx-packages/solx-facebook
 solx uninstall-package solx-facebook
 ```

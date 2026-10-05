@@ -27,20 +27,25 @@ needed — this package's heavy lifting is done by the `rmcp` crate):
 Plus one shared internal command key that every dynamically-imported
 tool action reuses:
 
-- `solx-mcp-actions invoke` — the command every generated per-tool action
-  points at. You never call this directly; it's what makes the generated
-  actions work.
+- `solx-mcp-actions-invoke` (runs `solx-mcp-actions invoke`) — the command
+  key every generated per-tool action points at. You never call this
+  directly; it's what makes the generated actions work.
 
 ### How per-tool actions work
 
-Every generated action shares a single command (`solx-mcp-actions invoke`)
-and carries its identity via `action_config.cwd`: each imported tool gets
+Every generated action shares a single command key
+(`solx-mcp-actions-invoke`, which runs `solx-mcp-actions invoke` in `bin/`)
+and carries its identity in `action_config.env`. Each imported tool gets
 its own directory containing a `tool.json` descriptor
-(`{"server": ..., "tool": ...}`), and the generated action's `cwd` points
-there. When solx-core invokes the action, `solx-mcp-actions invoke`
-reads `./tool.json` (relative to its own process cwd) to find out which
+(`{"server": ..., "tool": ...}`), and the generated action sets
+`SOLX_MCP_TOOL_DIR` to that directory. When solx-core invokes the action,
+`solx-mcp-actions invoke` reads `tool.json` from there to find out which
 MCP server/tool to call, and reads the caller's actual arguments from
 **stdin**.
+
+Actions imported before this change used an absolute exe path as their
+`fnName`, which is no longer in the allowlist, so re-run `import` for each
+server after upgrading.
 
 ### Why a Command action instead of a new `action_type`
 

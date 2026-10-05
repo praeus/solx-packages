@@ -59,7 +59,6 @@ save action /packages/solx-git/git-clone --json {
     "paramTypeRef": "/packages/solx-git/GitCloneParams",
     "resultTypeRef": "/packages/solx-git/GitCloneResult",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-git/target/release",
         "timeout_secs": 600,
     },
 };
@@ -122,7 +121,6 @@ save action /packages/solx-git/git-patch --json {
     "paramTypeRef": "/packages/solx-git/GitPatchParams",
     "resultTypeRef": "/packages/solx-git/GitPatchResult",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-git/target/release",
         "timeout_secs": 120,
     },
 };
@@ -188,7 +186,6 @@ save action /packages/solx-git/git-branch --json {
     "paramTypeRef": "/packages/solx-git/GitBranchParams",
     "resultTypeRef": "/packages/solx-git/GitBranchResult",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-git/target/release",
         "timeout_secs": 60,
     },
 };
@@ -242,7 +239,6 @@ save action /packages/solx-git/git-commit --json {
     "paramTypeRef": "/packages/solx-git/GitCommitParams",
     "resultTypeRef": "/packages/solx-git/GitCommitResult",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-git/target/release",
         "timeout_secs": 120,
     },
 }

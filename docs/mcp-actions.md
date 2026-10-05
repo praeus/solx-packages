@@ -25,11 +25,12 @@ solx-mcp is a CLI binary with three subcommands:
 1. **`import`** — connect to a configured MCP server, list its tools via
    `tools/list`, and create one solx `Command` action per tool (e.g.
    `mcp-filesystem-read-file`). Each generated action shares a single
-   command key (`solx-mcp-invoke`) and carries its identity via
-   `action_config.cwd` — a per-tool directory containing `tool.json`.
+   command key (`solx-mcp-actions-invoke`) and carries its identity in
+   `action_config.env` as `SOLX_MCP_TOOL_DIR`, a per-tool directory
+   containing `tool.json`.
 
-2. **`invoke`** — the shared command key every generated per-tool action
-   points at. Reads `./tool.json` (relative to its own process cwd) to
+2. **`invoke`** — what the shared command key every generated per-tool
+   action points at runs. Reads `tool.json` from `SOLX_MCP_TOOL_DIR` to
    discover which server/tool to call, and reads call arguments from
    **stdin** (solx-core's `run_command` writes params JSON to the child's
    stdin).
@@ -51,9 +52,9 @@ invoked with a JSON payload on stdin, exactly like `solx-omniparse` and
 | Aspect | sol-mcp (sol ecosystem) | solx-mcp (solx ecosystem) |
 |---|---|---|
 | Parameter passing | `SOL_PARAMS` env var | **stdin** (JSON) |
-| Command dispatch | `command_actions` registry in `sol-config.json` | `fn_name` is the literal shell command |
-| cwd resolution | `command_actions` entry sets cwd | `action_config.cwd` on the action itself |
-| Binary path | Absolute path required for `invoke` key | Relative path in `fn_name`, resolved against `action_config.cwd` |
+| Command dispatch | `command_actions` registry in `sol-config.json` | `command_actions` allowlist, declared in `solx-package.json` |
+| cwd resolution | `command_actions` entry sets cwd | `command_actions` entry sets cwd, relative to the package directory |
+| Binary path | Absolute path required for `invoke` key | `.\solx-mcp-actions.exe invoke` in `bin/`; the tool dir comes from `SOLX_MCP_TOOL_DIR` |
 
 solx-core's `run_command` (in `solx-actions/src/exec.rs`) writes the params
 JSON to the child's stdin — no `SOL_PARAMS` env var exists in solx. This is

@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "description": "Media extraction actions for solx-core (image, audio, video) via Ollama + ffmpeg + whisper",
   "command_actions": {
-    "solx-media-image": { "command": ".\\solx-media.exe image", "cwd": "D:/Projects/solx-packages/solx-media/bin" },
-    "solx-media-audio": { "command": ".\\solx-media.exe audio", "cwd": "D:/Projects/solx-packages/solx-media/bin" },
-    "solx-media-video": { "command": ".\\solx-media.exe video", "cwd": "D:/Projects/solx-packages/solx-media/bin" },
-    "solx-media-materialize-html": { "command": ".\\solx-media.exe materialize-html", "cwd": "D:/Projects/solx-packages/solx-media/bin" },
-    "solx-media-install-whisper-model": { "command": ".\\solx-media.exe install-whisper-model", "cwd": "D:/Projects/solx-packages/solx-media/bin" }
+    "solx-media-image": { "command": ".\\solx-media.exe image", "cwd": "bin" },
+    "solx-media-audio": { "command": ".\\solx-media.exe audio", "cwd": "bin" },
+    "solx-media-video": { "command": ".\\solx-media.exe video", "cwd": "bin" },
+    "solx-media-materialize-html": { "command": ".\\solx-media.exe materialize-html", "cwd": "bin" },
+    "solx-media-install-whisper-model": { "command": ".\\solx-media.exe install-whisper-model", "cwd": "bin" }
   }
 }

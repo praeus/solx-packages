@@ -5,7 +5,7 @@
   "command_actions": {
     "agent-loop": {
       "command": "node dist-headless/agent-loop.mjs",
-      "cwd": "D:/Projects/solx-packages/solx-agent"
+      "cwd": "."
     }
   }
 }

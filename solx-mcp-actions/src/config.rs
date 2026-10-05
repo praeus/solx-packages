@@ -157,9 +157,10 @@ pub fn find_server<'a>(cfg: &'a ServersConfig, name: &str) -> anyhow::Result<&'a
         .ok_or_else(|| anyhow::anyhow!("server '{name}' is not configured in mcp-servers.json"))
 }
 
-/// Descriptor written into every per-tool directory. `solx-mcp invoke` reads
-/// this relative to its own process cwd (set via the generated action's
-/// `action_config.cwd`) to recover which server/tool it's supposed to call.
+/// Descriptor written into every per-tool directory. `solx-mcp-actions
+/// invoke` reads it from the directory in `SOLX_MCP_TOOL_DIR` (set via the
+/// generated action's `action_config.env`) to recover which server/tool
+/// it's supposed to call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
     pub server: String,

@@ -9,12 +9,13 @@
 //! - `import`  — connect to a configured MCP server, list its tools via
 //!               `tools/list`, and create one solx `Command` action per
 //!               tool (e.g. `mcp-filesystem-read-file`).
-//! - `invoke`  — the shared command key every generated per-tool action
-//!               points at. Recovers which server/tool to call from
-//!               `./tool.json` in its own process cwd (set via each
-//!               generated action's `action_config.cwd` override), and
-//!               reads the call arguments from **stdin** (solx-core's
-//!               `run_command` writes params JSON to the child's stdin).
+//! - `invoke`  — what the shared `solx-mcp-actions-invoke` command key every
+//!               generated per-tool action points at runs. Recovers which
+//!               server/tool to call from `tool.json` in the directory named
+//!               by `SOLX_MCP_TOOL_DIR` (set in each generated action's
+//!               `action_config.env`), and reads the call arguments from
+//!               **stdin** (solx-core's `run_command` writes params JSON to
+//!               the child's stdin).
 //! - `remove`  — delete a server's previously imported actions/types,
 //!               using the manifest `import` wrote as the source of truth.
 //!
@@ -30,9 +31,9 @@
 //!
 //! solx-core's `run_command` passes parameters as JSON on **stdin**, not via
 //! the `SOL_PARAMS` env var. This is the primary change when porting from
-//! sol-mcp to solx-mcp-actions. There is no `command_actions` registry in
-//! solx — `fn_name` is the literal shell command, and `action_config.cwd`
-//! is set on the action itself.
+//! sol-mcp to solx-mcp-actions. `fn_name` is a key into solx's
+//! `command_actions` allowlist, declared in this package's
+//! `solx-package.json` with a `cwd` relative to the package directory.
 
 mod config;
 mod mcp_client;
@@ -46,6 +47,12 @@ use serde_json::{json, Value};
 
 use config::{Manifest, ManifestEntry, ServersConfig, ToolDescriptor, ToolFilter};
 use mcp_client::McpSession;
+
+/// The `command_actions` key (solx-package.json) every generated per-tool
+/// action's `fnName` points at.
+const INVOKE_COMMAND_KEY: &str = "solx-mcp-actions-invoke";
+/// Env var naming the per-tool directory (holding `tool.json`) for `invoke`.
+const TOOL_DIR_ENV: &str = "SOLX_MCP_TOOL_DIR";
 
 #[derive(Parser)]
 #[command(name = "solx-mcp-actions")]
@@ -84,8 +91,9 @@ enum Commands {
         #[arg(long)]
         exclude: Vec<String>,
     },
-    /// Invoke a single MCP tool. Reads {server,tool} from ./tool.json
-    /// (process cwd) and call arguments from stdin.
+    /// Invoke a single MCP tool. Reads {server,tool} from tool.json in
+    /// `$SOLX_MCP_TOOL_DIR` (else the process cwd) and call arguments from
+    /// stdin.
     Invoke,
     /// Remove a previously imported MCP server's actions/types.
     Remove {
@@ -342,21 +350,14 @@ async fn import_one_tool(
     ).await?;
     let result_type_ref = format!("{}/{result_type}", config::TYPES_PATH);
 
-    // The generated action is a Command type. `fn_name` is the absolute path
-    // to the binary. Using an absolute path avoids `cmd.exe /C` wrapping,
-    // which on Windows consumes the parent's stdin pipe instead of
-    // forwarding it to the child — making `stdin_params()` see an empty
-    // stdin. `action_config.cwd` points to the per-tool directory containing
-    // `tool.json`, so `invoke` can read its identity from `./tool.json`.
-    let invoke_cmd = if cfg!(windows) {
-        format!("{}\\bin\\solx-mcp-actions.exe invoke", home.to_string_lossy())
-    } else {
-        format!("{}/bin/solx-mcp-actions invoke", home.to_string_lossy())
-    };
-
+    // The generated action is a Command type pointing at the shared
+    // `solx-mcp-actions-invoke` allowlist key (solx-package.json), which runs
+    // `invoke` in this package's `bin/`. The per-tool directory holding
+    // `tool.json` travels in `action_config.env` as `TOOL_DIR_ENV` — not as
+    // `action_config.cwd`, which the allowlist entry's own `cwd` overrides.
     let mut action_body = json!({
         "actionType": "command",
-        "fnName": invoke_cmd,
+        "fnName": INVOKE_COMMAND_KEY,
         "caption": format!("MCP: {tool_name}"),
         "category": "mcp",
         "description": description,
@@ -364,7 +365,7 @@ async fn import_one_tool(
         "phrases": vec![tool_name.to_string(), format!("mcp {tool_name}"), format!("{server} {tool_name}")],
         "paramTypeRef": param_type_ref,
         "resultTypeRef": result_type_ref,
-        "actionConfig": { "cwd": dir.to_string_lossy() },
+        "actionConfig": { "env": { TOOL_DIR_ENV: dir.to_string_lossy() } },
     });
     if let Some(perm) = permission_name {
         action_body["permission_name"] = json!(perm);
@@ -382,8 +383,14 @@ async fn import_one_tool(
 }
 
 async fn run_invoke() -> anyhow::Result<Value> {
-    let cwd = std::env::current_dir()
-        .map_err(|e| anyhow::anyhow!("failed to read current working directory: {e}"))?;
+    // `TOOL_DIR_ENV` is set by every action `import` generates; the cwd
+    // fallback covers actions generated before that, whose identity was
+    // their `action_config.cwd`.
+    let cwd = match std::env::var_os(TOOL_DIR_ENV).filter(|d| !d.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => std::env::current_dir()
+            .map_err(|e| anyhow::anyhow!("failed to read current working directory: {e}"))?,
+    };
     let descriptor = config::read_tool_descriptor(&cwd)?;
     solx_package_log::info(&format!(
         "invoke: server={} tool={} cwd={}",

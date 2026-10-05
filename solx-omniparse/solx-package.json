@@ -5,7 +5,7 @@
   "command_actions": {
     "solx-omniparse-process-file-write": {
       "command": ".\\solx-omniparse-process-file.exe --write",
-      "cwd": "D:/Projects/solx-packages/solx-omniparse/bin"
+      "cwd": "bin"
     }
   }
 }

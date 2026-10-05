@@ -58,8 +58,8 @@ Build the WASM converter binary first — `install.solx` reads
 `bin/solx-google-actions.wasm` as its first statement:
 
 ```sh
-# from solx-google/
-./build.sh          # or build.ps1 on Windows
+# from solx-packages/; --install also runs install-package
+scripts/build-wasm.sh solx-google
 ```
 
 Then install:

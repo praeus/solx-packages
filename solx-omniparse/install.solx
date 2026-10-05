@@ -62,7 +62,6 @@ save action /packages/solx-omniparse/solx-omniparse-process --json {
     "paramTypeRef": "/packages/solx-omniparse/OmniparseInput",
     "resultTypeRef": "/packages/solx-omniparse/OmniparseResult",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-omniparse/bin",
         "timeout_secs": 600,
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },

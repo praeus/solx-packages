@@ -5,8 +5,8 @@ edition = "2021"
 publish = false
 description = "Ollama HTTP API action package for solx-core"
 
-# Its own workspace: this is a wasm32-wasip2 artifact built by build.ps1 /
-# build.sh, not a member of any surrounding workspace.
+# Its own workspace: this is a wasm32-wasip2 artifact built by
+# scripts/build-wasm.sh, not a member of any surrounding workspace.
 [workspace]
 
 [lib]

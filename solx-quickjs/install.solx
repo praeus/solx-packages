@@ -24,7 +24,6 @@ save action /packages/solx-quickjs/build-javascript-action --json {
     "phrases": ["build javascript action", "compile javascript action", "build js action"],
     "paramTypeRef": "/packages/solx-quickjs/QuickjsBuildParams",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-quickjs/target/release",
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
 };
@@ -57,7 +56,6 @@ save action /packages/solx-quickjs/build-javascript-file --json {
     ],
     "paramTypeRef": "/packages/solx-quickjs/QuickjsBuildFileParams",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-quickjs/target/release",
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
 }

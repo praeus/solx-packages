@@ -95,12 +95,21 @@ both consume as source. See [`solx-widgets/README.md`](solx-widgets/README.md).
 
 ## Building
 
-Packages that ship a binary or a WASM component build before they install:
+Packages that ship a binary or a WASM component build before they install.
+The Rust WASM packages (solx-names, solx-ollama, solx-facebook, solx-google)
+all build with one script, which stages the component in the package's
+`bin/` for its `install.solx` to upload:
 
 ```sh
-cd solx-ollama && ./build.sh          # or build.ps1 on Windows
-cd ../ && solx install-package ./solx-ollama
+scripts/build-wasm.sh solx-ollama             # build and stage bin/solx-ollama.wasm
+scripts/build-wasm.sh solx-ollama --install   # ...then solx install-package solx-ollama
 ```
+
+To build everything, run `scripts/build-all.sh`. It builds every WASM package
+with `build-wasm.sh`, release-builds every Rust command package and stages its
+binary into `bin/` where the package runs from there, and builds the node
+command packages (solx-agent). It then checks that each command's program is
+current, and exits non-zero if anything failed or is stale.
 
 WASM packages target `wasm32-wasip2`:
 
@@ -112,14 +121,14 @@ Packages using `bin/*.exe` command actions need a release build of their Rust
 binary first; see each package's own README for its prerequisites (several
 need external tools — `ffmpeg`, `whisper`, an Ollama server, or Firefox).
 
-## Known limitation: absolute paths
+## Command action paths
 
-Several packages currently hardcode `D:/Projects/solx-packages/...` in their
-`solx-package.json` `command_actions` `cwd` and `command` fields. These are
-development-machine paths and **will not work on another machine** — edit
-them to match your checkout before installing, or the registered commands
-will resolve to nothing. Making these relative to the package directory is
-tracked work, not a design decision.
+A package's `solx-package.json` `command_actions` give each command a `cwd`
+relative to the package directory (`"bin"`, `"target/release"`, `"."`).
+`install-package` resolves it against wherever the package is checked out,
+so nothing needs editing per machine. Don't put a `cwd` in an action's
+`actionConfig` in `install.solx`: it isn't resolved, and the manifest's
+`cwd` takes priority anyway.
 
 ## Docs
 

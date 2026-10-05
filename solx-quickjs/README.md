@@ -41,9 +41,7 @@ The resulting binary will be available at `target/release/solx-quickjs`.
 
 ## Install
 
-`.solx` scripts have no comment syntax — the whole file is split on `;` — so
-`install.solx` itself carries no inline commentary; here is what it does and
-what you need to do first.
+Here is what `install.solx` does and what you need to do first.
 
 `install.solx` registers **only the builders**: the `QuickjsBuildParams` /
 `QuickjsBuildFileParams` types and the `build-javascript-action` /
@@ -55,14 +53,9 @@ builder, run later by hand (see "Example workflow" below).
    `build-javascript-action`/`build-javascript-file` as `Command` actions
    whose `fn_name` resolves (via `solx-package.json`'s `command_actions`) to
    `.\solx-quickjs.exe` and `.\solx-quickjs.exe --file-only` respectively,
-   both resolved against the same `cwd` — the binary has to already exist at
-   that path when either action is later invoked.
-2. **Edit `action_config.cwd`** in `install.solx` before installing: replace
-   `D:/Projects/solx-packages/solx-quickjs/target/release` with the absolute
-   path to this package's `target/release` directory. `.solx` has no path
-   templating, so this is a manual edit. (Alternatively, install first and
-   `solx save action` the same reference again afterward to correct it.)
-3. Run `solx install-package .` from this directory.
+   both run in `"cwd": "target/release"`, which `install-package` resolves against this package's directory, so there is no path to edit. The binary has to
+   already exist there when either action is later invoked.
+2. Run `solx install-package .` from this directory.
 
 Registering a `Command` action has no allowlist gate: `fn_name` is the
 literal command solx-core will run the moment `install-package` posts the

@@ -26,10 +26,8 @@ solx exec /packages/solx-git/git-patch --json '{"path":"proj/repo"}'
 
 `solx install-package` registers all four actions via `install.solx`.
 Before installing, build the binary (`cargo build --release` in this
-directory) and edit `install.solx`'s `action_config.cwd` (and
-`solx-package.json`'s `command_actions[*].cwd`) to the absolute path of
-this package's `target/release` directory, or `solx save action` the same
-reference again afterward to correct it.
+directory). The `command_actions` in `solx-package.json` use
+`"cwd": "target/release"`, which `install-package` resolves against this package's directory, so there is no path to edit.
 
 ## `path`: every action takes one, resolved the same way
 

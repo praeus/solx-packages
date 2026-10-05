@@ -125,7 +125,6 @@ save action /packages/solx-media/solx-media-image --json {
     "phrases": ["describe image", "extract image", "image to document", "vision extract"],
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-media/bin",
         "timeout_secs": 600,
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
@@ -140,7 +139,6 @@ save action /packages/solx-media/solx-media-audio --json {
     "phrases": ["transcribe audio", "extract audio", "audio to document", "audio to text"],
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-media/bin",
         "timeout_secs": 600,
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
@@ -163,7 +161,6 @@ save action /packages/solx-media/solx-media-video --json {
     "phrases": ["transcribe video", "extract video", "video to document", "video to text"],
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-media/bin",
         "timeout_secs": 1200,
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
@@ -178,7 +175,6 @@ save action /packages/solx-media/materialize-html --json {
     "phrases": ["materialize html", "embed images", "materialize rich text"],
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-media/bin",
         "timeout_secs": 600,
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
@@ -193,7 +189,6 @@ save action /packages/solx-media/install-whisper-model --json {
     "phrases": ["install whisper model", "download whisper model", "setup whisper"],
     "paramTypeRef": "/packages/solx-media/MediaInstallParams",
     "actionConfig": {
-        "cwd": "D:/Projects/solx-packages/solx-media/bin",
         "timeout_secs": 300,
         "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },

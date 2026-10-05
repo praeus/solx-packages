@@ -24,16 +24,13 @@ version/variant bits, so it's 32 random bits either way).
 
 ## Build & install
 
-```powershell
-./build.ps1 -Install
-```
-
 ```bash
-./build.sh --install
+# from solx-packages/
+scripts/build-wasm.sh solx-names --install
 ```
 
-Either stages `bin/solx-names.wasm` (read by `install.solx`, so it must exist
-before installing) and then runs `solx install-package .`.
+This stages `bin/solx-names.wasm` (read by `install.solx`, so it must exist
+before installing) and then runs `solx install-package`.
 
 ## Verify
 

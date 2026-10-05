@@ -18,35 +18,15 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "solx: build solx-agent",
-      "type": "shell",
-      "command": "bun",
-      "args": ["run", "build"],
-      "options": {
-        "cwd": "${workspaceFolder}/solx-agent"
-      },
-      "problemMatcher": ["$tsc"],
-      "detail": "bun run build inside solx-agent — tsc --noEmit && vite build → dist/solx-agent.js"
-    },
-
-    {
-      "label": "solx: install solx-agent",
-      "type": "shell",
-      "command": "solx",
-      "args": ["install-package", "D:\\Projects\\solx-packages\\solx-agent"],
-      "detail": "Re-stage solx-agent's widget bundle (and action/types/skills, all upserts) into the file store. Requires solx-server running."
-    },
-
-    {
-      "label": "solx: build+install solx-agent",
-      "dependsOn": ["solx: build solx-agent", "solx: install solx-agent"],
+      "label": "solx-packages: build + install solx-agent",
+      "dependsOn": ["solx-core: build solx-agent", "solx: install solx-agent"],
       "dependsOrder": "sequence",
       "problemMatcher": [],
       "detail": "Rebuild the solx-agent widget bundle and re-stage it into the file store."
     },
 
     {
-      "label": "solx: reinstall all",
+      "label": "solx-packages: reinstall all",
       "type": "shell",
       "command": "bash",
       "args": ["scripts/reinstall-all.sh"],

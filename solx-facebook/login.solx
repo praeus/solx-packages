@@ -12,7 +12,8 @@
 #
 #   B. OAuth (default):
 #      1. Read previously-persisted app_id / app_secret (if any).
-#      2. Bind the OAuth loopback listener on 127.0.0.1:{port} (default 8765).
+#      2. Bind the OAuth loopback listener on 127.0.0.1:{port} (default 8765),
+#         with a http://localhost:{port}/callback redirect URI.
 #      3. Open the Facebook Login dialog in the system browser.
 #      4. Await the OAuth callback (up to {timeout_secs} seconds).
 #      5. Exchange the code for a short-lived user token via the internal
@@ -62,11 +63,13 @@ else
     $port = $params.port || 8765;
     $timeout = $params.timeout_secs || 300;
 
-    $loopback = exec /builtin/oauth/oauth-start --json {"port": $port};
+    # Facebook's "Enforce HTTPS" rejects plain-http redirects except
+    # http://localhost (allowed while the app is in development mode), so
+    # ask for a localhost redirect_uri rather than the default 127.0.0.1.
+    $loopback = exec /builtin/oauth/oauth-start --json {"port": $port, "redirect_host": "localhost"};
 
     # redirect_uri must match byte-for-byte between this dialog URL and the
-    # token exchange below, and must be listed under the app's Facebook
-    # Login "Valid OAuth Redirect URIs".
+    # token exchange below.
     $auth_url = "https://www.facebook.com/v25.0/dialog/oauth?response_type=code&client_id=${app_id}&redirect_uri=${loopback.result.redirect_uri}&scope=${scope}&state=${loopback.result.state_value}";
 
     exec /builtin/web/open-url --json {"url": $auth_url};

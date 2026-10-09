@@ -106,6 +106,140 @@ save type /packages/solx-reddit/RedditSearchResult --json {
         },
     },
 };
+save type /packages/solx-reddit/RedditListPostsParams --json {
+    "description": "List posts from a subreddit or the front page. Read-only; nothing is saved.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "subreddit": {
+                "type": ["string", "null"],
+                "description": "Subreddit without r/, e.g. dndnext. Omit for the front page; all and popular work too, and a+b combines subreddits.",
+            },
+            "sort": {
+                "type": ["string", "null"],
+                "description": "hot, new, top, rising, or controversial. Defaults to hot.",
+            },
+            "time": {
+                "type": ["string", "null"],
+                "description": "For top and controversial: hour, day, week, month, year, or all. Defaults to day.",
+            },
+            "limit": {
+                "type": ["integer", "null"],
+                "description": "Posts per page, 1-100. Defaults to 25.",
+            },
+            "after": {
+                "type": ["string", "null"],
+                "description": "Resume cursor (a post fullname, e.g. t3_abc123) from a previous result, to fetch the next page.",
+            },
+        },
+    },
+};
+save type /packages/solx-reddit/RedditGetPostParams --json {
+    "description": "Fetch one post and a bounded slice of its comment tree, returned inline. Read-only; nothing is saved.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": ["string", "null"],
+                "description": "Post permalink, full or relative. A permalink to a single comment focuses the result on that comment's subtree. Required unless subreddit and id are both given.",
+            },
+            "subreddit": {"type": ["string", "null"], "description": "Subreddit without r/. Used with id when url is omitted."},
+            "id": {"type": ["string", "null"], "description": "Post id (the base36 segment in the permalink). Used with subreddit when url is omitted."},
+            "commentId": {
+                "type": ["string", "null"],
+                "description": "Focus on one comment and its replies (the base36 comment id, without t1_). Use the id or a continue-this-thread marker from an earlier result.",
+            },
+            "sort": {
+                "type": ["string", "null"],
+                "description": "Comment sort: confidence (best), top, new, controversial, old, or qa. Defaults to confidence.",
+            },
+            "depth": {
+                "type": ["integer", "null"],
+                "description": "Maximum reply depth to request. Defaults to Reddit's own.",
+            },
+            "maxComments": {
+                "type": ["integer", "null"],
+                "description": "Maximum comments to return, counted across the whole reply tree. Defaults to 50.",
+            },
+        },
+    },
+};
+save type /packages/solx-reddit/RedditUserParams --json {
+    "description": "A Reddit user's profile and one of their listings. Read-only. saved, upvoted, downvoted and hidden are only visible for the signed-in account's own username.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["username"],
+        "properties": {
+            "username": {"type": "string", "description": "Username, with or without u/."},
+            "view": {
+                "type": ["string", "null"],
+                "description": "overview, submitted, comments, saved, upvoted, downvoted, or hidden. Defaults to overview.",
+            },
+            "sort": {"type": ["string", "null"], "description": "new, hot, top, or controversial. Defaults to new."},
+            "time": {"type": ["string", "null"], "description": "For top and controversial: hour, day, week, month, year, or all. Defaults to all."},
+            "limit": {"type": ["integer", "null"], "description": "Items per page, 1-100. Defaults to 25."},
+            "after": {"type": ["string", "null"], "description": "Resume cursor (a fullname, t3_ or t1_) from a previous result."},
+        },
+    },
+};
+save type /packages/solx-reddit/RedditSubredditInfoParams --json {
+    "description": "A subreddit's sidebar: subscriber counts, creation date, description, and the links it contains. Read-only.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["subreddit"],
+        "properties": {
+            "subreddit": {"type": "string", "description": "Subreddit name, with or without r/."},
+        },
+    },
+};
+save type /packages/solx-reddit/RedditListingResult --json {
+    "description": "A page of posts (reddit-list-posts) or posts and comments (reddit-user). Documentation only - result schemas are not validated.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer"},
+            "after": {"type": ["string", "null"], "description": "Cursor for the next page, or null at the end."},
+            "posts": {"type": "array", "items": {"type": "object"}, "description": "reddit-list-posts: post summaries."},
+            "items": {"type": "array", "items": {"type": "object"}, "description": "reddit-user: posts (kind post) and comments (kind comment)."},
+            "profile": {"type": "object", "description": "reddit-user: linkKarma, commentKarma, created."},
+        },
+    },
+};
+save type /packages/solx-reddit/RedditPostView --json {
+    "description": "One post with its comment tree. Comments carry id, score, permalink and depth; a node with more:true marks unloaded replies (href, when present, is a permalink to pass back as url/commentId). Documentation only - result schemas are not validated.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "title": {"type": "string"},
+            "text": {"type": "string"},
+            "commentCount": {"type": "integer"},
+            "commentsReturned": {"type": "integer"},
+            "comments": {"type": "array", "items": {"type": "object"}},
+        },
+    },
+};
+save type /packages/solx-reddit/RedditSubredditInfo --json {
+    "description": "Subreddit sidebar details. Documentation only - result schemas are not validated.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "subreddit": {"type": "string"},
+            "subscribers": {"type": ["integer", "null"]},
+            "online": {"type": ["integer", "null"]},
+            "created": {"type": ["string", "null"]},
+            "description": {"type": "string"},
+            "links": {"type": "array", "items": {"type": "object"}},
+        },
+    },
+};
 save action /packages/solx-reddit/reddit-extract-post --json {
     "actionType": "wasm",
     "binName": "solx-reddit.wasm",
@@ -137,4 +271,60 @@ save action /packages/solx-reddit/reddit-search --json {
     "paramTypeRef": "/packages/solx-reddit/RedditSearchParams",
     "resultTypeRef": "/packages/solx-reddit/RedditSearchResult",
     "actionConfig": {"timeout_secs": 1200},
+};
+save action /packages/solx-reddit/reddit-list-posts --json {
+    "actionType": "wasm",
+    "binName": "solx-reddit.wasm",
+    "files": $build.result.files,
+    "fnName": "list_posts",
+    "caption": "List Reddit posts",
+    "category": "browsing",
+    "description": "List posts from a subreddit or the front page (hot, new, top, rising, controversial). Returns post summaries - id, title, author, score, comment count, flair, url, permalink - and an after cursor for the next page. Read-only.",
+    "capabilities": ["reddit", "browse", "listing", "browser"],
+    "phrases": ["browse a subreddit", "list reddit posts", "show top posts in a subreddit"],
+    "paramTypeRef": "/packages/solx-reddit/RedditListPostsParams",
+    "resultTypeRef": "/packages/solx-reddit/RedditListingResult",
+    "actionConfig": {"timeout_secs": 120},
+};
+save action /packages/solx-reddit/reddit-get-post --json {
+    "actionType": "wasm",
+    "binName": "solx-reddit.wasm",
+    "files": $build.result.files,
+    "fnName": "get_post",
+    "caption": "Read Reddit post",
+    "category": "browsing",
+    "description": "Read one Reddit post and up to maxComments of its comment tree, returned inline (nothing is saved). Comments include id, score, permalink and depth, plus markers for unloaded replies. Pass a comment permalink or commentId to focus on one subtree.",
+    "capabilities": ["reddit", "browse", "comments", "browser"],
+    "phrases": ["read a reddit post", "show reddit comments", "open a reddit thread"],
+    "paramTypeRef": "/packages/solx-reddit/RedditGetPostParams",
+    "resultTypeRef": "/packages/solx-reddit/RedditPostView",
+    "actionConfig": {"timeout_secs": 120},
+};
+save action /packages/solx-reddit/reddit-user --json {
+    "actionType": "wasm",
+    "binName": "solx-reddit.wasm",
+    "files": $build.result.files,
+    "fnName": "get_user",
+    "caption": "Reddit user",
+    "category": "browsing",
+    "description": "A Reddit user's profile (karma, account age) and a listing of their overview, posts, comments, or - for the signed-in account's own username - saved, upvoted, downvoted, or hidden items. Returns an after cursor for the next page. Read-only.",
+    "capabilities": ["reddit", "browse", "user", "browser"],
+    "phrases": ["look up a reddit user", "show a reddit user's posts", "my saved reddit posts"],
+    "paramTypeRef": "/packages/solx-reddit/RedditUserParams",
+    "resultTypeRef": "/packages/solx-reddit/RedditListingResult",
+    "actionConfig": {"timeout_secs": 120},
+};
+save action /packages/solx-reddit/reddit-subreddit-info --json {
+    "actionType": "wasm",
+    "binName": "solx-reddit.wasm",
+    "files": $build.result.files,
+    "fnName": "subreddit_info",
+    "caption": "Subreddit info",
+    "category": "browsing",
+    "description": "A subreddit's sidebar: subscriber and online counts, creation date, description text, and the links it contains (wiki, related communities). Read-only.",
+    "capabilities": ["reddit", "browse", "subreddit", "browser"],
+    "phrases": ["about a subreddit", "subreddit sidebar", "how big is this subreddit"],
+    "paramTypeRef": "/packages/solx-reddit/RedditSubredditInfoParams",
+    "resultTypeRef": "/packages/solx-reddit/RedditSubredditInfo",
+    "actionConfig": {"timeout_secs": 120},
 }

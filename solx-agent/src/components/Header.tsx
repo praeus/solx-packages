@@ -14,6 +14,9 @@ const STATUS_LABEL: Record<SessionStatus, { text: string; cls: string }> = {
   cancelled: { text: "stopped", cls: "chip" },
 };
 
+/** Why the model list looks the way it does: a failed request reads differently from an empty one. */
+export type ModelsState = "ok" | "unreachable" | "none";
+
 export interface SessionSummary {
   name: string;
   title?: string;
@@ -22,6 +25,7 @@ export interface SessionSummary {
 
 export function Header({
   models,
+  modelsState,
   model,
   onModel,
   status,
@@ -36,6 +40,7 @@ export function Header({
   busy,
 }: {
   models: OllamaModel[];
+  modelsState: ModelsState;
   model: string;
   onModel: (model: string) => void;
   status: SessionStatus | null;
@@ -141,9 +146,14 @@ export function Header({
             </span>
           </>
         )}
-        {models.length === 0 && (
+        {modelsState === "unreachable" && (
           <span className="faint" style={{ fontSize: 11 }}>
             solx-ollama not reachable — type a model name
+          </span>
+        )}
+        {modelsState === "none" && (
+          <span className="faint" style={{ fontSize: 11 }}>
+            No tool-capable models found — type a model name
           </span>
         )}
       </div>

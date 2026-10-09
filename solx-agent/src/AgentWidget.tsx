@@ -23,7 +23,7 @@ import {
 import { buildTurnsFrom, type RenderedTurn } from "./transcript";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { Composer } from "./components/Composer";
-import { Header, type SessionSummary } from "./components/Header";
+import { Header, type ModelsState, type SessionSummary } from "./components/Header";
 import { SetupPanel } from "./components/SetupPanel";
 import { TurnBlock } from "./components/TurnBlock";
 import {
@@ -70,6 +70,7 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
   const [setup, setSetup] = useState<SetupPrefs>(() => loadSetup());
   const [model, setModel] = useState<string>(() => loadModel());
   const [models, setModels] = useState<OllamaModel[]>([]);
+  const [modelsState, setModelsState] = useState<ModelsState>("ok");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
 
   const [sessionId, setSessionId] = useState<string | null>(
@@ -122,10 +123,12 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
       .try<{ models?: OllamaModel[] }>(LIST_MODELS, {})
       .then((r) => {
         if (cancelled) return;
-        // Only tool-capable models can drive this at all.
-        const list = (r.ok && r.value?.models ? r.value.models : []).filter((m) =>
-          (m.capabilities ?? []).includes("tools"),
-        );
+        // `/api/tags` doesn't report capabilities, so only exclude a model
+        // when capabilities are present and lack "tools"; unknown stays in
+        // and a non-tool model is rejected at chat time.
+        const all = r.ok && r.value?.models ? r.value.models : [];
+        const list = all.filter((m) => !m.capabilities || m.capabilities.includes("tools"));
+        setModelsState(!r.ok ? "unreachable" : list.length === 0 ? "none" : "ok");
         setModels(list);
         // Keep the saved pick only if it's still one of the tool-capable
         // models this host actually has -- a name persisted from a previous
@@ -347,6 +350,7 @@ export function AgentWidget({ fields }: { fields: AgentWidgetFields | undefined 
 
       <Header
         models={models}
+        modelsState={modelsState}
         model={model}
         onModel={setModel}
         status={status}

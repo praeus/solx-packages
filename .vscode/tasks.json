@@ -7,7 +7,7 @@
   // forgetting the `install-package` that re-stages the artifact — the
   // running server keeps serving the old build. These tasks pair the two.
   //
-  // `solx: build+install solx-agent` is the one to reach for when editing
+  // `solx-packages: build + install solx-agent` is the one to reach for when editing
   // solx-agent: it rebuilds the widget bundle and re-upserts it (plus the
   // action/types/skills, all idempotent) in one Run Task.
   //
@@ -18,8 +18,30 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "solx-packages: build solx-agent",
+      "type": "shell",
+      "command": "bun",
+      "args": ["run", "build"],
+      "options": {
+        "cwd": "${workspaceFolder}/solx-agent"
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "bun run build inside solx-agent — vite build → dist/solx-agent.js"
+    },
+
+    {
+      "label": "solx-packages: install solx-agent",
+      "type": "shell",
+      "command": "solx",
+      // Forward slashes: the default terminal here is Git Bash, which eats
+      // backslashes ("D:Projectssolx-packages...").
+      "args": ["install-package", "D:/Projects/solx-packages/solx-agent"],
+      "detail": "Re-stage solx-agent's widget bundle (and action/types/skills, all upserts) into the file store. Requires solx-server running."
+    },
+
+    {
       "label": "solx-packages: build + install solx-agent",
-      "dependsOn": ["solx-core: build solx-agent", "solx: install solx-agent"],
+      "dependsOn": ["solx-packages: build solx-agent", "solx-packages: install solx-agent"],
       "dependsOrder": "sequence",
       "problemMatcher": [],
       "detail": "Rebuild the solx-agent widget bundle and re-stage it into the file store."

@@ -1,14 +1,20 @@
 # solx-reddit
 
 Search Reddit, or extract one post directly, into `BlogPostWithComments`
-documents with a bounded slice of the comment tree.
+documents with a bounded slice of the comment tree — and browse Reddit
+read-only (listings, posts, users, subreddit sidebars) with the results
+returned inline.
 
-One quickjs wasm component backs two actions, dispatched on `fn_name`:
+One quickjs wasm component backs all the actions, dispatched on `fn_name`:
 
 | Action | `fn_name` | Does |
 | --- | --- | --- |
 | `reddit-extract-post` | `extract_post` | One post → one document. |
 | `reddit-search` | `search_posts` | A search (optionally scoped to one subreddit) → up to `limit` documents. Returns an `after` cursor for the next page. |
+| `reddit-list-posts` | `list_posts` | A subreddit (or front page) listing → post summaries. Nothing saved. |
+| `reddit-get-post` | `get_post` | One post + comment tree returned inline. Nothing saved. |
+| `reddit-user` | `get_user` | A user's profile + overview / posts / comments / saved listing. Nothing saved. |
+| `reddit-subreddit-info` | `subreddit_info` | A subreddit's sidebar: counts, description, links. Nothing saved. |
 
 ## Requirements
 
@@ -63,6 +69,40 @@ Reddit. `after` (a post fullname like `t3_abc123`, returned in the previous
 call's result) fetches the next page of search results — there is no stored
 cursor the way `solx-livejournal`'s `lj-harvest` has one, since a search
 isn't a fixed sequence the way an index-page walk is.
+
+## Browsing
+
+The browse actions return structured data and write no documents. Listings
+share one shape — `{count, after, posts|items}` — and every item carries
+`subreddit` and `id`, so a result can be handed straight to `reddit-get-post`
+or `reddit-extract-post`.
+
+```
+solx exec /packages/solx-reddit/reddit-list-posts --json '{"subreddit":"dndnext","sort":"top","time":"week","limit":10}'
+solx exec /packages/solx-reddit/reddit-get-post --json '{"subreddit":"dndnext","id":"abc123","maxComments":40,"sort":"top"}'
+solx exec /packages/solx-reddit/reddit-user --json '{"username":"spez","view":"comments"}'
+solx exec /packages/solx-reddit/reddit-subreddit-info --json '{"subreddit":"dndnext"}'
+```
+
+- **Paging.** Pass the previous result's `after` back in. One page per call,
+  up to 100 items (`limit`).
+- **`reddit-list-posts`**: omit `subreddit` for the front page; `all`,
+  `popular` and `a+b` combinations work. `sort` is hot/new/top/rising/
+  controversial; `time` applies to top and controversial. Promoted posts are
+  dropped.
+- **`reddit-get-post`** comments carry `id`, `score`, `permalink` and `depth`.
+  Unloaded replies appear as `{more: true, count, href, ids}` nodes. When
+  `href` is set ("continue this thread"), pass it back as `url` — a permalink
+  to a single comment (or `commentId`) returns just that subtree. Plain "load
+  more comments" nodes have no `href` and aren't expandable yet.
+- **`reddit-user`**: `saved`, `upvoted`, `downvoted` and `hidden` are private,
+  so they only work for the account the managed Firefox profile is signed in
+  as. Items are posts (`kind: "post"`) and comments (`kind: "comment"`).
+- **`reddit-subreddit-info`** scrapes the old.reddit sidebar. Rules are not
+  included: the rules page is client-rendered and the JSON endpoint is blocked.
+- **Gates.** A nonexistent subreddit fails with "subreddit not found"; an
+  over-18 community fails with an "over-18 gate" error until the prompt has
+  been accepted once in the managed Firefox profile.
 
 ## Field mapping
 

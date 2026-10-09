@@ -8,4 +8,23 @@ exec /packages/solx-reddit/reddit-search --json {
     "subreddit": "dndnext",
     "limit": 3,
     "maxComments": 10,
+};
+exec /packages/solx-reddit/reddit-list-posts --json {
+    "subreddit": "dndnext",
+    "sort": "top",
+    "time": "week",
+    "limit": 5,
+};
+exec /packages/solx-reddit/reddit-get-post --json {
+    "subreddit": "announcements",
+    "id": "5vtcyt",
+    "maxComments": 10,
+};
+exec /packages/solx-reddit/reddit-subreddit-info --json {
+    "subreddit": "dndnext",
+};
+exec /packages/solx-reddit/reddit-user --json {
+    "username": "spez",
+    "view": "submitted",
+    "limit": 3,
 }

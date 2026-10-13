@@ -1,0 +1,28 @@
+{
+  "name": "solx-inquiry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ask a question in plain language and get an answer grounded in solx documents: one model call plans searches and gets over the entity store, the harness resolves them, a second call writes the answer. A React UI wrapped as a self-mounting custom element, with the pipeline in the bundle and a headless Command action beside it.",
+  "scripts": {
+    "build": "vite build",
+    "build:headless": "esbuild src/headless/inquiryEntry.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist-headless/inquiry.mjs",
+    "dev": "node ../solx-widgets/scripts/watch-and-install.mjs .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vite-plugin-css-injected-by-js": "^3.5.2",
+    "vitest": "^2.1.0"
+  }
+}

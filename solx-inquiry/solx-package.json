@@ -1,0 +1,11 @@
+{
+  "name": "solx-inquiry",
+  "version": "0.1.0",
+  "description": "Ask a question in plain language and get an answer grounded in solx documents. One model call plans searches and gets over the entity store, the harness resolves them, a second call writes the answer. Registers one WidgetDescriptor-typed action and one headless Command action; inquiries live under /inquiry.",
+  "command_actions": {
+    "inquiry": {
+      "command": "node dist-headless/inquiry.mjs",
+      "cwd": "."
+    }
+  }
+}

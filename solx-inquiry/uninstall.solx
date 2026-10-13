@@ -1,0 +1,12 @@
+# Removes the rows, types and artifacts. Deliberately does NOT remove inquiries
+# under /inquiry: an inquiry is a record of what was asked and what was found,
+# and uninstalling the package that produced it should not erase it.
+#
+# Every delete carries --if-exists, because a script aborts on the first
+# failing statement and a partial install should still be removable.
+
+delete action /packages/solx-inquiry/inquiry-widget --if-exists;
+delete action /packages/solx-inquiry/inquiry --if-exists;
+
+delete type /packages/solx-inquiry/InquirySession --if-exists;
+delete type /packages/solx-inquiry/InquiryParams --if-exists;

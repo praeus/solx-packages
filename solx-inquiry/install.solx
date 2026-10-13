@@ -1,0 +1,120 @@
+# solx-inquiry install.
+#
+# One widget action and one headless Command action, plus two types. The
+# pipeline that answers a question runs inside the widget bundle (`npm run
+# build`), with a second, independent build (`npm run build:headless`) for the
+# `inquiry` Command action that runs the same pipeline with no UI.
+#
+# Nothing here compiles through solx-quickjs, and nothing here registers a
+# document type for the outside world -- inquiries are the package's own
+# record, under /inquiry, exactly as agent sessions are under /agent.
+
+save type /packages/solx-inquiry/InquirySession --json {
+    "description": "One inquiry: a question, the lookups a model chose to answer it, the documents those lookups found, and the answer written from them. Written once per phase, so a browser tab closed mid-turn still leaves a true record. Deliberately permissive - the shape evolves with the package, and an inquiry that failed validation mid-run would strand the thread. turns, plan and documents are undeclared on purpose: the full-text index walks only declared fields, so leaving them out keeps the whole transcript - and every gathered document body - out of FTS while still storing it.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "model": {"type": "string", "description": "The model that plans and writes."},
+            "title": {
+                "type": "string",
+                "description": "Taken from the first question. Titles the document so an inquiry list says what each one asked.",
+            },
+            "status": {
+                "type": "string",
+                "description": "planning, gathering, answering, idle, or error. The three live states are the phases; idle means the answer is written and the next thing is a person.",
+            },
+            "options": {
+                "type": "object",
+                "description": "The budgets that bound one turn: max_docs, max_plan_steps, doc_budget, include_actions, replan, chat_timeout_secs. Read at the top of every turn, so they can change between questions.",
+            },
+            "turns": {
+                "type": "array",
+                "description": "One entry per question: its question, the plan, the executed steps, the documents gathered, the corpus index shown to the planner, and the answer. Not indexed - see the type description.",
+            },
+            "answer": {
+                "type": ["string", "null"],
+                "description": "The most recent answer, also on the last turn; what a search hit carries, because summary is Document-level and indexed.",
+            },
+        },
+    },
+};
+
+save type /packages/solx-inquiry/InquiryParams --json {
+    "description": "Parameters for the headless inquiry action: ask one question and get an answer grounded in solx documents, with no UI. Starts an inquiry or continues one across repeated calls - pass back session_id (from a previous call's result) with a new question to continue the conversation.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["model"],
+        "properties": {
+            "question": {
+                "type": "string",
+                "description": "The question. Required to start a new inquiry; optional on a continued one, where passing only session_id reports its current state.",
+            },
+            "model": {"type": "string", "description": "The model that plans and writes."},
+            "session_id": {
+                "type": "string",
+                "description": "Continue an existing inquiry by its id, from a previous call's result.",
+            },
+            "path_prefix": {
+                "type": "string",
+                "description": "A hint to focus the lookups on a document tree. Folded into the question, not enforced - the planner still decides where to look.",
+            },
+            "type_ref": {
+                "type": "string",
+                "description": "A hint to focus the lookups on one document type. Folded into the question, like path_prefix.",
+            },
+            "max_docs": {"type": "integer", "description": "Budget override: documents gathered per turn."},
+            "max_plan_steps": {"type": "integer", "description": "Budget override: lookups honoured per plan."},
+            "doc_budget": {"type": "integer", "description": "Budget override: characters of document text handed to the answer phase."},
+            "include_actions": {"type": "boolean", "description": "Also list action paths in the planner's corpus index."},
+            "replan": {"type": "boolean", "description": "Retry once with a second set of lookups if the first finds nothing. Defaults to true."},
+            "chat_timeout_secs": {"type": "integer", "description": "Per-model-call HTTP timeout, delegated to solx-ollama."},
+            "plan_only": {
+                "type": "boolean",
+                "description": "Run the plan and the lookups but skip the answer call, returning the plan, the steps and the document refs. For tuning prompts from the CLI.",
+            },
+        },
+    },
+};
+
+save file files/actions/shared/solx-inquiry-widget-descriptor.solx --file inquiry-widget-descriptor.solx;
+
+save file widgets/solx-inquiry.js --file dist/solx-inquiry.js;
+
+save action /packages/solx-inquiry/inquiry-widget --json {
+    "actionType": "script",
+    "binName": "solx-inquiry-widget-descriptor.solx",
+    "files": [
+        {
+            "name": "solx-inquiry-widget-descriptor.solx",
+            "relPath": "files/actions/shared/solx-inquiry-widget-descriptor.solx",
+            "contentType": "text/x-solx",
+        },
+    ],
+    "caption": "Inquiry",
+    "category": "widgets",
+    "description": "Ask a question in plain language and get an answer grounded in solx documents. One model call plans searches and gets over the document, type and action stores; the pipeline runs them; a second call writes the answer from what they found. A companion to the agent: the model is handed five fixed read-only verbs instead of a tool catalogue, so it never has to discover a tool or be refused one. Inquiries are ordinary documents under /inquiry.",
+    "capabilities": ["inquiry", "widget", "ui", "llm", "search", "documents"],
+    "phrases": [
+        "ask a question",
+        "open inquiry",
+        "show inquiry",
+        "summarize documents",
+        "find documents about",
+        "search documents with a model",
+    ],
+    "resultTypeRef": "/builtin/types/WidgetDescriptor",
+};
+
+save action /packages/solx-inquiry/inquiry --json {
+    "actionType": "command",
+    "fnName": "inquiry",
+    "paramTypeRef": "/packages/solx-inquiry/InquiryParams",
+    "actionConfig": {"env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"}, "timeout_secs": 900},
+    "caption": "Inquiry (headless)",
+    "category": "development",
+    "description": "Ask one question and get an answer grounded in solx documents, with no UI -- the same pipeline the widget drives. For scripting and for tuning prompts from the CLI: solx exec /packages/solx-inquiry/inquiry --json {\"question\":\"...\",\"model\":\"...\"}. Pass back the result's session_id to continue the conversation.",
+    "capabilities": ["inquiry", "headless", "development"],
+    "phrases": ["ask headless", "run an inquiry headless", "inquiry loop"],
+};

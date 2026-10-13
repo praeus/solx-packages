@@ -21,8 +21,8 @@ regex = "1"
 # the canonical `custom-action.wit` file via the `DEP_SOL_CUSTOM_WIT_CUSTOM_WIT`
 # env var emitted by its build script (the crate kept `links = "sol_custom_wit"`
 # so this env var name is unchanged from the old sol-actions-lib). The crate
-# is built from the sibling `solx-core/` workspace (../../solx-core/solx-wasm).
-solx-custom-actions-lib = { path = "../../solx-core/solx-wasm", default-features = false }
+# is vendored in this repo at ../solx-wasm (see scripts/sync-solx-wasm.sh).
+solx-custom-actions-lib = { path = "../solx-wasm", default-features = false }
 
 [dev-dependencies]
 assert_fs = "1"

@@ -88,6 +88,12 @@ and the solx-core action console in one call; resolving where solx-server is
 and how to authenticate to it (`SOLX_SERVER_URL`/`SOLX_SERVER_TOKEN`, falling
 back to `solx-config.json`); and persisting a document to it.
 
+`solx-wasm/` is a vendored copy of solx's `core/solx-wasm`: the helper crate
+for custom WASM actions and the canonical `wit/custom-action.wit`. The WASM
+packages point `wit-bindgen` at `solx-wasm/wit` instead of keeping their own
+copy, and `solx-quickjs` depends on the crate by path. It rarely changes;
+refresh it with `scripts/sync-solx-wasm.sh <path-to-solx>`.
+
 `solx-widgets/` is likewise not an installable package — it's a shared TS
 toolkit (build a React component into a single-file widget bundle; mount one
 client-side) that widget-content packages like `solx-agent` and `solx-web`

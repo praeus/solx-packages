@@ -1,0 +1,151 @@
+name: Package
+
+# Builds every solx package and zips it for release. Each zip unpacks to
+# `<package>/` and installs with `solx install-package ./<package>`:
+#
+#   <package>-<version>.zip                 wasm, node and script-only packages
+#   <package>-<version>-<platform>.zip      packages with a native binary, one
+#                                           per linux-x64 / macos-arm64 / windows-x64
+#
+# Zips hold the package's tracked source plus the build output its install
+# needs -- no target/, node_modules/ or other build artifacts. See
+# scripts/package.mjs. Packages are discovered from their solx-package.json,
+# so a new package is built and released without editing this file.
+#
+# Pushing a `v*` tag also publishes the zips as a draft GitHub release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "scripts/package.mjs"
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plan:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: plan
+        run: node scripts/package.mjs plan --github-output
+
+  build:
+    name: ${{ matrix.package }} (${{ matrix.platform }})
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # One target dir for the job, so the cache below has a single path and
+      # scripts/package.mjs and build-wasm.sh both find the output.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # -- Rust (native command packages and wasm components) ---------------
+      - name: Linux system dependencies
+        if: matrix.kind == 'rust' && runner.os == 'Linux'
+        # solx-git builds OpenSSL from source (vendored-openssl) and needs
+        # perl + a C toolchain, both preinstalled; the rest link system libs.
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.kind == 'rust' || matrix.kind == 'wasm'
+        with:
+          targets: ${{ matrix.kind == 'wasm' && 'wasm32-wasip2' || '' }}
+      - uses: actions/cache@v4
+        if: matrix.kind == 'rust' || matrix.kind == 'wasm'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ matrix.package }}-${{ matrix.platform }}-${{ hashFiles(format('{0}/**/Cargo.toml', matrix.package), format('{0}/**/Cargo.lock', matrix.package)) }}
+          restore-keys: cargo-${{ matrix.package }}-${{ matrix.platform }}-
+
+      - name: Build (native binary)
+        if: matrix.kind == 'rust'
+        run: |
+          # Each package's build.rs otherwise re-runs cargo to stage the binary
+          # into bin/; package.mjs reads it from the target dir instead.
+          name="${PACKAGE#solx-}"
+          export "SOLX_$(echo "$name" | tr 'a-z-' 'A-Z_')_SKIP_AUTOBUILD=1"
+          cargo build --release --manifest-path "$PACKAGE/Cargo.toml"
+        env:
+          PACKAGE: ${{ matrix.package }}
+
+      - name: Build (wasm component)
+        if: matrix.kind == 'wasm'
+        run: bash scripts/build-wasm.sh "${{ matrix.package }}"
+
+      # -- Node (widget bundle and headless command) --------------------------
+      - name: Build (node)
+        if: matrix.kind == 'node'
+        run: |
+          # The package imports sibling sources (solx-widgets) by relative
+          # path, and those resolve react etc. from their own node_modules.
+          for dir in "$PACKAGE" $(node scripts/package.mjs companions "$PACKAGE" | tr -d '\r'); do
+            (cd "$dir" && if [ -f package-lock.json ]; then npm ci; else npm install; fi)
+          done
+          cd "$PACKAGE"
+          for script in build build:headless; do
+            if node -e 'process.exit(require("./package.json").scripts?.[process.argv[1]] ? 0 : 1)' "$script"; then
+              npm run "$script"
+            fi
+          done
+        env:
+          PACKAGE: ${{ matrix.package }}
+
+      # -- Package ---------------------------------------------------------
+      - name: Zip
+        run: node scripts/package.mjs package "${{ matrix.package }}" --platform "${{ matrix.platform }}" --out zips
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zip-${{ matrix.package }}-${{ matrix.platform }}
+          path: zips/*.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: zip-*
+          path: zips
+          merge-multiple: true
+      - name: Checksums
+        working-directory: zips
+        run: sha256sum *.zip > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            zips/*.zip
+            zips/SHA256SUMS.txt

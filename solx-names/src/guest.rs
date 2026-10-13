@@ -12,7 +12,7 @@
 
 wit_bindgen::generate!({
     world: "custom-action",
-    path: "wit",
+    path: "../solx-wasm/wit",
 });
 
 use exports::sol::actions::runner::{ActionResult, Guest};

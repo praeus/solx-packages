@@ -33,3 +33,5 @@ bin
 dist
 dist-headless
 node_modules
+zips
+dist-zips

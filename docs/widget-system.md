@@ -176,6 +176,26 @@ promoted here once `solx-xprompt` needed the same thing. A widget with only
 one or two one-off calls has no reason to reach for it — call
 `client.actions.exec` directly.
 
+### `chat`: the detached model call, promoted for the same reason
+
+`src/wrap/chat.ts` is the second thing promoted out of `solx-agent`'s harness,
+and by the identical rule. `solx-agent`'s tool loop already made one model call
+through a detached `action-start`/`action-poll`/`action-stop` (so a Stop can
+land mid-call, where a blocking `exec` could only be waited on) with a blocking
+fallback for a host that cannot hold a child. `solx-inquiry`'s pipeline needed
+exactly that loop — the same cancellation semantics, the same refusal
+detection, the same terminal-status handling — for a *different payload*: its
+planner sends a `format` JSON Schema and no tools, its writer sends neither,
+where the agent sends a tool catalogue every time.
+
+So the loop moved here and the payload became the caller's business:
+`chat(host, {model, messages, format?, tools?, timeout_secs?}, isAbandoned?)`.
+Each consumer keeps a thin adapter over it — `solx-agent`'s `harness/chat.ts`
+binds a session's fields and narrows `tool_calls` to its own `ToolCall[]`;
+`solx-inquiry`'s `harness/chat.ts` is a plain re-export — which is the same
+arrangement `host.ts` has: the shared module knows the *mechanism*, the caller
+knows the *shape*.
+
 ### A merged console across several actions, without a backend change
 
 A widget that drives more than one action per turn (an orchestrator, a

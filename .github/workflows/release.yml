@@ -12,16 +12,16 @@ name: Package
 # scripts/package.mjs. Packages are discovered from their solx-package.json,
 # so a new package is built and released without editing this file.
 #
-# Pushing a `v*` tag also publishes the zips as a draft GitHub release.
+# Runs on every PR and push to main, so a broken build or package shows up
+# before release; the zips are kept as workflow artifacts. Pushing a `v*` tag
+# also publishes them as a draft GitHub release.
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
   pull_request:
-    paths:
-      - ".github/workflows/release.yml"
-      - "scripts/package.mjs"
+  push:
+    branches: [main]
+    tags: ["v*"]
 
 concurrency:
   group: package-${{ github.ref }}
@@ -36,8 +36,8 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - id: plan
@@ -59,8 +59,8 @@ jobs:
       # scripts/package.mjs and build-wasm.sh both find the output.
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -74,7 +74,7 @@ jobs:
         if: matrix.kind == 'rust' || matrix.kind == 'wasm'
         with:
           targets: ${{ matrix.kind == 'wasm' && 'wasm32-wasip2' || '' }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         if: matrix.kind == 'rust' || matrix.kind == 'wasm'
         with:
           path: |
@@ -121,10 +121,13 @@ jobs:
       # -- Package ---------------------------------------------------------
       - name: Zip
         run: node scripts/package.mjs package "${{ matrix.package }}" --platform "${{ matrix.platform }}" --out zips
-      - uses: actions/upload-artifact@v4
+      # archive: false uploads the zip itself. Otherwise the artifact is a zip
+      # of the zip, which is what you get downloading it from the Actions UI.
+      # The artifact is named after the file, so `name` doesn't apply.
+      - uses: actions/upload-artifact@v7
         with:
-          name: zip-${{ matrix.package }}-${{ matrix.platform }}
           path: zips/*.zip
+          archive: false
           if-no-files-found: error
 
   release:
@@ -134,15 +137,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
-          pattern: zip-*
+          pattern: "*.zip"
           path: zips
           merge-multiple: true
       - name: Checksums
         working-directory: zips
         run: sha256sum *.zip > SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           draft: true
           generate_release_notes: true

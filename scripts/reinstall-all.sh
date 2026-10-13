@@ -65,6 +65,7 @@ PACKAGES=(
   solx-ollama
   solx-omniparse
   solx-agent
+  solx-inquiry
 )
 
 fail_count=0

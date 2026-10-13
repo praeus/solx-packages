@@ -80,6 +80,7 @@ commands and outbound hosts that package is asking for.
 | `solx-livejournal` | WASM | Extracts a LiveJournal into `BlogPostWithComments` documents with the full comment tree, resumably. |
 | `solx-quickjs`     | Command | Build tool: compiles a JavaScript action into a WASM component via `componentize-qjs`. |
 | `solx-agent`       | Script | A supervised agent thread: the action registry as an LLM tool catalogue, driven one iteration at a time behind a default-deny gate with human approval for destructive calls. The harness runs inside the widget bundle; sessions, memories and skills are documents under `/agent`. |
+| `solx-inquiry`     | Script | Ask a question and get an answer grounded in solx documents. A companion to `solx-agent`: the model is handed five fixed read-only verbs (`search`/`list`/`get`/`types`/`actions`) instead of a tool catalogue, so it never discovers or is refused a tool. Plan, gather, answer -- two model calls, no approval. Inquiries are documents under `/inquiry`. |
 
 `solx-package-lib/` is not a package — it's a shared Rust crate (`solx-package-log`
 in code, since every consumer still calls it via `solx_package_log::...`)
@@ -96,8 +97,9 @@ refresh it with `scripts/sync-solx-wasm.sh <path-to-solx>`.
 
 `solx-widgets/` is likewise not an installable package — it's a shared TS
 toolkit (build a React component into a single-file widget bundle; mount one
-client-side) that widget-content packages like `solx-agent` and `solx-web`
-both consume as source. See [`solx-widgets/README.md`](solx-widgets/README.md).
+client-side) that widget-content packages like `solx-agent`, `solx-inquiry`
+and `solx-web` both consume as source. See
+[`solx-widgets/README.md`](solx-widgets/README.md).
 
 ## Building
 

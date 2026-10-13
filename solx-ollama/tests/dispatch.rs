@@ -987,21 +987,3 @@ fn endpoint_table_is_well_formed() {
     }
     assert_eq!(seen.len(), 3, "endpoint count changed - update install.solx");
 }
-
-// ── vendored wit ─────────────────────────────────────────────────────────────
-
-#[test]
-fn vendored_wit_matches_solx_core_when_present() {
-    // solx-packages is a separate repo, so the sibling checkout may not exist;
-    // this only guards a dev machine that has both.
-    let sibling = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../solx-core/solx-wasm/wit/custom-action.wit");
-    let Ok(upstream) = std::fs::read_to_string(&sibling) else {
-        return;
-    };
-    assert_eq!(
-        upstream.replace("\r\n", "\n"),
-        include_str!("../wit/custom-action.wit").replace("\r\n", "\n"),
-        "vendored wit/custom-action.wit has drifted from solx-core"
-    );
-}

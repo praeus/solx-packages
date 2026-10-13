@@ -244,9 +244,8 @@ src/endpoint.rs  the endpoint table: fn_name -> method, path, params, timeouts
 src/config.rs    base-url normalization and auth resolution
 src/request.rs   marshal to /builtin/web/http-request or /builtin/web/stream/*, interpret the response
 src/guest.rs     wit-bindgen shim (wasm32 only)
-wit/             vendored copy of solx-core/solx-wasm/wit/custom-action.wit
 ```
 
-The WIT is vendored so the package builds without a sibling `solx-core`
-checkout. A test asserts it has not drifted, but only when that checkout is
-actually present.
+The WIT is the repo's shared `../solx-wasm/wit/custom-action.wit` (a vendored
+copy of solx's `core/solx-wasm`; refresh it with `scripts/sync-solx-wasm.sh`),
+so the package keeps no copy of its own.

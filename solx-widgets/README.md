@@ -60,6 +60,17 @@ every time.
   agent loop, a multi-step workflow); for a widget that just needs one or
   two calls, `client.actions.exec` directly is simpler. Promoted here from
   `solx-agent`'s harness once `solx-xprompt` needed the same thing.
+- **`src/wrap/chat.ts`** — `chat(host, request, isAbandoned?)` runs one model
+  call through `solx-ollama`, detached (`action-start` + `action-poll` +
+  `action-stop`) when the host can hold a child and falling back to a plain
+  blocking call when it cannot. The detached shape is what makes a Stop
+  possible mid-call; the `ChatRequest` is generic (model, messages, optional
+  `format` schema, optional `tools`) because callers want different payloads —
+  `solx-agent` sends a tool catalogue on every call, `solx-inquiry` sends a
+  `format` schema for its planner and neither for its writer. Promoted here
+  from `solx-agent`'s harness once `solx-inquiry` needed the same loop; each
+  consumer keeps a thin wrapper (or a plain re-export) that knows its own
+  payload shape.
 
 ## How a widget package uses this
 

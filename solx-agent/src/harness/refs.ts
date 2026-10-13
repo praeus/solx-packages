@@ -5,10 +5,42 @@
  * a serde struct is camelCase (`ActionSearchQuery`, `SearchQuery`,
  * `DocumentInput`); handlers that read raw keys use snake_case (`rel_path`,
  * `doc_path`). Schemas are open, so a wrong key is *silently dropped* rather
- * than rejected -- which for `excludeHidden` would mean an unfiltered
+ * than rejected -- which for `excludeMode` would mean an unfiltered
  * catalogue with no error at all. Every key used here was checked against the
  * handler that reads it.
  */
+
+/**
+ * The exclusion scope for everything read on the model's behalf. solx keeps
+ * two independent lists in `solx-config.json` `exclusions`: `user` (what the
+ * web UI shows) and `tooling` (what a model sees). The entity built-ins apply
+ * neither unless asked, so every catalogue search, dispatch-time lookup and
+ * skill/context read here passes this. Session bookkeeping does not: the
+ * harness must find its own documents even when the operator has hidden
+ * them from the model.
+ */
+export const TOOLING = "tooling" as const;
+
+/**
+ * `args` for a call the *model* issued, with the tooling scope forced on
+ * when it targets a built-in. The model chooses its own arguments, so without
+ * this a tooling-excluded document would be one `entity-list-documents` away.
+ * Every spelling of the flag is replaced, not just added to: solx aliases
+ * camelCase and snake_case, and a model-supplied `exclude_mode: "none"`
+ * would otherwise survive beside ours.
+ */
+export function asTooling(ref: string, args: Record<string, unknown>): Record<string, unknown> {
+  if (!ref.startsWith("/builtin/")) return args;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args || {})) {
+    if (k === "excludeMode" || k === "exclude_mode" || k === "excludeHidden" || k === "exclude_hidden") {
+      continue;
+    }
+    out[k] = v;
+  }
+  out.excludeMode = TOOLING;
+  return out;
+}
 
 export const CHAT = "/packages/solx-ollama/ollama-chat";
 export const LIST_MODELS = "/packages/solx-ollama/ollama-list-models";

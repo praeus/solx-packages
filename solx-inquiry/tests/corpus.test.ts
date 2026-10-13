@@ -55,11 +55,9 @@ describe("buildCorpus", () => {
     expect(corpus.text).toContain("Action paths:");
   });
 
-  test("sends no excludeHidden to a plain ListOptions endpoint", async () => {
-    // `excludeHidden` exists only on `ActionSearchQuery`. On a `ListOptions`
-    // schema it is not a rejection -- it is *silently dropped*, which is worse:
-    // the caller believes a filter happened. `entity-list-document-paths` and
-    // `entity-list-types` take plain `ListOptions`, so neither may carry it.
+  test("asks every list endpoint for the tooling scope, never the old flag", async () => {
+    // `excludeHidden` exists only on `ActionSearchQuery`; on a `ListOptions`
+    // schema it would be *silently dropped*. `excludeMode` is real on both.
     const base = fake();
     withInquiryActions(base.fake)
       .action("/builtin/document/entity-list-document-paths", { description: "paths" })
@@ -71,16 +69,17 @@ describe("buildCorpus", () => {
     for (const ref of ["/builtin/document/entity-list-document-paths", "/builtin/type/entity-list-types"]) {
       for (const call of base.fake.refsCalled(ref)) {
         expect("excludeHidden" in call.params).toBe(false);
+        expect(call.params.excludeMode).toBe("tooling");
       }
     }
   });
 
-  test("does send excludeHidden to search-actions, where the field is real", async () => {
+  test("asks search-actions for the tooling scope too", async () => {
     const base = fake();
     withInquiryActions(base.fake);
     await buildCorpus(base.host, true);
     const call = base.fake.refsCalled("/builtin/action/search-actions")[0];
-    expect(call.params.excludeHidden).toBe(true);
+    expect(call.params.excludeMode).toBe("tooling");
   });
 });
 

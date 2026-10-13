@@ -27,6 +27,7 @@ import {
   LIST_DOC_PATHS,
   SEARCH_ACTIONS,
   SEARCH_DOCS,
+  TOOLING,
 } from "./refs";
 import type { Host } from "./host";
 import type { Vocabulary } from "./execute";
@@ -45,14 +46,16 @@ interface PathRow {
  * handful. It fails soft -- a host without the action simply yields no paths,
  * and the planner searches unscoped.
  *
- * Takes a plain `ListOptions`, so there is deliberately no `excludeHidden`
- * here: that field exists only on `ActionSearchQuery`, and on a `ListOptions`
- * schema it would be *silently dropped* -- the exact failure mode this
- * package's refs.ts warns about. Nothing needs filtering anyway; documents
- * have no hidden flag.
+ * Asks for the tooling scope like every other read here, so a path the
+ * operator excluded from tooling never reaches the planner. (`excludeMode`
+ * is a real `ListOptions` field; the old `excludeHidden` was not, and would
+ * have been silently dropped.)
  */
 export async function resolveCorpusPaths(host: Host, limit = CORPUS_PATH_LIMIT): Promise<PathRow[]> {
-  const r = await host.try<{ items?: PathRow[] }>(LIST_DOC_PATHS, compact({ limit }));
+  const r = await host.try<{ items?: PathRow[] }>(
+    LIST_DOC_PATHS,
+    compact({ limit, excludeMode: TOOLING }),
+  );
   if (!r.ok || !r.value || !Array.isArray(r.value.items)) return [];
   return r.value.items
     .filter((p) => typeof p.path === "string" && p.path !== "")
@@ -89,7 +92,7 @@ export async function resolveCorpusTypes(
   for (const p of sample) {
     const r = await host.try<{ items?: { typeRef?: string; type_ref?: string }[] }>(
       SEARCH_DOCS,
-      compact({ pathPrefix: p.path, limit: 1 }),
+      compact({ pathPrefix: p.path, limit: 1, excludeMode: TOOLING }),
     );
     if (!r.ok || !r.value || !Array.isArray(r.value.items)) continue;
     for (const row of r.value.items) {
@@ -106,14 +109,14 @@ export async function resolveCorpusTypes(
 /**
  * Fetch action paths, only when the operator asked for them.
  *
- * This one *does* carry `excludeHidden`, because `search-actions` deserializes
- * an `ActionSearchQuery`, whose `exclude_hidden` field is real -- hidden
- * actions are dropped before the planner could reuse a path from one.
+ * In the tooling scope, so hidden actions (config rules and the row's own
+ * `solx:hidden` tag) are dropped before the planner could reuse a path from
+ * one.
  */
 export async function resolveCorpusActions(host: Host, limit = CORPUS_PATH_LIMIT): Promise<string[]> {
   const r = await host.try<{ items?: { path?: string }[] }>(
     SEARCH_ACTIONS,
-    compact({ limit, excludeHidden: true }),
+    compact({ limit, excludeMode: TOOLING }),
   );
   if (!r.ok || !r.value || !Array.isArray(r.value.items)) return [];
   const seen: Record<string, boolean> = {};

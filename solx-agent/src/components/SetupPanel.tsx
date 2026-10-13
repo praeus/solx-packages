@@ -5,9 +5,10 @@ import type { SetupPrefs } from "../session/store";
  * Per-session preferences.
  *
  * The grant is gone: the model reaches the whole catalogue, limited only by
- * the host's own exclusion policy (`tool_exclude` config rules union the
- * row's `solx:hidden` capability), which the harness applies via
- * `excludeHidden` on every catalogue search and dispatch. There is nothing
+ * the host's own exclusion policy (`exclusions.tooling` and `tool_exclude`
+ * config rules union the row's `solx:hidden` capability), which the harness
+ * applies via `excludeMode: "tooling"` on every catalogue search and
+ * dispatch. There is nothing
  * to fence here -- a tool that should be invisible is hidden in config, not
  * in this panel.
  *

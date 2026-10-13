@@ -18,6 +18,16 @@
  * crosses the wire -- `execute.ts` translates it.
  */
 
+/**
+ * The exclusion scope every verb and corpus read runs in. solx keeps two
+ * independent lists in `solx-config.json` `exclusions`: `user` (what the web
+ * UI shows) and `tooling` (what a model sees). The entity built-ins apply
+ * neither unless asked, so everything gathered for the model asks for this
+ * one -- documents, types and actions alike. The inquiry's own session
+ * bookkeeping does not.
+ */
+export const TOOLING = "tooling" as const;
+
 export const CHAT = "/packages/solx-ollama/ollama-chat";
 export const LIST_MODELS = "/packages/solx-ollama/ollama-list-models";
 

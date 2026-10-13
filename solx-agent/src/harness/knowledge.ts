@@ -25,6 +25,7 @@ import {
   SKILL_TYPE,
   SYS_CONTEXT_READ,
   DEFAULT_SKILLS_PATH,
+  TOOLING,
 } from "./refs";
 import { compact } from "./host";
 import type { Host } from "./host";
@@ -91,6 +92,7 @@ export async function recallMemories(
       pathPrefix: memoryPath(memory.scope),
       typeRef: MEMORY_TYPE,
       limit: memory.limit,
+      excludeMode: TOOLING,
     }),
   );
   if (!r.ok || !r.value || !Array.isArray(r.value.items)) return [];
@@ -178,7 +180,7 @@ export async function resolveContext(
       const parts = splitRef(spec.ref);
       const r = await host.try<{ path: string; name: string; title?: string; summary?: string }>(
         GET_DOC,
-        { path: parts.path, name: parts.name },
+        { path: parts.path, name: parts.name, excludeMode: TOOLING },
       );
       if (!r.ok || !r.value) throw new Error("context document not found: " + spec.ref);
       entries = [r.value];
@@ -192,6 +194,7 @@ export async function resolveContext(
           pathPrefix: spec.path,
           typeRef: spec.typeRef,
           limit: clamp(spec.limit || cap, 1, cap),
+          excludeMode: TOOLING,
         }),
       );
       if (!r.ok || !r.value || !Array.isArray(r.value.items)) continue;
@@ -229,6 +232,7 @@ export async function readContext(
   const r = await host.try<{ title?: string; contents?: unknown }>(GET_DOC, {
     path: parts.path,
     name: parts.name,
+    excludeMode: TOOLING,
   });
   if (!r.ok || !r.value) {
     return { outcome: "error", content: "could not read " + ref + ": " + (r.ok ? "" : r.error) };
@@ -311,7 +315,7 @@ export async function resolveSkills(
     }[];
   }>(
     SEARCH_DOCS,
-    compact({ pathPrefix: skills.path, typeRef: SKILL_TYPE, limit: skills.limit }),
+    compact({ pathPrefix: skills.path, typeRef: SKILL_TYPE, limit: skills.limit, excludeMode: TOOLING }),
   );
   if (!page.ok || !page.value || !Array.isArray(page.value.items)) return [];
 

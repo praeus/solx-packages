@@ -28,7 +28,7 @@ import { permitted, reservedDocWrite, splitRef, isExecutableType } from "./gate"
 import { chat, ChatCancelledError, type ChatMessage } from "./chat";
 import { callId, saveSession } from "./session";
 import { isSysTool, runSysTool } from "./sysTools";
-import { GET_ACTION, MAX_CONSECUTIVE_FAILURES, SYS_TOOL_SEARCH } from "./refs";
+import { asTooling, GET_ACTION, MAX_CONSECUTIVE_FAILURES, SYS_TOOL_SEARCH, TOOLING } from "./refs";
 import type { Host } from "./host";
 import type { Message, PendingCall, PendingView, Session, StepResult, ToolCall } from "./types";
 
@@ -59,7 +59,7 @@ export async function gateCall(
     capabilities?: string[];
     actionType?: string;
     action_type?: string;
-  }>(GET_ACTION, { path: parts.path, name: parts.name, excludeHidden: true });
+  }>(GET_ACTION, { path: parts.path, name: parts.name, excludeMode: TOOLING });
 
   if (!r.ok || !r.value) {
     return { allowed: false, destructive: true, reason: "action no longer available" };
@@ -167,7 +167,7 @@ export async function completeTurn(
       continue;
     }
 
-    const r = await host.try(p.ref as string, p.arguments);
+    const r = await host.try(p.ref as string, asTooling(p.ref as string, p.arguments));
     p.result = r.ok
       ? { outcome: "ok", content: JSON.stringify(r.value) }
       : { outcome: "error", content: "error: " + r.error };

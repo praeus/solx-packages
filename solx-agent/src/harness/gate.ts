@@ -3,10 +3,12 @@
  *
  * Layered, and split across two languages on purpose. **Exclusions are
  * enforced in Rust and never reach this file** -- `search-actions` and
- * `entity-get-action` are called with `excludeHidden: true`, so a hidden
- * action is already gone before anything here sees it. Hidden-ness resolves
- * in `solx-config` as config rules union the row's own `solx:hidden`
- * capability, the same `ToolPolicy` solx-mcp uses. Nothing here knows the
+ * `entity-get-action` are called with `excludeMode: "tooling"`, so a hidden
+ * action is already gone before anything here sees it, and every built-in
+ * the model calls has the same mode forced on by `asTooling`. Hidden-ness
+ * resolves in `solx-config` as the tooling exclusions (plus the legacy
+ * `tool_exclude` rules) union the row's own `solx:hidden` capability, the
+ * same policy solx-mcp uses. Nothing here knows the
  * rules, which means it cannot skip the check or get it subtly wrong in a
  * second implementation.
  *

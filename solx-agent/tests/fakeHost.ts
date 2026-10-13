@@ -19,7 +19,8 @@
  *   - `search-documents` returns whole documents (`Page<Document>`, contents
  *     included, no `score`). It returned shallow hits before commit `330197d`,
  *     so a stale binary will disagree; check the source, not a running server.
- *   - `search-actions` takes camelCase `pathPrefix`/`excludeHidden`
+ *   - `search-actions` takes camelCase `pathPrefix`/`excludeMode` (the
+ *     deprecated `excludeHidden: true` still means `excludeMode: "tooling"`)
  *   - `entity-get-action` reports a hidden action as not-found
  *   - a missing document reports `not found: ...`, which `sessionNameTaken`
  *     matches on
@@ -76,6 +77,12 @@ function matches(q: unknown, text: string): boolean {
     .split(/\s+/)
     .filter(Boolean)
     .every((t) => text.toLowerCase().includes(t));
+}
+
+
+/** Whether a call asked for the tooling exclusion scope, either spelling. */
+function tooling(p: Record<string, unknown>): boolean {
+  return p.excludeMode === "tooling" || p.excludeHidden === true;
 }
 
 export class FakeHost implements ExecClient {
@@ -184,7 +191,7 @@ export class FakeHost implements ExecClient {
         // this fake reproduces that by simply not seeing the wrong key.
         const items = [...this.actions_.values()]
           .filter((a) => underPrefix(a.path, p.pathPrefix as string))
-          .filter((a) => !(p.excludeHidden && a.capabilities.includes("solx:hidden")))
+          .filter((a) => !(tooling(p) && a.capabilities.includes("solx:hidden")))
           .filter((a) => matches(p.q, [a.path, a.name, a.caption, a.description].join(" ")))
           .slice(0, (p.limit as number) ?? 50);
         return ok({ items, total: items.length, limit: (p.limit as number) ?? 50, offset: 0 });
@@ -193,7 +200,7 @@ export class FakeHost implements ExecClient {
       case "/builtin/action/entity-get-action": {
         const a = this.actions_.get((p.path === "/" ? "" : p.path) + "/" + p.name);
         if (!a) return fail("action not found");
-        if (p.excludeHidden && a.capabilities.includes("solx:hidden")) {
+        if (tooling(p) && a.capabilities.includes("solx:hidden")) {
           return fail("action not found: " + p.path + "/" + p.name);
         }
         return ok(a);

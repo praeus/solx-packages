@@ -21,13 +21,9 @@
  * `sys__` tools. What is added is `entity-list-document-paths` and
  * `entity-list-types`, which the corpus index reads and the agent never did.
  *
- * One schema distinction this fake deliberately preserves, because it is a
- * trap: `excludeHidden` exists only on `ActionSearchQuery` (which
- * `search-actions` deserializes), not on `ListOptions` (which the list
- * endpoints take). Unknown keys are *dropped in silence*, so the fake ignores
- * them too rather than rejecting -- and a test asserts the corpus index does
- * not send one to a list endpoint, where it would be believed rather than
- * refused.
+ * Unknown keys are *dropped in silence* by solx, so the fake ignores them too
+ * rather than rejecting. `excludeMode` is a real field on every list, search
+ * and get built-in; tests assert the harness sends it.
  */
 
 import { hostFromClient, type ExecClient, type Host } from "../src/harness/host";

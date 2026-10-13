@@ -1,6 +1,7 @@
 /** The gate: default-deny, structural denies, exact-name rules, reserved paths. */
 
 import { describe, expect, test } from "vitest";
+import { asTooling } from "../src/harness/refs";
 import {
   globMatches,
   isAtOrUnder,
@@ -180,5 +181,21 @@ describe("path helpers", () => {
     for (const good of ["proj", "my-project", "release_2026", "a b"]) {
       expect(validSegment(good), good).toBe(true);
     }
+  });
+});
+
+describe("asTooling", () => {
+  test("forces the tooling scope onto a built-in, replacing any spelling the model sent", () => {
+    const args = asTooling("/builtin/document/entity-list-documents", {
+      pathPrefix: "/agent",
+      exclude_mode: "none",
+      excludeHidden: false,
+    });
+    expect(args).toEqual({ pathPrefix: "/agent", excludeMode: "tooling" });
+  });
+
+  test("leaves a package action's arguments alone", () => {
+    const args = { q: "x", excludeMode: "none" };
+    expect(asTooling("/packages/solx-web/search", args)).toBe(args);
   });
 });

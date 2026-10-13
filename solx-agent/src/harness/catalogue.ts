@@ -14,7 +14,7 @@
  */
 
 import { globMatches, isGlob, permitted, refOf, splitRef } from "./gate";
-import { GET_TYPE, SEARCH_ACTIONS, SEARCH_FETCH } from "./refs";
+import { GET_TYPE, SEARCH_ACTIONS, SEARCH_FETCH, TOOLING } from "./refs";
 import { compact } from "./host";
 import type { Host } from "./host";
 import type { AllowEntry, ToolDef } from "./types";
@@ -85,7 +85,11 @@ async function schemaFor(host: Host, action: ActionRow): Promise<Record<string, 
   const ref = action.paramTypeRef || action.param_type_ref;
   if (!ref) return { type: "object", properties: {} };
   const parts = splitRef(ref);
-  const r = await host.try<{ schema?: unknown }>(GET_TYPE, { path: parts.path, name: parts.name });
+  const r = await host.try<{ schema?: unknown }>(GET_TYPE, {
+    path: parts.path,
+    name: parts.name,
+    excludeMode: TOOLING,
+  });
   if (!r.ok || !r.value) return { type: "object", properties: {} };
   return normalizeSchema(r.value.schema);
 }
@@ -130,7 +134,7 @@ async function searchRows(
       // `q` is omitted rather than nulled when there is no query -- see
       // `compact`. A null there fails schema validation and the whole search
       // errors, which is how a no-query fallback silently resolves to nothing.
-      compact({ q, pathPrefix, limit: SEARCH_FETCH, excludeHidden: true }),
+      compact({ q, pathPrefix, limit: SEARCH_FETCH, excludeMode: TOOLING }),
     );
     return page.ok && page.value && Array.isArray(page.value.items) ? page.value.items : [];
   };
@@ -170,9 +174,9 @@ async function searchRows(
  * Resolve the tools a turn may use: one search per grant prefix, filtered by
  * the gate, capped, and turned into Ollama tool definitions.
  *
- * `excludeHidden: true` is what makes the exclusion list apply -- it is
- * resolved in Rust from config rules unioned with the row's own `solx:hidden`
- * capability, so nothing here has to know the rules. `known` lets a widening
+ * `excludeMode: "tooling"` is what makes the exclusion list apply -- it is
+ * resolved in Rust from the tooling exclusions (and the legacy `tool_exclude`)
+ * unioned with the row's own `solx:hidden` capability, so nothing here has to know the rules. `known` lets a widening
  * search skip what the model already holds.
  */
 export async function resolveCatalogue(
@@ -265,7 +269,7 @@ export async function searchActionPaths(
 ): Promise<PathSuggestion[]> {
   const page = await host.try<{ items?: ActionRow[] }>(
     SEARCH_ACTIONS,
-    compact({ q: q || null, limit: SEARCH_FETCH, excludeHidden: true }),
+    compact({ q: q || null, limit: SEARCH_FETCH, excludeMode: TOOLING }),
   );
   if (!page.ok || !page.value || !Array.isArray(page.value.items)) return [];
 

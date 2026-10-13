@@ -180,10 +180,14 @@ instead: a skill that has not loaded yet cannot teach it.
 Layered, and split across two languages.
 
 **Exclusions are enforced in Rust and never enter this package.** Every
-catalogue search and every dispatch-time lookup passes `excludeHidden`, so a
-hidden action is gone before anything here sees it. Hidden-ness resolves in
-`solx-config` as config rules ∪ the row's own `solx:hidden` capability — the
-same `ToolPolicy` solx-mcp uses. Nothing here knows the rules, which means it
+catalogue search, every dispatch-time lookup, and every skill or context read
+passes `excludeMode: "tooling"`, and every built-in the model itself calls has
+that mode forced on (`asTooling`), so anything excluded from tooling is gone
+before anything here sees it. That covers documents and types as well as
+actions: `solx-config.json`'s `exclusions.tooling` lists, the legacy
+`tool_exclude` rules, and the row's own `solx:hidden` capability — the same
+policy solx-mcp uses. The `exclusions.user` lists are separate: they hide
+things from the web UI (sessions, skills) without hiding them from the agent. Nothing here knows the rules, which means it
 cannot skip the check or get it subtly wrong in a second implementation.
 
 What is left is what is specific to *this* caller:

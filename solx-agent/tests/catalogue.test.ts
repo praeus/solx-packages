@@ -15,18 +15,18 @@ function seeded() {
 describe("resolveCatalogue", () => {
   test("sends the keys solx actually reads", async () => {
     // Regression: ActionSearchQuery is rename_all = "camelCase", and schemas
-    // are open, so path_prefix/exclude_hidden are dropped in silence -- an
+    // are open, so path_prefix/exclude_mode are dropped in silence -- an
     // unfiltered catalogue with no error anywhere.
     const { f, host } = seeded();
     await resolveCatalogue(host, "documents", DOCS_GRANT, 10, null);
     const [search] = f.refsCalled("/builtin/action/search-actions");
     expect(Object.keys(search.params).sort()).toEqual([
-      "excludeHidden",
+      "excludeMode",
       "limit",
       "pathPrefix",
       "q",
     ]);
-    expect(search.params.excludeHidden).toBe(true);
+    expect(search.params.excludeMode).toBe("tooling");
     expect(search.params.pathPrefix).toBe("/builtin/document");
   });
 

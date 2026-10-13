@@ -24,6 +24,7 @@ import {
   MAX_DOCS_HARD,
   MAX_STEP_LIMIT,
   refOf,
+  TOOLING,
   TYPE_FETCH,
   VERB_ACTION,
 } from "./refs";
@@ -62,18 +63,18 @@ function paramsFor(step: PlanStep): Record<string, unknown> {
   const limit = clamp(step.limit ?? DEFAULT_STEP_LIMIT, 1, MAX_STEP_LIMIT);
 
   if (step.verb === "get") {
-    return compact({ path: step.path || "/", name: step.name || null });
+    return compact({ path: step.path || "/", name: step.name || null, excludeMode: TOOLING });
   }
 
   if (step.verb === "types") {
     // There is no `search-types` builtin, so a keyword search over types is a
     // capped list filtered here. The list is asked for generously because the
     // filtering happens after the fetch.
-    return compact({ pathPrefix: "/", limit: TYPE_FETCH });
+    return compact({ pathPrefix: "/", limit: TYPE_FETCH, excludeMode: TOOLING });
   }
 
   if (step.verb === "actions") {
-    return compact({ q: step.q || null, limit });
+    return compact({ q: step.q || null, limit, excludeMode: TOOLING });
   }
 
   // search and list are the same builtin; list simply passes no `q`.
@@ -82,6 +83,7 @@ function paramsFor(step: PlanStep): Record<string, unknown> {
     pathPrefix: step.path_prefix || null,
     typeRef: step.type_ref || null,
     limit,
+    excludeMode: TOOLING,
   });
 }
 

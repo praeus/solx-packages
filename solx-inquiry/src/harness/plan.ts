@@ -64,8 +64,9 @@ export const PLAN_SCHEMA: Record<string, unknown> = {
           type_ref: {
             type: "string",
             description:
-              "Restrict to one document type, for search/list. Copy one from the list of known " +
-              "types exactly. Omit unless the question names a kind of thing.",
+              "Restrict to one document type, for search/list. Copy a full type ref from the " +
+              "list of document types exactly. A type, never a path: to restrict to a path use " +
+              "path_prefix. Omit unless the question names a kind of thing.",
           },
           path: {
             type: "string",
@@ -200,6 +201,40 @@ export function cleanPlan(raw: unknown, cap: number, hardCap = MAX_PLAN_STEPS_HA
   // guessing. Only a stepless `direct` short-circuits the pipeline.
   const keptDirect = steps.length === 0 ? direct ?? null : null;
   return { plan: { steps, direct: keptDirect }, notes, steps };
+}
+
+/**
+ * Turn the planner's raw reply text into the object `cleanPlan` takes.
+ *
+ * `format` is a request, not a guarantee: a model may wrap the JSON in a code
+ * fence, prefix a `<think>` block, or ignore the schema and write prose. The
+ * first two still carry a plan and are recovered. Prose is **not** a plan and
+ * must not become a `direct` answer -- that would hand the user ungrounded
+ * text with no lookup behind it, the one thing this package exists to avoid.
+ * It becomes an empty plan instead, which the pipeline's retry treats as a
+ * planner failure and asks again.
+ *
+ * Shared by the pipeline, the widget's plan preview and the headless
+ * `plan_only` mode, so all three read a reply the same way.
+ */
+export function parsePlanReply(text: string): unknown {
+  const body = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  if (!body) return { steps: [] };
+  try {
+    return JSON.parse(body);
+  } catch {
+    /* fall through to recovery */
+  }
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(body);
+  const candidate = fenced ? fenced[1] : body.slice(body.indexOf("{"), body.lastIndexOf("}") + 1);
+  if (candidate) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      /* not JSON either */
+    }
+  }
+  return { steps: [] };
 }
 
 /** True when a plan does nothing and says nothing -- the replan trigger. */

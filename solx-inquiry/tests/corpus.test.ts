@@ -32,16 +32,19 @@ describe("resolveCorpusPaths", () => {
 });
 
 describe("buildCorpus", () => {
-  test("includes types but not action paths by default", async () => {
+  test("includes the types documents use, as full refs, but not action paths by default", async () => {
     const base = fake();
     withInquiryActions(base.fake)
       .action("/builtin/document/entity-list-document-paths", { description: "paths" })
-      .doc("/blog/a", { title: "A" });
-    base.fake.type("/types/BlogPost", { type: "object" }, "a post");
+      .doc("/blog/a", { title: "A", typeRef: "/types/BlogPost" });
+    // Registered but used by no document: the planner must not be shown it,
+    // because a type filter no document matches finds nothing.
+    base.fake.type("/builtin/types/SearchDocumentsParams", { type: "object" }, "params");
 
     const corpus = await buildCorpus(base.host, false);
     expect(corpus.text).toContain("/blog");
-    expect(corpus.text).toContain("BlogPost");
+    expect(corpus.types).toEqual(["/types/BlogPost"]);
+    expect(corpus.text).not.toContain("SearchDocumentsParams");
     expect(corpus.text).not.toContain("Action paths:");
   });
 
@@ -85,6 +88,16 @@ describe("renderCorpus", () => {
   test("says so plainly when the store lists nothing", () => {
     const text = renderCorpus({ paths: [], types: [], actions: [] });
     expect(text).toContain("none listed");
+  });
+
+  test("does not offer the package's own transcripts as a place to look", () => {
+    const text = renderCorpus({
+      paths: [{ path: "/inquiry/sessions", count: 9 }, { path: "/blog", count: 2 }],
+      types: [],
+      actions: [],
+    });
+    expect(text).toContain("/blog");
+    expect(text).not.toContain("/inquiry");
   });
 
   test("is capped, so a huge store cannot flood the planner", () => {

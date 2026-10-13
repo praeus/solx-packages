@@ -3,15 +3,14 @@ import { useSolxWidgetClient } from "../../solx-widgets/src/wrap/SolxWidgetConte
 import {
   applyOptions,
   buildCorpus,
-  chat,
+  vocabularyOf,
   cleanPlan,
   createInquiry,
   executePlan,
   hostFromClient,
   isQuiescent,
   loadInquiry,
-  messageText,
-  PLAN_SCHEMA,
+  requestPlan,
   runInquiry,
   SEARCH_DOCS,
   SESSION_PATH,
@@ -116,11 +115,12 @@ export function InquiryWidget({ fields }: { fields: InquiryWidgetFields | undefi
     void host.try<{ models?: OllamaModel[] }>(LIST_MODELS, {}).then((r) => {
       if (cancelled) return;
       // `/api/tags` does not report capabilities, so only exclude a model when
-      // capabilities are present and lack "tools". Inquiry's planner needs no
-      // tools, but the answer call is still a chat call, and a model that
-      // cannot chat is no use here.
+      // capabilities are present and lack "completion". Inquiry never sends
+      // tools -- the planner uses `format` -- so unlike the agent it must not
+      // require "tools"; it only needs a model that can chat (not an
+      // embedding-only one).
       const all = r.ok && r.value?.models ? r.value.models : [];
-      const list = all.filter((m) => !m.capabilities || m.capabilities.includes("tools"));
+      const list = all.filter((m) => !m.capabilities || m.capabilities.includes("completion"));
       setModelsState(!r.ok ? "unreachable" : list.length === 0 ? "none" : "ok");
       setModels(list);
       setModel((current) =>
@@ -247,28 +247,19 @@ export function InquiryWidget({ fields }: { fields: InquiryWidgetFields | undefi
         setInquiryId(current.id);
 
         const corpus = await buildCorpus(host, setup.includeActions);
-        const reply = await chat(
+        const raw = await requestPlan(
           host,
-          {
-            model: current.model,
-            format: PLAN_SCHEMA,
-            timeout_secs: setup.chatTimeoutSecs,
-            messages: [
-              { role: "system", content: PLANNER_BRIEF },
-              { role: "user", content: plannerMessage(question, corpus.text, "") },
-            ],
-          },
+          current.model,
+          setup.chatTimeoutSecs,
+          [
+            { role: "system", content: PLANNER_BRIEF },
+            { role: "user", content: plannerMessage(question, corpus.text, "") },
+          ],
           () => genRef.current !== myGen,
         );
         if (genRef.current !== myGen) return;
-        let raw: unknown = { steps: [] };
-        try {
-          raw = JSON.parse(messageText(reply) || "{}");
-        } catch {
-          raw = { steps: [] };
-        }
         const cleaned = cleanPlan(raw, setup.maxPlanSteps);
-        const executed = await executePlan(host, cleaned.steps, setup.maxDocs);
+        const executed = await executePlan(host, cleaned.steps, setup.maxDocs, vocabularyOf(corpus));
         if (genRef.current !== myGen) return;
         setPreview({ plan: cleaned.steps, steps: executed.steps, documents: executed.documents });
       });
@@ -276,9 +267,24 @@ export function InquiryWidget({ fields }: { fields: InquiryWidgetFields | undefi
     [host, inquiryId, model, run, setup],
   );
 
+  // Stop supersedes the run, so its own final "stopped" publish is dropped by
+  // the generation guard in `makeHandlers`. Without settling the view here the
+  // last published status stays live (`planning`/`answering`), `running` stays
+  // true, and the Composer shows only a Stop that has nothing left to stop. The
+  // pipeline still writes the same settled state to the document when its
+  // in-flight call notices.
   const stop = useCallback(() => {
     genRef.current++;
     setBusy(false);
+    setPreview(null);
+    setResult((r) => (r && !isQuiescent(r.status) ? { ...r, status: "error", error: "stopped" } : r));
+    setSession((s) => {
+      if (!s || isQuiescent(s.status)) return s;
+      const turns = s.turns.map((t, i) =>
+        i === s.turns.length - 1 && !isQuiescent(t.status) ? { ...t, status: "error" as const } : t,
+      );
+      return { ...s, status: "error", turns };
+    });
   }, []);
 
   const open = useCallback((id: string) => {

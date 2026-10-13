@@ -18,13 +18,14 @@
 import {
   applyOptions,
   buildCorpus,
-  chat,
+  vocabularyOf,
   cleanPlan,
   createInquiry,
   executePlan,
   hostFromClient,
   loadInquiry,
-  PLAN_SCHEMA,
+  normalizeOptions,
+  requestPlan,
   runInquiry,
 } from "../harness/index";
 import { PLANNER_BRIEF, plannerMessage } from "../harness/prompt";
@@ -100,10 +101,42 @@ function withHints(question: string, params: InquiryParams): string {
   return question + "\n\n(" + hints.join("; ") + ".)";
 }
 
+/**
+ * Plan and gather without answering, and without writing anything: report what
+ * the model asked for and what came back. Implemented here rather than in the
+ * pipeline so the widget never sees this mode -- it exists to let a person tune
+ * prompts from the CLI, not to be a product feature. Persisting a session for
+ * it would only leave an empty inquiry behind on every tuning run.
+ */
+async function planOnly(host: Host, params: InquiryParams, overrides: Partial<InquiryOptions>) {
+  if (!params.question) throw new Error("question is required for plan_only");
+  const base = params.session_id ? (await loadInquiry(host, params.session_id)).options : null;
+  const options = normalizeOptions({ ...(base || {}), ...overrides });
+  const question = withHints(params.question, params);
+
+  const corpus = await buildCorpus(host, options.include_actions);
+  const raw = await requestPlan(host, params.model!, options.chat_timeout_secs, [
+    { role: "system", content: PLANNER_BRIEF },
+    { role: "user", content: plannerMessage(question, corpus.text, "") },
+  ]);
+  const cleaned = cleanPlan(raw, options.max_plan_steps);
+  const executed = await executePlan(host, cleaned.steps, options.max_docs, vocabularyOf(corpus));
+  return {
+    session_id: params.session_id ?? null,
+    plan: cleaned.steps,
+    direct: cleaned.plan.direct ?? null,
+    notes: cleaned.notes,
+    steps: executed.steps,
+    documents: executed.documents.map((d) => d.ref),
+  };
+}
+
 async function run(params: InquiryParams) {
   if (!params.model) throw new Error("model is required");
   const host = buildHost();
   const options = optionsFrom(params);
+
+  if (params.plan_only) return planOnly(host, params, options);
 
   let session;
   if (params.session_id) {
@@ -125,39 +158,6 @@ async function run(params: InquiryParams) {
   }
 
   const question = withHints(params.question || "", params);
-
-  if (params.plan_only) {
-    // Gather without answering: run the plan and the lookups, then report what
-    // the model asked for and what came back. Implemented here rather than in
-    // the pipeline so the widget never sees this mode -- it exists to let a
-    // person tune prompts from the CLI, not to be a product feature.
-    const corpus = await buildCorpus(host, session.options.include_actions);
-    const reply = await chat(host, {
-      model: session.model,
-      format: PLAN_SCHEMA,
-      timeout_secs: session.options.chat_timeout_secs,
-      messages: [
-        { role: "system", content: PLANNER_BRIEF },
-        { role: "user", content: plannerMessage(question, corpus.text, "") },
-      ],
-    });
-    let raw: unknown = { steps: [] };
-    try {
-      raw = JSON.parse(String(reply.content || "{}"));
-    } catch {
-      raw = { steps: [] };
-    }
-    const cleaned = cleanPlan(raw, session.options.max_plan_steps);
-    const executed = await executePlan(host, cleaned.steps, session.options.max_docs);
-    return {
-      session_id: session.id,
-      plan: cleaned.steps,
-      notes: cleaned.notes,
-      steps: executed.steps,
-      documents: executed.documents.map((d) => d.ref),
-    };
-  }
-
   return runInquiry(host, session, question, noopProgress);
 }
 

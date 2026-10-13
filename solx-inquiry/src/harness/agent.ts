@@ -41,7 +41,10 @@ export async function createInquiry(
     id,
     model: opts.model,
     title: opts.title || titleFrom(question),
-    status: "planning",
+    // Not `planning`: nothing is running yet, and a stored live status is only
+    // true while `runInquiry` is executing. A session created and never run
+    // (a plan preview, headless `plan_only`) must not read as in flight.
+    status: "idle",
     options: normalizeOptions({ ...DEFAULT_OPTIONS, ...(opts.options || {}) }),
     turns: [],
     answer: null,

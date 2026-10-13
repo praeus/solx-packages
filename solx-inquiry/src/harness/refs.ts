@@ -97,7 +97,9 @@ export const DOC_EXCERPT_CAP = 3000;
  * so it is bounded by prompt budget, not by how large the store is.
  */
 export const CORPUS_PATH_LIMIT = 40;
-export const CORPUS_TYPE_LIMIT = 40;
+export const CORPUS_TYPE_LIMIT = 20;
+/** How many of the most populated paths are sampled for their document type. */
+export const CORPUS_TYPE_SAMPLE_PATHS = 8;
 /** Characters of the rendered corpus index, so a huge store cannot flood the planner. */
 export const CORPUS_INDEX_CAP = 2400;
 

@@ -8,9 +8,10 @@
  * the model may reuse. Nothing in it is callable, which is why there is no
  * gate: the worst a model can do with a path it read here is search under it.
  *
- * Two capped list calls, no full-text query. `entity-list-document-paths`
- * returns distinct paths with counts, which is exactly the shape wanted and
- * avoids enumerating every document; `entity-list-types` gives the types. The
+ * A capped path list and a small per-path type sample, no full-text query.
+ * `entity-list-document-paths` returns distinct paths with counts, which is
+ * exactly the shape wanted and avoids enumerating every document; one row from
+ * each of the top few paths names the types documents actually carry. The
  * whole thing is a few hundred characters injected into the planner prompt,
  * so it is capped by prompt budget rather than by store size.
  */
@@ -21,11 +22,14 @@ import {
   CORPUS_INDEX_CAP,
   CORPUS_PATH_LIMIT,
   CORPUS_TYPE_LIMIT,
+  CORPUS_TYPE_SAMPLE_PATHS,
+  INQUIRY_ROOT,
   LIST_DOC_PATHS,
-  LIST_TYPES,
   SEARCH_ACTIONS,
+  SEARCH_DOCS,
 } from "./refs";
 import type { Host } from "./host";
+import type { Vocabulary } from "./execute";
 
 interface PathRow {
   path?: string;
@@ -56,17 +60,47 @@ export async function resolveCorpusPaths(host: Host, limit = CORPUS_PATH_LIMIT):
     .slice(0, limit);
 }
 
-/** Fetch type names, so the planner can name a kind of document exactly. Also a plain `ListOptions`. */
-export async function resolveCorpusTypes(host: Host, limit = CORPUS_TYPE_LIMIT): Promise<string[]> {
-  const r = await host.try<{ items?: { path?: string; name?: string; title?: string }[] }>(
-    LIST_TYPES,
-    compact({ limit }),
-  );
-  if (!r.ok || !r.value || !Array.isArray(r.value.items)) return [];
-  return r.value.items
-    .map((t) => t.name || t.title || "")
-    .filter((n) => n !== "")
-    .slice(0, limit);
+/**
+ * The types documents actually carry, as full refs, so the planner can copy one
+ * into `type_ref` and have it match.
+ *
+ * Not `entity-list-types`, which is what this used to read and what running the
+ * package showed to be actively harmful. The type registry is dominated by
+ * builtin action-*parameter* types (`SearchDocumentsParams`, ...) that no
+ * document ever has, and it came back as bare names -- so a model told to copy
+ * a type "exactly as written" sent `typeRef: "SearchDocumentsParams"` and the
+ * filter matched nothing. Vocabulary that cannot be used is worse than none.
+ *
+ * There is no type facet on documents, and a document row carries its whole
+ * body, so this samples one row at each of the most populated paths rather than
+ * listing documents broadly. The package's own `/inquiry` tree is skipped: its
+ * rows are the heaviest in the store and its type is known.
+ */
+export async function resolveCorpusTypes(
+  host: Host,
+  paths: PathRow[],
+  limit = CORPUS_TYPE_LIMIT,
+): Promise<string[]> {
+  const seen: Record<string, boolean> = {};
+  const out: string[] = [];
+  const sample = paths
+    .filter((p) => p.path && p.path !== INQUIRY_ROOT && !p.path!.startsWith(INQUIRY_ROOT + "/"))
+    .slice(0, CORPUS_TYPE_SAMPLE_PATHS);
+  for (const p of sample) {
+    const r = await host.try<{ items?: { typeRef?: string; type_ref?: string }[] }>(
+      SEARCH_DOCS,
+      compact({ pathPrefix: p.path, limit: 1 }),
+    );
+    if (!r.ok || !r.value || !Array.isArray(r.value.items)) continue;
+    for (const row of r.value.items) {
+      const ref = row.typeRef || row.type_ref || "";
+      if (ref === "" || seen[ref]) continue;
+      seen[ref] = true;
+      out.push(ref);
+    }
+    if (out.length >= limit) break;
+  }
+  return out.slice(0, limit);
 }
 
 /**
@@ -109,25 +143,37 @@ export interface Corpus {
  */
 export async function buildCorpus(host: Host, includeActions: boolean): Promise<Corpus> {
   const paths = await resolveCorpusPaths(host);
-  const types = await resolveCorpusTypes(host);
+  const types = await resolveCorpusTypes(host, paths);
   const actions = includeActions ? await resolveCorpusActions(host) : [];
   return { paths, types, actions, text: renderCorpus({ paths, types, actions }) };
+}
+
+/** The scopes the index showed, for `executePlan`'s repair and widening. */
+export function vocabularyOf(corpus: Corpus): Vocabulary {
+  return { paths: corpus.paths.map((p) => p.path || "").filter((p) => p !== ""), types: corpus.types };
 }
 
 /** Render the index as the compact block the planner reads. Capped, then truncated. */
 export function renderCorpus(corpus: { paths: PathRow[]; types: string[]; actions: string[] }): string {
   const lines: string[] = [];
 
-  if (corpus.paths.length > 0) {
+  // The package's own transcripts are not offered as a place to look. Listed,
+  // they read as one more scope, and a planner with nothing better reaches for
+  // them -- observed live on a question the store could not answer. The brief
+  // says where they are, for the question that is genuinely about them.
+  const paths = corpus.paths.filter(
+    (p) => p.path !== INQUIRY_ROOT && !(p.path || "").startsWith(INQUIRY_ROOT + "/"),
+  );
+  if (paths.length > 0) {
     lines.push("Document paths in this solx instance (path: how many documents):");
-    for (const p of corpus.paths) lines.push("  " + p.path + ": " + (p.count ?? 0));
+    for (const p of paths) lines.push("  " + p.path + ": " + (p.count ?? 0));
   } else {
     lines.push("Document paths in this solx instance: (none listed)");
   }
 
   if (corpus.types.length > 0) {
     lines.push("");
-    lines.push("Document types: " + corpus.types.join(", "));
+    lines.push("Document types in use (for type_ref, not paths): " + corpus.types.join(", "));
   }
 
   if (corpus.actions.length > 0) {

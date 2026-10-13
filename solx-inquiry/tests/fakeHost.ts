@@ -61,14 +61,17 @@ function underPrefix(p: string, prefix?: string | null): boolean {
   return p === prefix || p.startsWith(prefix + "/");
 }
 
-/** Rough stand-in for FTS5: every whitespace term must appear. Term-AND, not ranking. */
+/** Rough stand-in for FTS5: every whitespace term must appear, prefix-matched.
+ *  The AND is what `fts_match_query` does, and the whole reason a sentence-shaped
+ *  `q` matches nothing -- so the fake must reproduce it, not forgive it. */
 function matches(q: unknown, text: string): boolean {
   if (!q) return true;
+  const hay = text.toLowerCase();
   return String(q)
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean)
-    .every((t) => text.toLowerCase().includes(t));
+    .every((t) => hay.includes(t));
 }
 
 export class FakeHost implements ExecClient {

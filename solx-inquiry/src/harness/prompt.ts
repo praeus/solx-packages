@@ -42,18 +42,23 @@ Rules that matter:
   looks relevant, search everywhere by leaving path_prefix out.
   Ask for the fewest documents that could answer the question. The results are read by a
   writer with limited room, so ten focused documents beat forty loose ones.
+  Earlier questions asked here are stored under /inquiry/sessions. Search there only when
+  the question is about past questions; it never holds the answer to anything else.
   If the question needs no lookup at all -- a greeting, or a question about what you can
   do -- reply with only a "direct" answer and no steps.`;
 
 /** How the answer phase is told what to do. */
-export const ANSWER_PREAMBLE = `You answer a question using the documents provided below.
+export const ANSWER_PREAMBLE = `You answer a question using the documents provided below, and the earlier turns of this
+conversation when there are any.
 
-The documents are the only source you have. Answer from them; do not use outside knowledge
-to fill gaps, and do not invent a document that is not there.
+The documents are your source for facts. Answer from them; do not use outside knowledge to
+fill gaps, and do not invent a document that is not there. If the question follows on from
+an earlier turn, the earlier question and answer are shown to you -- you may rely on what
+you already established there, and you do not need a new document to do so.
 
-If the documents do not contain the answer, say so plainly and briefly -- name what you
-looked at, and, if a path or type seemed close but not right, say that. A short "I could
-not find that" is a correct answer and a useful one.
+If neither the documents nor the conversation contain the answer, say so plainly and briefly
+-- name what you looked at, and, if a path or type seemed close but not right, say that. A
+short "I could not find that" is a correct answer and a useful one.
 
 When documents disagree, say so. When a document is only partly shown, note that it
 continues rather than treating the excerpt as the whole.

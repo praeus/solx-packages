@@ -34,13 +34,14 @@ export type { ExecClient, Host } from "./host";
 export { applyOptions, createInquiry } from "./agent";
 export type { StartOptions } from "./agent";
 
-export { runInquiry } from "./pipeline";
+export { requestPlan, runInquiry } from "./pipeline";
 export type { RunHandlers, RunOptions } from "./pipeline";
 
 export { loadInquiry, saveInquiry } from "./session";
-export { buildCorpus, renderCorpus } from "./corpus";
-export { cleanPlan, planIsEmpty, PLAN_SCHEMA } from "./plan";
+export { buildCorpus, renderCorpus, vocabularyOf } from "./corpus";
+export { cleanPlan, parsePlanReply, planIsEmpty, PLAN_SCHEMA } from "./plan";
 export { executePlan, foundNothing } from "./execute";
+export type { Vocabulary } from "./execute";
 export { normalizeOptions, DEFAULT_OPTIONS } from "./options";
 export { chat, ChatCancelledError, messageText } from "./chat";
 

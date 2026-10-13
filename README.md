@@ -4,6 +4,12 @@ Installable action bundles for [solx-core](../solx-core). A package adds
 capabilities to a solx instance — Google Workspace, a local LLM, browser
 control, media extraction — without any change to solx-core itself.
 
+**[HOWTO.md](HOWTO.md)** is the authoring guide: the four package forms
+(Rust WASM, JS WASM, Rust CLI, Node CLI + widget), the shared
+`solx-package-lib`/`solx-wasm`/`solx-widgets` libraries, the build and install
+rules each form follows, and how any action integrates with another language
+over WASM, CLI, REST, or solx scripts.
+
 ## What a package is
 
 A directory with a `solx-package.json` and an `install.solx` script.

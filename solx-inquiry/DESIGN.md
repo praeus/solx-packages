@@ -88,11 +88,13 @@ the first plan was *empty*, because an empty plan means the planner chose
 
 ## The corpus index is the entity optimization
 
-Before planning, [`corpus.ts`](src/harness/corpus.ts) makes two capped list
-calls and renders what exists: document paths with counts (from
-`entity-list-document-paths`, one row per path, so a big store returns the same
-handful of paths a small one does), and type names. The planner is told to copy
-a path from that list rather than invent one.
+Before planning, [`corpus.ts`](src/harness/corpus.ts) renders what exists:
+document paths with counts (from `entity-list-document-paths`, one row per
+path, so a big store returns the same handful of paths a small one does), and
+the full refs of the types those documents carry (one sampled row from each of
+the top few paths -- see bug 4 for why not the type registry). The planner is
+told to copy a path or type from that list rather than invent one, and
+`execute.ts` repairs the copying mistakes a model still makes.
 
 This is the concrete answer to "optimize it for the solx entities rather than
 requiring the model to figure out what tools to use." It replaces the agent's
@@ -100,7 +102,7 @@ catalogue with *vocabulary*:
 
 | | solx-agent | solx-inquiry |
 |---|---|---|
-| What the model is shown | tool definitions (name, description, schema) | paths and type names, in prose |
+| What the model is shown | tool definitions (name, description, schema) | paths and type refs, in prose |
 | What it may do with it | **call** it by wire name | **copy** it into a param |
 | Enforced by | a gate at dispatch | nothing -- there is nothing to enforce |
 
@@ -108,7 +110,9 @@ Because nothing in the index is callable, there is no gate. The worst a model
 can do with a path it read here is search under it. That asymmetry is what
 makes the whole package smaller than a third of the agent's harness.
 
-## A real bug the tests caught, worth recording
+## Real bugs the tests and live runs caught, worth recording
+
+### 1. The inquiry found its own transcript
 
 An inquiry's session document stores its plan, and a plan contains the search
 terms. So a search for `zzznomatch` **finds the inquiry document that is asking
@@ -118,16 +122,111 @@ Left unfiltered, every search returns the thread itself alongside the real
 hits. Worse than crowding the budget: the writer would be handed the model's
 own previous plan as source material and could cite it as a finding.
 
-The fix is in `execute.ts` -- `isOwnTranscript` filters rows under
-`/inquiry` -- and it is bypassed when a step deliberately scopes to the
-inquiry root, because "what have I asked before?" is a legitimate question.
-This is the same spirit as the agent reserving `/agent`, but implemented in the
-harness rather than as a gate, because there is no gate to implement it in.
+The fix is in `execute.ts` -- `isOwnPath` filters rows under `/inquiry` -- and
+it is bypassed when a step deliberately scopes to the inquiry root, because
+"what have I asked before?" is a legitimate question.
 
 It is recorded here because the *test* found it, not a person: the assertion
 was "a term that matches nothing yields zero documents", and it failed because
-the pipeline had been quietly gathering the transcript. A fake host that stored
-documents realistically -- the way the real upsert does -- is what caught it.
+the pipeline had been quietly gathering the transcript.
+
+### 2. A sentence-shaped query, and the transcript hiding it
+
+Found by running the package against a real server. `q` goes to
+`fts_match_query`, which turns each whitespace-separated term into `"term"*`
+and **ANDs** them, so a phrase only matches a document containing *every* word.
+The observed planner output was `"documents skill how a document is identified
+identifier"` -- a sentence, which ANDs to nothing, returning an empty page that
+looks exactly like "no such document exists".
+
+The fix is a term-by-term retry when a phrase matches nothing, which
+`solx-agent` already does for the same reason. But the retry was **itself**
+defeated by bug 1, and this is the subtle part: the sentence genuinely matched
+-- *the inquiry's own question*, which had just been saved verbatim into the
+session document. The raw page count was non-zero, so no widening fired, and
+then the own-transcript filter removed every match, and the search reported
+empty. The fix is to judge the retry on **usable** rows -- rows that can
+actually ground an answer -- rather than the raw page.
+
+That interaction, between a filter and a fallback that both exist for good
+reasons, is the kind of thing no unit test written from the design would have
+produced. It needed a real store with a real transcript in it.
+
+### 3. An empty plan, and a turn left permanently live
+
+Two failures of the same kind -- the pipeline treating "the model did not
+answer" as "the answer is no".
+
+A model returned `{}` for a perfectly clear question. `cleanPlan` produced an
+empty plan, the pipeline executed nothing, and the turn answered "I could not
+find that" **without ever having searched**. The retry only fired when a plan
+had steps and found nothing, so an empty plan fell through. The distinction
+that matters is `direct`: an empty plan with a `direct` answer is a deliberate
+decision not to look anything up and must not be retried; an empty plan with
+nothing at all is a planner failure and must be. The retry now keys on that.
+
+Separately, an abandoned run (a cancelled MCP call, a stopped `solx exec`)
+dies *inside* an `await` mid-phase, so the write-path `catch` never runs and
+the document keeps saying `planning` forever. Nothing resumes it -- inquiry has
+no `pending[]` the way the agent does -- so two fixes were needed: `settle()`
+makes the terminal state the single guaranteed exit on every path, and
+`loadInquiry` closes out a live status it reads back once it is stale (no
+write for fifteen minutes) -- not on sight, because a run still going in
+another process (a headless MCP call, another tab) looks identical from the
+reader, and closing it would write a false "interrupted" mid-run. Both are the
+agent's durability lesson arriving from a different direction: the agent
+persists *more* so a crash loses less, inquiry persists *finally* so a crash
+cannot leave a lie.
+
+The same "did not answer" confusion had a third form. A planner that ignored
+`format` and wrote prose used to have that prose returned as a `direct`
+answer -- ungrounded text with no lookup behind it, the one outcome this
+package exists to prevent. `parsePlanReply` now recovers a plan from a code
+fence or around a `<think>` block, and treats anything else as an empty plan,
+which the retry asks again.
+
+### 4. Vocabulary the model could copy but not use
+
+Found over MCP against a real store. The index listed types by *name* from
+`entity-list-types`, and the brief said to copy them "exactly as written". The
+registry is dominated by builtin action-parameter types no document has, so
+the model copied one -- `type_ref: "SearchDocumentsParams"` -- and, being a bare
+name rather than a ref, it would not have matched even a real type. Every such
+search returned an empty page. In the same session it also put a document path
+in `type_ref` (`"/agent/skills"`), and a question whose answer sat at
+`/agent/skills/javascript-actions` found nothing.
+
+Two fixes, one per layer. The index now shows full refs of the types documents
+actually carry. And `executePlan` takes the index as a `Vocabulary`: a
+`type_ref` that is a known path becomes a `path_prefix`, a bare name resolves
+to its one matching ref, and a scoped search that finds nothing sheds a
+*suspect* filter (a type the index did not list, a prefix covering no known
+path) and runs again, with a note on the step. A valid scope that finds
+nothing is left alone -- that is a real answer. Shedding is one cheap lookup;
+the alternative was the replan, a whole model call.
+
+### 5. The own-transcript bug through the bypass
+
+Found in the same session, on a question the store could not answer. The
+replan, told to try "a broader path", scoped to `/inquiry/sessions` -- listed in
+the index like any other path -- and the bypass from bug 1 let it gather
+earlier inquiries *and the one being written*, which holds the question
+verbatim. Two fixes: the current session's document is excluded from gathering
+whatever the scope, because "what have I asked before?" is about *other*
+inquiries; and `/inquiry` is no longer offered in the index, with one line of
+the brief saying where past questions live for the question that is really
+about them.
+
+## Latency: thinking off for the plan
+
+The plan call sends `think: false`. A thinking model otherwise reasons at
+length before emitting a plan the schema already constrains to a verb and a
+few words: the same planner call measured 125s with the model's default (a warm
+model, 20,100 characters of thinking) and 2s with thinking off, against
+qwen-3.6 on a real install. The writer keeps the
+model's default, since summarizing documents is where reasoning is worth
+paying for. `think` was added to the shared `ChatRequest` in `solx-widgets`
+for this, as an optional pass-through; the agent does not set it.
 
 ## Deliberate subtractions from the agent
 

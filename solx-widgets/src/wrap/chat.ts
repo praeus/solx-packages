@@ -73,6 +73,11 @@ export interface ChatRequest {
   format?: unknown;
   /** Tool definitions, for a caller whose model picks tools. */
   tools?: unknown;
+  /**
+   * Ollama's reasoning switch (`true`/`false`, or a level string). Omitted
+   * leaves the model's default, which for a thinking model is to think.
+   */
+  think?: boolean | string | null;
   timeout_secs?: number | null;
 }
 
@@ -133,6 +138,7 @@ function payloadFor(request: ChatRequest): Record<string, unknown> {
   // accident, because a model without tool support rejects the request.
   if (request.format !== undefined && request.format !== null) payload.format = request.format;
   if (request.tools !== undefined && request.tools !== null) payload.tools = request.tools;
+  if (request.think !== undefined && request.think !== null) payload.think = request.think;
   return payload;
 }
 

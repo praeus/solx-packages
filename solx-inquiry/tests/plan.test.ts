@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { cleanPlan, planIsEmpty, PLAN_SCHEMA } from "../src/harness/plan";
+import { cleanPlan, parsePlanReply, planIsEmpty, PLAN_SCHEMA } from "../src/harness/plan";
 import { MAX_PLAN_STEPS_HARD } from "../src/harness/refs";
 
 describe("cleanPlan", () => {
@@ -129,5 +129,25 @@ describe("PLAN_SCHEMA", () => {
     const text = JSON.stringify(PLAN_SCHEMA);
     expect(text).not.toContain("act__");
     expect(text).not.toContain("/builtin/");
+  });
+});
+
+describe("parsePlanReply", () => {
+  test("reads plain JSON", () => {
+    expect(parsePlanReply('{"steps":[{"verb":"list"}]}')).toEqual({ steps: [{ verb: "list" }] });
+  });
+
+  test("recovers a plan from a code fence or a think block", () => {
+    expect(parsePlanReply('```json\n{"steps":[]}\n```')).toEqual({ steps: [] });
+    expect(parsePlanReply('<think>hmm {x}</think>{"direct":"hi"}')).toEqual({ direct: "hi" });
+    expect(parsePlanReply('Here you go: {"steps":[{"verb":"types"}]} done')).toEqual({
+      steps: [{ verb: "types" }],
+    });
+  });
+
+  test("prose is an empty plan, never a direct answer", () => {
+    const raw = parsePlanReply("I think you want the blog posts.");
+    expect(raw).toEqual({ steps: [] });
+    expect(cleanPlan(raw, 4).plan.direct).toBeNull();
   });
 });

@@ -59,11 +59,9 @@ The grant is always `*` — there is no grant parameter, matching the widget's
 own pinned grant (see "The gate" below). `model` is required on every call,
 including resumed ones.
 
-Connecting to `solx-server` needs `SOLX_SERVER_URL` (set on the action's
-`actionConfig.env` by `install.solx`) and a bearer token, resolved the same
-way `solx-quickjs`'s build action resolves one: `SOLX_SERVER_TOKEN` (or
-`SOLX_TOKEN`) from the environment, falling back to `server_token` in
-`solx-config.json`.
+Connecting to `solx-server` needs `SOLX_SERVER_URL` and `SOLX_SERVER_TOKEN`.
+solx sets both on every Command action it runs; the token is never read
+from `solx-config.json`.
 
 ## Three kinds of document
 

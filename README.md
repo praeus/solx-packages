@@ -92,8 +92,8 @@ commands and outbound hosts that package is asking for.
 in code, since every consumer still calls it via `solx_package_log::...`)
 that `Command`-action packages depend on for logging to stderr, a log file,
 and the solx-core action console in one call; resolving where solx-server is
-and how to authenticate to it (`SOLX_SERVER_URL`/`SOLX_SERVER_TOKEN`, falling
-back to `solx-config.json`); and persisting a document to it.
+and how to authenticate to it (`SOLX_SERVER_URL`/`SOLX_SERVER_TOKEN`, which
+solx sets on every Command action); and persisting a document to it.
 
 `solx-wasm/` is a vendored copy of solx's `core/solx-wasm`: the helper crate
 for custom WASM actions and the canonical `wit/custom-action.wit`. The WASM

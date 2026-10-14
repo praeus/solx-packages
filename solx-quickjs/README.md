@@ -64,15 +64,10 @@ action row, with no confirmation step.
 ### Server connection
 
 The build action talks back to `solx-server` over HTTP to read the JS source
-and write the wasm + action row. It needs `SOLX_SERVER_URL` (set on the
-action's `action_config.env` by `install.solx`) and a bearer token. The token
-is resolved in this order:
-
-1. `SOLX_SERVER_TOKEN` (or `SOLX_TOKEN`) from the environment / `action_config.env`;
-2. `server_token` from `solx-config.json` in the default appdata dir
-   (`%APPDATA%/praeus/solx` on Windows) — `solx-server` generates this on
-   first run, so a freshly installed action works without baking the token
-   into the action config.
+and write the wasm + action row. It needs `SOLX_SERVER_URL` and `SOLX_SERVER_TOKEN`,
+which solx sets on every Command action it runs. The token is never read
+from `solx-config.json` (solx keeps it in the OS credential manager), and a
+`SOLX_SERVER_TOKEN` in `action_config.env` is ignored.
 
 Params (`action_name`, `path`, `entry_artifact_name`, `source_artifact_names`,
 `output_artifact_name`, `artifact_root`) are passed to the CLI as JSON on

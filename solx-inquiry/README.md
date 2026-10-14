@@ -99,10 +99,9 @@ solx exec /packages/solx-inquiry/inquiry --json '{
 are hints folded into the question, not filters -- the planner still decides
 where to look.
 
-Connecting to `solx-server` needs `SOLX_SERVER_URL` (set on the action's
-`actionConfig.env` by `install.solx`) and a bearer token, resolved as
-`SOLX_SERVER_TOKEN` (or `SOLX_TOKEN`) from the environment, falling back to
-`server_token` in `solx-config.json`.
+Connecting to `solx-server` needs `SOLX_SERVER_URL` and `SOLX_SERVER_TOKEN`.
+solx sets both on every Command action it runs; the token is never read
+from `solx-config.json`.
 
 ## The five verbs
 

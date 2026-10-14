@@ -3,8 +3,8 @@
 //! occurs when shelling out to `solx.exe` while the parent `solx exec`
 //! already holds the docs index writer lock.
 //!
-//! Uses the same `server_token` from `solx-config.json` that `solx-cli`
-//! uses when `SOLX_SERVER_URL` is set.
+//! Authenticates with `SOLX_SERVER_TOKEN`, which solx sets on every Command
+//! action it spawns.
 //!
 //! solx-server's action/type routes are RESTful: `PUT /actions/{*ref}` and
 //! `PUT /types/{*ref}` create-or-replace the entity at `ref` (its full
@@ -27,48 +27,16 @@ fn server_url() -> String {
         .unwrap_or_else(|| "http://127.0.0.1:8766".to_string())
 }
 
-/// Read the server token from `solx-config.json` in the appdata dir.
+/// The bearer token solx sets on every Command action it spawns.
 fn server_token() -> anyhow::Result<String> {
-    // Try SOLX_SERVER_TOKEN env var first.
-    if let Ok(tok) = std::env::var("SOLX_SERVER_TOKEN") {
-        if !tok.trim().is_empty() {
-            return Ok(tok);
-        }
-    }
-    // Fall back to reading solx-config.json.
-    let appdata = solx_config_dir();
-    let config_path = appdata.join("solx-config.json");
-    let raw = std::fs::read_to_string(&config_path)
-        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", config_path.display()))?;
-    let cfg: Value = serde_json::from_str(&raw)
-        .map_err(|e| anyhow::anyhow!("{} is not valid JSON: {e}", config_path.display()))?;
-    cfg.get("server_token")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("no server_token in solx-config.json"))
-}
-
-fn solx_config_dir() -> std::path::PathBuf {
-    if let Ok(dir) = std::env::var("SOLX_APPDATA_DIR") {
-        if !dir.trim().is_empty() {
-            return std::path::PathBuf::from(dir);
-        }
-    }
-    #[cfg(windows)]
-    {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            if !appdata.trim().is_empty() {
-                return std::path::PathBuf::from(appdata).join("praeus").join("solx");
-            }
-        }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.trim().is_empty() {
-            return std::path::PathBuf::from(home).join(".praeus").join("solx");
-        }
-    }
-    std::env::temp_dir().join("praeus").join("solx")
+    std::env::var("SOLX_SERVER_TOKEN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "SOLX_SERVER_TOKEN is required; solx sets it when it runs this action"
+            )
+        })
 }
 
 #[derive(Deserialize)]

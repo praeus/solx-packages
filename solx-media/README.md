@@ -56,7 +56,7 @@ lost — the caller can persist it via `entity-save-document` themselves.
 | `WHISPER_MODEL_PATH` | (unset) | Direct path to a ggml model (overrides auto-resolution) |
 | `WHISPER_MODELS_DIR` | `{SOLX_PACKAGES_DIR}/solx-media/models` | Where `install-whisper-model` writes model files |
 | `SOLX_SERVER_URL` | (required) | e.g. `http://127.0.0.1:8766` |
-| `SOLX_SERVER_TOKEN` / `SOLX_TOKEN` | (required) | Bearer token from `solx-server` startup |
+| `SOLX_SERVER_TOKEN` | (required) | Bearer token; set by solx on every run |
 | `SOL_LOG_DIR` | (unset) | If set, log lines are mirrored to `{SOL_LOG_DIR}/solx-media.log` |
 | `SOLX_PACKAGES_DIR` | `{SOLX_APPDATA_DIR}/packages` | Root for `{SOLX_PACKAGES_DIR}/solx-media/config.json` |
 | `SOLX_MEDIA_SKIP_AUTOBUILD` | (unset) | Skip the build script's nested cargo build |

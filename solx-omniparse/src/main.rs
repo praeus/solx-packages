@@ -333,9 +333,8 @@ async fn main() {
 
 /// FU-2: POST the omniparse extraction to solx-server. Resolves the
 /// connection via `solx_package_log::server::ServerConfig::from_env`
-/// (`SOLX_SERVER_URL` required; `SOLX_SERVER_TOKEN`/`SOLX_TOKEN`/a
-/// `solx-config.json` fallback for the token); returns Err if either is
-/// missing or the request fails (caller soft-handles).
+/// (`SOLX_SERVER_URL` and `SOLX_SERVER_TOKEN`, both set by solx); returns
+/// Err if either is missing or the request fails (caller soft-handles).
 async fn write_to_solx_server(
     file_name: &str,
     mime_type: &str,

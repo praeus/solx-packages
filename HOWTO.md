@@ -691,8 +691,8 @@ save action /packages/solx-thing/thing-get --json {
 
 **(b) `solx-server` — solx's own REST API.** This is the integration point for
 a caller written in another language: start `solx server start`, then talk
-HTTP to `http://127.0.0.1:8766` with `Authorization: Bearer <server_token>`
-(printed at startup). The reference in the URL is just `path` + `name`, and
+HTTP to `http://127.0.0.1:8766` with `Authorization: Bearer <token>`
+(run `solx token show` to get it). The reference in the URL is just `path` + `name`, and
 everything solx can do is a route:
 
 | Purpose | Route |

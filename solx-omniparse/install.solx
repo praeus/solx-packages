@@ -42,7 +42,7 @@ save action /packages/solx-omniparse/solx-omniparse-process --json {
     "fnName": "solx-omniparse-process-file-write",
     "caption": "solx-omniparse process-file (write)",
     "category": "extraction",
-    "description": "Preprocess a document (PDF/office/etc.) into plain text using omniparse, with ML OCR fallback for scanned/image-only PDFs, and POST the extracted text to solx-server (/docs/save) before returning. Output is {saved:[{path,name}],result:{OmniparseResult fields}}. Requires SOLX_SERVER_URL (set via the action_config.env field on this action); the bearer token comes from SOLX_SERVER_TOKEN, which solx sets on every run. Soft-fails to a raw (unsaved) result on connection error.",
+    "description": "Preprocess a document (PDF/office/etc.) into plain text using omniparse, with ML OCR fallback for scanned/image-only PDFs, and POST the extracted text to solx-server (/docs/save) before returning. Output is {saved:[{path,name}],result:{OmniparseResult fields}}. Reaches solx-server through SOLX_SERVER_URL and SOLX_SERVER_TOKEN, which solx sets on every run. Soft-fails to a raw (unsaved) result on connection error.",
     "capabilities": [
         "extraction",
         "preprocess",

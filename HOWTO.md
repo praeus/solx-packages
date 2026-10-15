@@ -400,7 +400,7 @@ save action /packages/solx-thing/thing-do --json {
     "capabilities": ["thing", "command"],
     "phrases": ["do the thing"],
     "paramTypeRef": "/packages/solx-thing/ThingParams",
-    "actionConfig": { "timeout_secs": 600, "env": { "SOLX_SERVER_URL": "http://127.0.0.1:8766" } },
+    "actionConfig": { "timeout_secs": 600 },
 };
 ```
 
@@ -528,7 +528,7 @@ save action /packages/solx-thing/thing --json {
     "actionType": "command",
     "fnName": "thing",
     "description": "…",
-    "actionConfig": { "timeout_secs": 600, "env": { "SOLX_SERVER_URL": "http://127.0.0.1:8766" } },
+    "actionConfig": { "timeout_secs": 600 },
 };
 ```
 

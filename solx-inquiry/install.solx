@@ -111,7 +111,7 @@ save action /packages/solx-inquiry/inquiry --json {
     "actionType": "command",
     "fnName": "inquiry",
     "paramTypeRef": "/packages/solx-inquiry/InquiryParams",
-    "actionConfig": {"env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"}, "timeout_secs": 900},
+    "actionConfig": {"timeout_secs": 900},
     "caption": "Inquiry (headless)",
     "category": "development",
     "description": "Ask one question and get an answer grounded in solx documents, with no UI -- the same pipeline the widget drives. For scripting and for tuning prompts from the CLI: solx exec /packages/solx-inquiry/inquiry --json {\"question\":\"...\",\"model\":\"...\"}. Pass back the result's session_id to continue the conversation.",

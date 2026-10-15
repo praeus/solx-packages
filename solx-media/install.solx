@@ -126,7 +126,6 @@ save action /packages/solx-media/solx-media-image --json {
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
         "timeout_secs": 600,
-        "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
 };
 save action /packages/solx-media/solx-media-audio --json {
@@ -140,7 +139,6 @@ save action /packages/solx-media/solx-media-audio --json {
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
         "timeout_secs": 600,
-        "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
 };
 save action /packages/solx-media/solx-media-video --json {
@@ -162,7 +160,6 @@ save action /packages/solx-media/solx-media-video --json {
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
         "timeout_secs": 1200,
-        "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
 };
 save action /packages/solx-media/materialize-html --json {
@@ -176,7 +173,6 @@ save action /packages/solx-media/materialize-html --json {
     "resultTypeRef": "/packages/solx-media/MediaDocument",
     "actionConfig": {
         "timeout_secs": 600,
-        "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
 };
 save action /packages/solx-media/install-whisper-model --json {
@@ -190,6 +186,5 @@ save action /packages/solx-media/install-whisper-model --json {
     "paramTypeRef": "/packages/solx-media/MediaInstallParams",
     "actionConfig": {
         "timeout_secs": 300,
-        "env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"},
     },
 }

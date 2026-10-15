@@ -186,7 +186,7 @@ save action /packages/solx-agent/agent-loop --json {
     "actionType": "command",
     "fnName": "agent-loop",
     "paramTypeRef": "/packages/solx-agent/AgentLoopParams",
-    "actionConfig": {"env": {"SOLX_SERVER_URL": "http://127.0.0.1:8766"}, "timeout_secs": 900},
+    "actionConfig": {"timeout_secs": 900},
     "caption": "Agent loop (headless)",
     "category": "development",
     "description": "Runs one turn of the agent harness with no UI -- the same code AgentWidget.tsx drives. For testing prompts, skills and catalogue tuning from the CLI: solx exec /packages/solx-agent/agent-loop --json {\"message\":\"...\",\"model\":\"...\"}. Pass back the result's session_id to continue the conversation, approve a suspended call, or resume a run left mid-turn.",

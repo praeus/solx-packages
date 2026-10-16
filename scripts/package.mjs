@@ -7,6 +7,9 @@
 //       Zip one package, after it has been built (see below).
 //   scripts/package.mjs companions <package>
 //       List the sibling directories the package builds from.
+//   scripts/package.mjs extra-builds <package>
+//       List the package's extra_binaries for this host, one
+//       "<binary>\t<cwd>\t<build command>" line each (paths from the repo root).
 //
 // A zip unpacks to `<package>/` and installs like the checked-out directory:
 //
@@ -19,7 +22,8 @@
 //   rust    the command binaries, from <package>/target/release (or
 //           $CARGO_TARGET_DIR/release), placed in bin/. One zip per platform,
 //           and solx-package.json is rewritten so its commands run there
-//           (see rewriteManifest).
+//           (see rewriteManifest). Plus bin/<name> for each
+//           `extra_binaries` entry, built by that entry's own `build`.
 //   node    dist/ and dist-headless/, from the package's own `npm run build`
 //   source  nothing -- install.solx is the whole package
 //
@@ -127,6 +131,27 @@ function companions(pkg) {
   return [...found].filter((c) => fs.existsSync(path.join(ROOT, c))).sort();
 }
 
+/**
+ * Native programs a `rust` package ships beside its command binaries, from
+ * `extra_binaries` in solx-package.json:
+ *
+ *   "extra_binaries": {
+ *     "mcp-server": { "cwd": "mcp", "build": "bun run build", "needs": "bun" }
+ *   }
+ *
+ * `build` runs in `cwd` (relative to the package) and must leave
+ * bin/<name>[.exe] behind or fail. `needs` names a toolchain CI installs
+ * first (only "bun" so far).
+ */
+function extraBinaries(pkg) {
+  return Object.entries(manifestOf(pkg).extra_binaries ?? {}).map(([name, def]) => ({
+    name,
+    cwd: def.cwd ?? ".",
+    build: def.build,
+    needs: def.needs,
+  }));
+}
+
 function kindOf(pkg) {
   const manifest = manifestOf(pkg);
   const hasCommands = Object.keys(manifest.command_actions ?? {}).length > 0;
@@ -151,11 +176,14 @@ function plan() {
     }
     const kind = kindOf(pkg);
     const version = manifestOf(pkg).version;
+    const extras = extraBinaries(pkg);
+    if (extras.length && kind !== "rust") throw new Error(`${pkg}: extra_binaries is only supported for rust packages`);
+    const needs_bun = extras.some((e) => e.needs === "bun");
     if (kind === "rust") {
-      for (const p of PLATFORMS) include.push({ package: pkg, kind, version, ...p });
+      for (const p of PLATFORMS) include.push({ package: pkg, kind, version, needs_bun, ...p });
     } else {
       // Platform-independent: one build, one zip.
-      include.push({ package: pkg, kind, version, os: "ubuntu-22.04", platform: "any", exe: "" });
+      include.push({ package: pkg, kind, version, needs_bun, os: "ubuntu-22.04", platform: "any", exe: "" });
     }
   }
   return { include, skipped };
@@ -244,6 +272,11 @@ function buildPackage(pkg, platform) {
       } else {
         missing.push(built);
       }
+    }
+    for (const { name } of extraBinaries(pkg)) {
+      const staged = path.join(pkg, "bin", name + exe);
+      if (fs.existsSync(path.join(ROOT, staged))) addFile(staged, posix(staged), 0o755);
+      else missing.push(staged);
     }
     entries.set(`${pkg}/solx-package.json`, {
       data: Buffer.from(JSON.stringify(rewriteManifest(manifest, platform, exe), null, 2) + "\n"),
@@ -345,6 +378,11 @@ try {
   } else if (command === "companions") {
     // Sibling directories the package builds from, one per line.
     console.log(companions(args[0]).join("\n"));
+  } else if (command === "extra-builds") {
+    const exe = process.platform === "win32" ? ".exe" : "";
+    for (const e of extraBinaries(args[0])) {
+      console.log([posix(path.join(args[0], "bin", e.name + exe)), posix(path.join(args[0], e.cwd)), e.build].join("\t"));
+    }
   } else if (command === "package") {
     const pkg = args[0];
     const platform = arg(args, "--platform");
@@ -355,7 +393,7 @@ try {
     writeZip(path.join(out, name), entries);
     console.log(`${path.join(out, name)} (${entries.size} files)`);
   } else {
-    throw new Error("usage: package.mjs plan [--github-output] | package <package> --platform <name> [--out <dir>]");
+    throw new Error("usage: package.mjs plan [--github-output] | package <package> --platform <name> [--out <dir>] | companions <package> | extra-builds <package>");
   }
 } catch (err) {
   console.error(`::error::${err.message}`);

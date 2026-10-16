@@ -19,9 +19,10 @@ brand new, blank browser with no memory of the previous call.
 The fix: `firefox-devtools-mcp` supports `--connect-existing`, attaching to
 an already-running Firefox with Marionette enabled instead of launching its
 own. This package's only job is to start/stop that one persistent,
-dedicated-profile Firefox instance; `solx-mcp-actions`'s own `mcp-servers.json` then
-gets a `firefox` entry using `--connect-existing`, so every `solx-mcp-actions invoke`
-call talks to the *same* long-lived browser.
+dedicated-profile Firefox instance, and to ship the MCP server itself as a
+compiled binary (`bin/mcp-server`). `solx-mcp-actions`'s own `mcp-servers.json`
+has a `firefox` entry that runs that binary with `--connect-existing`, so every
+`solx-mcp-actions invoke` call talks to the *same* long-lived browser.
 
 ## Key difference from sol-firefox (sol ecosystem)
 
@@ -80,18 +81,35 @@ Mirrors `solx-mcp-actions`/`solx-omniparse`'s `build.rs` staging pattern: compil
 into a package-local `.build-target/` and stages the binary into `bin/`.
 Skip auto-staging with `SOLX_FIREFOX_SKIP_AUTOBUILD=1`.
 
+### The MCP server binary
+
+`mcp/` compiles `@mozilla/firefox-devtools-mcp` (pinned in
+`mcp/package.json`) into a standalone `bin/mcp-server[.exe]` with
+`bun build --compile`, then smoke-tests it (version, MCP handshake, every tool
+in `solx-mcp-actions`' `tool_filter`, clean stdout, no `.env`/`bunfig.toml`
+loading from the cwd):
+
+```bash
+cd solx-firefox/mcp
+bun install --frozen-lockfile
+bun run build
+```
+
+`scripts/build-all.sh` and CI run this for you (it is declared under
+`extra_binaries` in `solx-package.json`). Bun is needed only to build, not to
+run. The binary is about 85 MB. To bump the upstream version, change the
+pin, `bun install`, rebuild, and run the checklist in
+[docs/bundled-mcp-server.md](../docs/bundled-mcp-server.md).
+
 ## Prerequisites
 
 - Firefox 100+, installed at a standard location (auto-detected) or pass
   `--firefox-path`.
-- Node.js ≥ 20.19.0 (for `npx @mozilla/firefox-devtools-mcp`, run via
-  `solx-mcp-actions`, not this package).
-- `geckodriver` is auto-managed by `@mozilla/firefox-devtools-mcp` — no
-  separate install needed. The *first* invocation may need network access to
-  download it; consider pre-warming with
-  `npx -y @mozilla/firefox-devtools-mcp@latest --help` once during setup so
-  the first real `/packages/solx-mcp-actions/import` call for `firefox` isn't slowed by (or
-  fails on) that download.
+- `geckodriver`. The MCP server looks for it on `PATH`, then in
+  `~/.cache/selenium/geckodriver/`, and otherwise downloads it into
+  `GECKODRIVER_CACHE_DIR` (default: the OS temp dir) on first use, which
+  needs network access. Offline, put geckodriver on `PATH` or pre-stage it
+  in `GECKODRIVER_CACHE_DIR`. (`GECKODRIVER_PATH` is not consulted.)
 
 ## Security
 
@@ -117,34 +135,33 @@ This registers `firefox-start`, `firefox-stop`, `firefox-mcp-setup`,
 `firefox-mcp-teardown`, and uploads the two `.solx` script files to the
 file store.
 
-## Required addition to solx-mcp-actions's mcp-servers.json
+## The solx-mcp-actions entry
 
-This file belongs to the sibling `solx-mcp-actions` package — add a `firefox` entry
-using `--connect-existing` so tool calls attach to the instance this package
-manages rather than each spawning a fresh Firefox:
+`solx-mcp-actions` ships with this `firefox` entry in its `mcp-servers.json`
+(tool filter omitted here):
 
 ```json
-{
-  "servers": {
-    "firefox": {
-      "command": "npx",
-      "args": ["-y", "@mozilla/firefox-devtools-mcp@latest", "--connect-existing", "--marionette-port", "2828"],
-      "env": {}
-    }
-  }
+"firefox": {
+  "command": "../solx-firefox/bin/mcp-server",
+  "args": ["--connect-existing", "--marionette-port", "2828", "--tool-preset", "developer"],
+  "env": {}
 }
 ```
+
+The relative `command` resolves against the `solx-mcp-actions` package
+directory, so it works whenever the two packages sit side by side: in this
+repo, and when both are installed from zips. If you install them elsewhere,
+change `command` to the absolute path of `bin/mcp-server`.
 
 ## Usage flow
 
 1. Install `solx-mcp-actions` and `solx-firefox`.
-2. Add the `mcp-servers.json` `firefox` entry (see above).
-3. `solx exec /packages/solx-firefox/firefox-mcp-setup` — starts the
+2. `solx exec /packages/solx-firefox/firefox-mcp-setup` — starts the
    managed Firefox and imports its DevTools MCP tools as solx actions
    (`mcp-firefox-*`) in one call.
-4. Use the generated `mcp-firefox-*` actions (navigate, click, screenshot,
+3. Use the generated `mcp-firefox-*` actions (navigate, click, screenshot,
    etc.) — they all share the one persistent browser session.
-5. `solx exec /packages/solx-firefox/firefox-mcp-teardown` when done.
+4. `solx exec /packages/solx-firefox/firefox-mcp-teardown` when done.
 
 ## Troubleshooting
 

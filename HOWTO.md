@@ -760,7 +760,7 @@ all appear in one script.
 | [`scripts/build-wasm.sh`](scripts/build-wasm.sh) `<pkg> [--install]` | Builds one WASM package and stages `bin/<pkg>.wasm`; `--install` also installs it |
 | [`scripts/build-all.sh`](scripts/build-all.sh) | Builds every package with something to build, then verifies every artifact an install depends on is present and current (non-zero exit otherwise) |
 | [`scripts/reinstall-all.sh`](scripts/reinstall-all.sh) | Reinstalls every package against a running server, in dependency order, without uninstalling first |
-| [`scripts/package.mjs`](scripts/package.mjs) | `plan` (CI matrix), `package <pkg> --platform <p> [--out <dir>]` (zip one built package), `companions <pkg>` (sibling dirs it builds from) |
+| [`scripts/package.mjs`](scripts/package.mjs) | `plan` (CI matrix), `package <pkg> --platform <p> [--out <dir>]` (zip one built package), `companions <pkg>` (sibling dirs it builds from), `extra-builds <pkg>` (its `extra_binaries` build commands) |
 | [`scripts/sync-solx-wasm.sh`](scripts/sync-solx-wasm.sh) `<solx-checkout>` | Refreshes the vendored `solx-wasm/` from `core/solx-wasm` in the solx repo |
 
 `package.mjs` classifies each package the same way, and that classification is
@@ -768,13 +768,19 @@ worth internalizing:
 
 - `wasm` — `install.solx` stages a `bin/*.wasm`; platform-independent, one zip.
 - `rust` — has `command_actions` and a `Cargo.toml`; **one zip per platform**,
-  with `solx-package.json` rewritten so every command runs from `bin/`.
+  with `solx-package.json` rewritten so every command runs from `bin/`. A
+  `rust` package can also ship programs that aren't commands by declaring
+  `extra_binaries` (`{"<name>": {"cwd": "…", "build": "…", "needs": "bun"}}`):
+  CI and `build-all.sh` run each `build` in its `cwd`, which must leave
+  `bin/<name>[.exe]` or fail, and the zip carries it. `solx-firefox`'s
+  compiled MCP server is the example (see
+  [docs/bundled-mcp-server.md](docs/bundled-mcp-server.md)).
 - `node` — has `command_actions` and a `package.json`; zips `dist/` +
   `dist-headless/`.
 - `source` — everything else; the tracked source is the package.
 
 Needs `cargo` + the `wasm32-wasip2` target, and `node` (`npm`, or `bun` for
-packages whose lockfile is bun's). The
+packages whose lockfile is bun's, and for `solx-firefox`'s MCP server). The
 [release workflow](.github/workflows/release.yml) runs this on every PR and
 push, keeps the zips as artifacts, and publishes them to a draft release on a
 `v*` tag.

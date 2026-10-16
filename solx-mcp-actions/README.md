@@ -90,7 +90,9 @@ create any per-tool actions — those only happen when you actually run
 
 ## Configuring MCP servers
 
-Create `mcp-servers.json` in the solx-mcp-actions package directory:
+Servers are configured in `mcp-servers.json` in the solx-mcp-actions
+package directory. It ships with a `firefox` entry for `solx-firefox`; add
+others alongside it:
 
 ```json
 {
@@ -104,11 +106,19 @@ Create `mcp-servers.json` in the solx-mcp-actions package directory:
 }
 ```
 
-`command`/`args` are joined and run through the platform shell
-(`cmd.exe /C` on Windows, `sh -c` on Linux/macOS), which matters in
-practice because many real MCP servers are launched via `npx`, and on
-Windows `npx` is a `.cmd` shim that can't be exec'd directly without a
-shell.
+How `command` runs:
+
+- **A path** (it contains `/` or `\`) is resolved against this package
+  directory unless absolute, trying it with `.exe` appended on Windows if it
+  doesn't exist as written. If it names an executable, that file is spawned
+  directly with `args`, no shell involved, so paths with spaces are safe.
+  The shipped `firefox` entry uses this: `"command": "../solx-firefox/bin/mcp-server"`
+  finds the sibling package's bundled server in a repo checkout and in a zip
+  install alike (both put packages side by side).
+- **Anything else** (a bare name like `npx`, or a `.cmd`/`.bat`) has
+  `command`/`args` joined and run through the platform shell (`cmd.exe /C`
+  on Windows, `sh -c` on Linux/macOS), since on Windows `npx` is a `.cmd`
+  shim that can't be exec'd directly.
 
 **Security note:** any `env` values here (API tokens, etc.) are stored in
 **plaintext**. A natural future improvement is resolving `"$SECRET:NAME"`
@@ -124,8 +134,8 @@ ones you want:
 {
   "servers": {
     "firefox": {
-      "command": "npx",
-      "args": ["-y", "@mozilla/firefox-devtools-mcp@latest"],
+      "command": "../solx-firefox/bin/mcp-server",
+      "args": ["--connect-existing", "--marionette-port", "2828", "--tool-preset", "developer"],
       "env": {},
       "tool_filter": {
         "include": ["navigate_page", "take_snapshot", "screenshot_*"],

@@ -1,0 +1,12 @@
+{
+  "name": "solx-firefox-mcp",
+  "private": true,
+  "description": "Compiles @mozilla/firefox-devtools-mcp into bin/mcp-server with bun build --compile. See docs/bundled-mcp-server.md.",
+  "type": "module",
+  "scripts": {
+    "build": "bun build.mjs"
+  },
+  "dependencies": {
+    "@mozilla/firefox-devtools-mcp": "0.10.6"
+  }
+}

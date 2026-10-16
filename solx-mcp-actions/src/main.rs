@@ -183,7 +183,7 @@ async fn run_import(
         def.tool_filter.clone().unwrap_or_default()
     };
 
-    let session = McpSession::connect(&def).await?;
+    let session = McpSession::connect(&def, home).await?;
     let all_tools = session.list_tools().await?;
     let discovered = all_tools.len();
     let tools: Vec<_> = all_tools.into_iter().filter(|t| filter.allows(&t.name)).collect();
@@ -408,7 +408,8 @@ async fn run_invoke() -> anyhow::Result<Value> {
     let def = config::find_server(&servers_cfg, &descriptor.server)?.clone();
 
     let params = stdin_params();
-    let session = McpSession::connect(&def).await?;
+    let base = servers_cfg_path.parent().unwrap_or(Path::new("."));
+    let session = McpSession::connect(&def, base).await?;
     let call_result = session.call_tool(&descriptor.tool, params).await;
     let _ = session.close().await;
     let call_result = call_result?;

@@ -63,9 +63,9 @@ pub fn dispatch(host: &dyn Host, fn_name: Option<&str>, params_json: &str) -> Ou
 /// Store the bearer token under [`config::DEFAULT_SECRET`].
 ///
 /// This exists to break a chicken-and-egg problem: `/builtin/secrets/set-secret`
-/// encrypts with a key drawn from the *calling* action's
-/// `action_config.secrets`, so only an action that already carries the key can
-/// write the secret. The name is hardcoded, so this action can never overwrite
+/// stores under the *calling* action's package, with that package's key, and
+/// only for a name the caller lists in its `action_config.secrets`, so only an
+/// action of this package can write the secret. The name is hardcoded, so this action can never overwrite
 /// an unrelated secret.
 fn set_api_key(host: &dyn Host, params: &Value) -> Outcome {
     let Some(value) = host::str_param(params, "value") else {

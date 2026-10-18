@@ -193,5 +193,5 @@ solx install-package ../solx-packages/solx-facebook
 solx uninstall-package solx-facebook
 ```
 
-Reinstalling keeps the stored token: the encryption key is reused when any
-action under `/packages/solx-facebook` already exists.
+Reinstalling keeps the stored token: solx keeps the package's encryption key
+for as long as any action under `/packages/solx-facebook` exists.

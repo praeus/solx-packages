@@ -130,8 +130,8 @@ pub fn resolve_auth(host: &dyn Host, params: &Value) -> Result<Option<String>, S
     }
 
     // Both failure modes mean "no auth configured", silently:
-    //   Err       -> no key for this name in the action's action_config.secrets
-    //   Ok(None)  -> key configured, but nothing stored under that name yet
+    //   Err       -> the action doesn't list this name in action_config.secrets
+    //   Ok(None)  -> nothing stored under that name yet
     if let Ok(Some(v)) = read_secret(host, DEFAULT_SECRET) {
         return Ok(Some(v));
     }

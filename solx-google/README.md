@@ -73,16 +73,15 @@ This:
 
 1. Uploads `bin/solx-google-actions.wasm` (built above) to the file store
    at `shared/solx-google-actions.wasm`.
-2. Generates a fresh random 32-byte encryption key (`solx random 32`).
-3. Posts 35 JSON-schema types under `/packages/solx-google/`.
-4. Uploads `login.solx` as-is with `save file` at
+2. Posts 35 JSON-schema types under `/packages/solx-google/`.
+3. Uploads `login.solx` as-is with `save file` at
    `shared/solx-google-login.solx` — no template or build step required.
-5. Posts the `login-to-google` Script action pointing at the uploaded
+4. Posts the `login-to-google` Script action pointing at the uploaded
    file.
-6. Posts 14 webhook actions (Docs, Drive, Gmail, Tasks, Calendar) plus
-   the internal `_private/oauth-token-exchange` action — each with the same
-   encryption key baked into its `action_config.secrets` map.
-7. Posts 3 WASM actions built on the Docs converter (see below):
+5. Posts 14 webhook actions (Docs, Drive, Gmail, Tasks, Calendar) plus
+   the internal `_private/oauth-token-exchange` action — each listing the
+   OAuth secret names it uses under `action_config.secrets`.
+6. Posts 3 WASM actions built on the Docs converter (see below):
    `convert-sol-doc-to-google-doc`, `convert-google-doc-to-sol-doc`, and
    `upload-documents-to-google-docs`.
 
@@ -201,11 +200,12 @@ solx exec /packages/solx-google/upload-documents-to-google-docs --json '{
 
 ## Security
 
-OAuth secrets are encrypted and stored in the scoped secret store,
-scoped so that only the actions this package registers — which share a
-single randomly generated key baked into their `action_config.secrets`
-maps at install time — can decrypt them. The encryption key never leaves
-the action's `action_config` (which itself is redacted on `get`).
+OAuth secrets are encrypted and stored in the scoped secret store under
+this package, so only its actions — and only those that list a secret's
+name — can decrypt them. solx generates the package's key on first install
+and keeps it in the actions database, never in `action_config` (whose
+`secrets` lists only names), so no read of an action can return it, and a
+reinstall keeps it. Only root can change these actions.
 
 ## Uninstall
 
@@ -214,13 +214,10 @@ solx uninstall-package solx-google
 ```
 
 Deletes every action, type, and file `install.solx` registered (order
-doesn't matter — no cross-DB foreign keys). There's no built-in
-`delete_secret` primitive, so OAuth secrets aren't deleted directly:
-`set-secret`/`get-secret` are scoped to the calling action's own
-encryption key (declared in each OAuth action's `action_config.secrets`
-map), so once the owning action row is gone, its secrets are unreachable
-and the scoped store garbage-collects them — the `delete action` calls
-above trigger that path, no separate step needed.
+doesn't matter — no cross-DB foreign keys). OAuth secrets aren't deleted
+directly: solx deletes the package's encryption key along with its last
+action, so the stored secrets become unreadable, and a later install clears
+them the first time it reads them. No separate step is needed.
 
 ## Differences from old `sol-google`
 

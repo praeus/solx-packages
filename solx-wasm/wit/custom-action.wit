@@ -14,10 +14,12 @@ interface types {
 ///
 /// Calls are attributed to the calling action: the host tags each one with the
 /// guest's own reference, which the built-ins use to scope what it can reach.
-/// Concretely, `get-secret`/`set-secret` resolve only against keys in the
-/// *calling* action's own `action_config.secrets`, and `entity-save-action` /
-/// `entity-delete-action` refuse to create, modify, or remove `command` and
-/// `webhook` actions — a guest cannot grant itself shell or outbound HTTP.
+/// Concretely, `get-secret`/`set-secret` resolve only against the secret
+/// names in the *calling* action's own `action_config.secrets`, in its
+/// package's scope; `entity-save-action` / `entity-delete-action` refuse to create,
+/// modify, or remove `command` and `webhook` actions — a guest cannot grant
+/// itself shell or outbound HTTP; and `entity-save-action` refuses to create
+/// or modify any action that has secrets.
 /// Everything else in the built-in catalogue is reachable without restriction;
 /// there is no general permission system yet.
 interface action-exec {

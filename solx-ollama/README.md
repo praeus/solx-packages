@@ -175,22 +175,16 @@ solx exec /packages/solx-ollama/ollama-set-api-key --json '{"value":"<token>"}'
 ```
 
 That action exists to break a chicken-and-egg problem: `/builtin/secrets/set-secret`
-encrypts using a key taken from the *calling* action's `action_config.secrets`,
-so only an action that already holds the key can write the secret. The secret
+stores under the *calling* action's package, with that package's key, and only
+for a name the caller lists in its `action_config.secrets`, so only an action of
+this package can write the secret. The secret
 name is hardcoded, so this action cannot overwrite an unrelated one.
 
-**Re-installing keeps the key.** `install.solx` generates a fresh AES key with
-`random 32` only on a genuine first install; if any action already exists under
-`/packages/solx-ollama` it writes the sentinel `"***"` onto the rows instead,
-which `save action` resolves back to each row's stored key rather than
-overwriting it (`solx-actions::mask::unmask_merge`). So upgrading the package
-leaves an already-stored token decryptable — the same approach solx-google uses
-for its OAuth key.
-
-The one case that still needs `ollama-set-api-key` re-run is a *partial* prior
-install: if some rows exist and others don't, the missing ones have no stored
-key to restore and `save action` fails with "there is no stored value to
-restore". Delete the surviving rows and install clean.
+**Re-installing keeps the key.** solx generates the package's AES key itself
+and keeps it for as long as any action under `/packages/solx-ollama` exists,
+so upgrading the package leaves an already-stored token decryptable, even if
+the new version adds actions. Uninstalling deletes the key, so a later install
+needs `ollama-set-api-key` run again.
 
 ## Timeouts
 

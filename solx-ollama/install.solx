@@ -1,19 +1,5 @@
 save file files/actions/shared/solx-ollama.wasm --file bin/solx-ollama.wasm;
 
-# Reinstalling (e.g. to pick up a new package version) must not rotate the
-# encryption key baked into every action below -- that would leave an
-# already-stored OLLAMA_API_KEY undecryptable and force the user to run
-# ollama-set-api-key again. If this package was installed before (any action
-# already exists under our path), reuse "***": `save action` restores the
-# real stored value for any secret whose incoming value is that sentinel
-# (see solx-actions::mask::unmask_merge) rather than overwriting it. Only a
-# genuinely first-time install generates a fresh key.
-$existing = list action --path /packages/solx-ollama --limit 1;
-if $existing.total > 0 then
-    $key = "***";
-else
-    $key = random 32;
-endif
 save type /packages/solx-ollama/ChatParams --json {
     "description": "Parameters for POST /api/chat. The call returns one complete response, folded together from the token stream Ollama emits - including any tool calls the model made, on message.tool_calls. Watch it arrive live via console/tail on this action, and cancel a running call via action/start + action/stop.",
     "schema": {
@@ -186,7 +172,7 @@ save action /packages/solx-ollama/ollama-chat --json {
     ],
     "paramTypeRef": "/packages/solx-ollama/ChatParams",
     "resultTypeRef": "/packages/solx-ollama/ChatResult",
-    "actionConfig": {"timeout_secs": 1860, "secrets": {"OLLAMA_API_KEY": $key}},
+    "actionConfig": {"timeout_secs": 1860, "secrets": ["OLLAMA_API_KEY"]},
 };
 save action /packages/solx-ollama/ollama-list-models --json {
     "actionType": "wasm",
@@ -211,7 +197,7 @@ save action /packages/solx-ollama/ollama-list-models --json {
     ],
     "paramTypeRef": "/packages/solx-ollama/NoArgParams",
     "resultTypeRef": "/packages/solx-ollama/ModelsResult",
-    "actionConfig": {"timeout_secs": 360, "secrets": {"OLLAMA_API_KEY": $key}},
+    "actionConfig": {"timeout_secs": 360, "secrets": ["OLLAMA_API_KEY"]},
 };
 save action /packages/solx-ollama/ollama-pull-model --json {
     "actionType": "wasm",
@@ -231,7 +217,7 @@ save action /packages/solx-ollama/ollama-pull-model --json {
     "phrases": ["ollama pull", "download a model", "install an ollama model", "fetch a model"],
     "paramTypeRef": "/packages/solx-ollama/TransferModelParams",
     "resultTypeRef": "/packages/solx-ollama/StatusResult",
-    "actionConfig": {"timeout_secs": 7260, "secrets": {"OLLAMA_API_KEY": $key}},
+    "actionConfig": {"timeout_secs": 7260, "secrets": ["OLLAMA_API_KEY"]},
 };
 save action /packages/solx-ollama/ollama-set-api-key --json {
     "actionType": "wasm",
@@ -255,5 +241,5 @@ save action /packages/solx-ollama/ollama-set-api-key --json {
         "configure ollama cloud",
     ],
     "paramTypeRef": "/packages/solx-ollama/SetApiKeyParams",
-    "actionConfig": {"timeout_secs": 60, "secrets": {"OLLAMA_API_KEY": $key}},
+    "actionConfig": {"timeout_secs": 60, "secrets": ["OLLAMA_API_KEY"]},
 }

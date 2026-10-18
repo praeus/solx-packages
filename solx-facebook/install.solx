@@ -1,20 +1,5 @@
 save file files/actions/shared/solx-facebook-actions.wasm --file bin/solx-facebook-actions.wasm;
 
-# Reinstalling (e.g. to pick up a new package version) must not rotate the
-# encryption key baked into every action below -- that would make every
-# already-persisted secret (the Page access token, app id/secret)
-# undecryptable and force the user through login again. If this package was
-# installed before (any action already exists under our path), reuse "***":
-# `save action` restores the real stored value for any secret whose incoming
-# value is that sentinel (see solx-actions::mask::unmask_merge) rather than
-# overwriting it. Only a genuinely first-time install generates a fresh key.
-$existing = list action --path /packages/solx-facebook --limit 1;
-if $existing.total > 0 then
-    $key = "***";
-else
-    $key = random 32;
-endif
-
 save file files/actions/shared/solx-facebook-login.solx --file login.solx;
 
 save action /packages/solx-facebook/login-to-facebook --json {
@@ -40,11 +25,11 @@ save action /packages/solx-facebook/login-to-facebook --json {
     ],
     "paramTypeRef": "/packages/solx-facebook/FacebookLoginParams",
     "actionConfig": {
-        "secrets": {
-            "FACEBOOK_APP_ID": $key,
-            "FACEBOOK_APP_SECRET": $key,
-            "FACEBOOK_PAGE_ACCESS_TOKEN": $key,
-        },
+        "secrets": [
+            "FACEBOOK_APP_ID",
+            "FACEBOOK_APP_SECRET",
+            "FACEBOOK_PAGE_ACCESS_TOKEN",
+        ],
     },
 };
 
@@ -419,7 +404,7 @@ save action /packages/solx-facebook/get-facebook-post --json {
     "resultTypeRef": "/packages/solx-facebook/FacebookPost",
     "actionConfig": {
         "method": "GET",
-        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "secrets": ["FACEBOOK_PAGE_ACCESS_TOKEN"],
         "timeout_secs": 30,
         "path_params": {"post_id": ""},
         "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
@@ -441,7 +426,7 @@ save action /packages/solx-facebook/create-facebook-post --json {
     "paramTypeRef": "/packages/solx-facebook/FacebookPostCreateParams",
     "resultTypeRef": "/packages/solx-facebook/FacebookWriteResult",
     "actionConfig": {
-        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "secrets": ["FACEBOOK_PAGE_ACCESS_TOKEN"],
         "timeout_secs": 60,
         "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
     },
@@ -457,7 +442,7 @@ save action /packages/solx-facebook/update-facebook-post --json {
     "paramTypeRef": "/packages/solx-facebook/FacebookPostUpdateParams",
     "resultTypeRef": "/packages/solx-facebook/FacebookWriteResult",
     "actionConfig": {
-        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "secrets": ["FACEBOOK_PAGE_ACCESS_TOKEN"],
         "timeout_secs": 60,
         "path_params": {"post_id": ""},
         "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
@@ -480,7 +465,7 @@ save action /packages/solx-facebook/list-facebook-posts --json {
     "resultTypeRef": "/packages/solx-facebook/FacebookPostList",
     "actionConfig": {
         "method": "GET",
-        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "secrets": ["FACEBOOK_PAGE_ACCESS_TOKEN"],
         "timeout_secs": 30,
         "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
     },
@@ -496,7 +481,7 @@ save action /packages/solx-facebook/list-facebook-comments --json {
     "paramTypeRef": "/packages/solx-facebook/FacebookCommentListParams",
     "actionConfig": {
         "method": "GET",
-        "secrets": {"FACEBOOK_PAGE_ACCESS_TOKEN": $key},
+        "secrets": ["FACEBOOK_PAGE_ACCESS_TOKEN"],
         "timeout_secs": 30,
         "path_params": {"object_id": ""},
         "auth": {"type": "bearer", "token_secret": "FACEBOOK_PAGE_ACCESS_TOKEN", "ttl_secs": 300},
@@ -592,7 +577,7 @@ save action /packages/solx-facebook/_private/oauth-token-exchange --json {
     "phrases": ["facebook oauth token exchange"],
     "paramTypeRef": "/packages/solx-facebook/FacebookLoginParams",
     "actionConfig": {
-        "secrets": {"FACEBOOK_APP_ID": $key, "FACEBOOK_APP_SECRET": $key},
+        "secrets": ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
         "timeout_secs": 30,
         "auth": {
             "type": "oauth_authorization_code",

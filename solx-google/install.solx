@@ -1,20 +1,5 @@
 save file files/actions/shared/solx-google-actions.wasm --file bin/solx-google-actions.wasm;
 
-# Reinstalling (e.g. to pick up a new package version) must not rotate the
-# OAuth encryption key baked into every action below -- that would make
-# every already-persisted secret undecryptable and force the user through
-# the whole login flow again. If this package was installed before (any
-# action already exists under our path), reuse "***": `save action`
-# restores the real stored value for any secret whose incoming value is
-# that sentinel (see solx-actions::mask::unmask_merge) rather than
-# overwriting it. Only a genuinely first-time install generates a fresh key.
-$existing = list action --path /packages/solx-google --limit 1;
-if $existing.total > 0 then
-    $key = "***";
-else
-    $key = random 32;
-endif
-
 save file files/actions/shared/solx-google-login.solx --file login.solx;
 
 save action /packages/solx-google/login-to-google --json {
@@ -41,12 +26,12 @@ save action /packages/solx-google/login-to-google --json {
     ],
     "paramTypeRef": "/packages/solx-google/GoogleOAuthLoginParams",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-            "GOOGLE_OAUTH_SCOPE": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+            "GOOGLE_OAUTH_SCOPE",
+        ],
     },
 };
 
@@ -720,11 +705,11 @@ save action /packages/solx-google/get-google-doc --json {
     "resultTypeRef": "/packages/solx-google/GoogleDocsDoc",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"documentId": ""},
         "auth": {
@@ -747,11 +732,11 @@ save action /packages/solx-google/post-google-doc --json {
     "phrases": ["post google doc", "write google doc", "update google doc"],
     "paramTypeRef": "/packages/solx-google/GoogleDocsPostParams",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 60,
         "path_params": {"documentId": ""},
         "auth": {
@@ -847,11 +832,11 @@ save action /packages/solx-google/find-google-drive-folder --json {
     "paramTypeRef": "/packages/solx-google/GoogleDriveFindFolderParams",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "auth": {
             "type": "oauth_refresh",
@@ -873,11 +858,11 @@ save action /packages/solx-google/create-google-file --json {
     "phrases": ["create google drive file", "create google drive folder", "create google doc"],
     "paramTypeRef": "/packages/solx-google/GoogleDriveCreateFileParams",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 60,
         "auth": {
             "type": "oauth_refresh",
@@ -899,11 +884,11 @@ save action /packages/solx-google/upload-google-drive-image --json {
     "phrases": ["upload image to google drive", "upload icon to drive"],
     "paramTypeRef": "/packages/solx-google/GoogleDriveUploadImageParams",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 60,
         "body_mode": "multipart_related",
         "auth": {
@@ -926,11 +911,11 @@ save action /packages/solx-google/share-google-drive-file-public --json {
     "phrases": ["share google drive file", "make drive file public"],
     "paramTypeRef": "/packages/solx-google/GoogleDriveShareFileParams",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"fileId": ""},
         "auth": {
@@ -956,11 +941,11 @@ save action /packages/solx-google/list-gmail-messages --json {
     "paramTypeRef": "/packages/solx-google/GmailListParams",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "auth": {
             "type": "oauth_refresh",
@@ -984,11 +969,11 @@ save action /packages/solx-google/get-gmail-message --json {
     "resultTypeRef": "/packages/solx-google/GmailMessage",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"id": ""},
         "auth": {
@@ -1011,11 +996,11 @@ save action /packages/solx-google/send-gmail-message --json {
     "phrases": ["send gmail", "send email"],
     "paramTypeRef": "/packages/solx-google/GmailSendParams",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "auth": {
             "type": "oauth_refresh",
@@ -1040,11 +1025,11 @@ save action /packages/solx-google/list-google-tasklists --json {
     "paramTypeRef": "/packages/solx-google/GoogleTasklistsListParams",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "auth": {
             "type": "oauth_refresh",
@@ -1067,11 +1052,11 @@ save action /packages/solx-google/list-google-tasks --json {
     "paramTypeRef": "/packages/solx-google/GoogleTaskListParams",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"tasklist": ""},
         "auth": {
@@ -1096,11 +1081,11 @@ save action /packages/solx-google/get-google-task --json {
     "resultTypeRef": "/packages/solx-google/GoogleTask",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"tasklist": "", "task": ""},
         "auth": {
@@ -1124,11 +1109,11 @@ save action /packages/solx-google/create-google-task --json {
     "paramTypeRef": "/packages/solx-google/GoogleTaskCreateParams",
     "resultTypeRef": "/packages/solx-google/GoogleTask",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"tasklist": ""},
         "auth": {
@@ -1154,11 +1139,11 @@ save action /packages/solx-google/list-calendar-events --json {
     "paramTypeRef": "/packages/solx-google/CalendarEventsListParams",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"calendarId": ""},
         "auth": {
@@ -1183,11 +1168,11 @@ save action /packages/solx-google/get-calendar-event --json {
     "resultTypeRef": "/packages/solx-google/CalendarEvent",
     "actionConfig": {
         "method": "GET",
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"calendarId": "", "eventId": ""},
         "auth": {
@@ -1211,11 +1196,11 @@ save action /packages/solx-google/create-calendar-event --json {
     "paramTypeRef": "/packages/solx-google/CalendarEventCreateParams",
     "resultTypeRef": "/packages/solx-google/CalendarEvent",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_REFRESH_TOKEN": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REFRESH_TOKEN",
+        ],
         "timeout_secs": 30,
         "path_params": {"calendarId": ""},
         "auth": {
@@ -1240,11 +1225,11 @@ save action /packages/solx-google/_private/oauth-token-exchange --json {
     "phrases": ["google oauth token exchange", "exchange oauth code"],
     "paramTypeRef": "/packages/solx-google/GoogleOAuthLoginParams",
     "actionConfig": {
-        "secrets": {
-            "GOOGLE_OAUTH_CLIENT_ID": $key,
-            "GOOGLE_OAUTH_CLIENT_SECRET": $key,
-            "GOOGLE_OAUTH_SCOPE": $key,
-        },
+        "secrets": [
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_SCOPE",
+        ],
         "timeout_secs": 30,
         "auth": {
             "type": "oauth_authorization_code",

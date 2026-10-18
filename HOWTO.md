@@ -92,6 +92,15 @@ These are what the build scripts key off, so getting them right is what makes
   needs editing per machine. Do **not** put a `cwd` in an action's
   `actionConfig` in `install.solx`: it is not resolved, and the manifest's
   `cwd` takes priority anyway.
+- **Actions are locked on install.** Everything `install.solx` leaves under
+  `/packages/<name>/` is locked: anyone can run it, but only the CLI, a
+  reinstall, or the root token can change it, and a Script/WASM action runs
+  only the artifact it was locked against. List any action a model or a
+  widget should be able to edit under `"unlocked_actions": ["<name>", ...]`
+  in `solx-package.json`, relative to `/packages/<name>/`. After rebuilding
+  an artifact outside an install, run `solx action lock <ref>` to re-pin it
+  (a locked action whose file changed refuses to run). `install.solx` can't
+  set `locked` itself.
 - **`command_actions` keys** are the `fnName`s actions use. The program token
   is the command's first word, or its second when the first is an interpreter
   (`node`, `bun`, `deno`, `python`, `python3`).
@@ -249,10 +258,14 @@ scripts/build-wasm.sh solx-thing --install   # ...then solx install-package solx
 scripts/build-all.sh                         # every package that has anything to build
 ```
 
-If the package owns secrets an action encrypts (OAuth tokens etc.), do not
-rotate the key on reinstall — reuse the `"***"` sentinel exactly as
-`solx-ollama/install.solx` and `solx-google/install.solx` do, or a reinstall
-orphans every stored credential.
+If the package owns secrets an action encrypts (OAuth tokens etc.), list
+their names under each action's `actionConfig.secrets`, as
+`solx-ollama/install.solx` and `solx-google/install.solx` do. The install
+script never handles a key: solx generates one per package, keeps it across
+reinstalls (so stored credentials survive an upgrade), and forgets it on
+uninstall. Secrets are stored per package, so names only need to be unique
+within yours. Only the CLI or a package install — root — can save an action
+that lists secrets.
 
 ---
 
@@ -632,9 +645,11 @@ the *caller* is written, not by how the action was built.
 A WASM action reaches other actions through the single `action-exec` import —
 `exec(actionRef, paramsJson)` with a full `/path/name` reference, including
 every built-in. Calls are attributed to the calling action, which is what
-scopes `/builtin/secrets` reads to the guest's own `action_config.secrets`.
+scopes `/builtin/secrets` reads to the secret names in the guest's own
+`action_config.secrets`, within its package.
 Guests **cannot** create, modify or delete `command`/`webhook` actions, so a
-component can never grant itself shell or outbound HTTP.
+component can never grant itself shell or outbound HTTP, and cannot create or
+modify any action that has secrets.
 
 From Rust, `solx-wasm` re-exports `exec_action` / `read_artifact` / `log`.
 From JS, `import { exec } from "sol:actions/action-exec@0.1.0"`.
@@ -671,8 +686,10 @@ Two distinct things share this name. Do not confuse them.
 register its upstream HTTP call as an action, so a caller does not need to
 know the API's shape. `fnName` is the URL, `{placeholders}` are filled from
 the params, and `actionConfig.method` picks GET (params become query string)
-vs POST (params become the JSON body). Auth is resolved from the action's own
-`action_config.secrets` (OAuth refresh-token flow, bearer, or custom headers).
+vs POST (params become the JSON body). Auth credentials are never inline in
+`actionConfig.auth`: each comes from a `<field>_secret` pointer into the
+action's own scoped secrets (OAuth refresh-token flow, bearer) or a keyring
+reference; custom headers are plain `actionConfig.headers`.
 The host must have the target host in `allowed_base_urls` — declared in
 `solx-package.json` and granted at install.
 
@@ -682,7 +699,7 @@ save action /packages/solx-thing/thing-get --json {
     "fnName": "https://api.example.com/v1/things/{id}",
     "actionConfig": {
         "method": "GET",
-        "secrets": { "EXAMPLE_TOKEN": $key },
+        "secrets": ["EXAMPLE_TOKEN"],
         "timeout_secs": 30,
     },
     …
@@ -735,16 +752,16 @@ mounted `/mcp` route always exposes the full catalogue.
 
 ### 8.4 solx scripts
 
-The composition method. `solx script -f file.solx` or `-e '…'`, and the
-`/builtin/script/exec` action, all run the same language; a `script`-typed
-action is a stored script with a real reference.
+The composition method. `solx script -f file.solx` or `-e '…'` runs it from
+the CLI; a `script`-typed action is a stored script with a real reference.
+(There is no built-in for running inline script source over MCP or HTTP;
+save a `script` action instead.)
 
 - `exec <ref> [--json '<params>']` calls an action; its result is the stage
   value, so `$r = exec …` captures it.
 - `json <value>` and `str <value>` are the value primitives; `|` pipes a
   stage's value into the next.
-- `$params` is seeded from the caller's payload for both a script action and
-  `/builtin/script/exec`.
+- `$params` is seeded from the caller's payload for a script action.
 - `$var` holds intermediate values; `if … then … else … endif` branches.
 
 Because it drives the ordinary CLI, a script composes across languages freely:

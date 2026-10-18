@@ -8,11 +8,8 @@
 # statement, so without it a single entity an *older* installed version
 # never registered (or that a previous partial teardown already removed)
 # stops the script dead and leaves the package half-uninstalled -- some
-# actions gone, the rest still live. That half-state is what broke
-# reinstalls: install.solx decides whether to reuse the OAuth encryption
-# key by asking whether *any* action still exists under
-# /packages/solx-google, so leftovers made it pass "***" for rows that had
-# just been deleted ("no stored value to restore").
+# actions gone, the rest still live -- and while any action is left, solx
+# keeps the package's OAuth encryption key.
 #
 # Keep this file in sync with install.solx: every `save action`/`save type`
 # there needs a matching delete here.
@@ -109,8 +106,7 @@ delete type /packages/solx-google/GmailMessageToSolDocResult --if-exists;
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 #
-# `set-secret`/`get-secret` are scoped to the calling action's own encryption
-# key (declared in each OAuth action's `action_config.secrets` map), so once
-# the owning action row is gone above, its secrets are unreachable and the
-# scoped store garbage-collects them. There is no `delete_secret` primitive,
-# and none is needed here.
+# The OAuth secrets are encrypted with the package's key, which solx deletes
+# along with the last action above. The stored entries are then unreadable,
+# and a later install clears them the first time it reads them. Nothing to
+# delete here.

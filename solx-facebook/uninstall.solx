@@ -4,8 +4,8 @@
 #
 # Every delete carries `--if-exists`: a script aborts on the first failing
 # statement, so an entity an older version never registered would otherwise
-# leave the package half-uninstalled -- which also breaks the next install's
-# "reuse the existing encryption key" check.
+# leave the package half-uninstalled (and, while any action is left, solx
+# keeps the package's encryption key).
 #
 # Keep this file in sync with install.solx: every `save action`/`save type`
 # there needs a matching delete here.
@@ -60,6 +60,6 @@ delete type /packages/solx-facebook/ImportFacebookPostsResult --if-exists;
 # ── Secrets ──────────────────────────────────────────────────────────────────
 #
 # FACEBOOK_APP_ID / FACEBOOK_APP_SECRET / FACEBOOK_PAGE_ACCESS_TOKEN are
-# encrypted with the key baked into the actions above; once those rows are
-# gone the secrets are unreachable and the scoped store garbage-collects
-# them. There is no delete_secret primitive, and none is needed here.
+# encrypted with the package's key, which solx deletes along with the last
+# action above. The stored entries are then unreadable, and a later install
+# clears them the first time it reads them. Nothing to delete here.

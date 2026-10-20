@@ -96,6 +96,23 @@ jobs:
         env:
           PACKAGE: ${{ matrix.package }}
 
+      # Programs a rust package ships beside its commands (`extra_binaries` in
+      # solx-package.json), each built by its own command into bin/.
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.needs_bun
+        with:
+          bun-version: 1.4.2
+      - name: Build (extra binaries)
+        if: matrix.kind == 'rust'
+        run: |
+          node scripts/package.mjs extra-builds "$PACKAGE" | tr -d '\r' | while IFS=$'\t' read -r binary dir build; do
+            echo "== $binary"
+            (cd "$dir" && bash -c "$build")
+            [ -f "$binary" ] || { echo "::error::$build did not produce $binary"; exit 1; }
+          done
+        env:
+          PACKAGE: ${{ matrix.package }}
+
       - name: Build (wasm component)
         if: matrix.kind == 'wasm'
         run: bash scripts/build-wasm.sh "${{ matrix.package }}"

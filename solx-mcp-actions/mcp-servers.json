@@ -1,8 +1,8 @@
 {
   "servers": {
     "firefox": {
-      "command": "npx",
-      "args": ["-y", "@mozilla/firefox-devtools-mcp@latest", "--connect-existing", "--marionette-port", "2828", "--tool-preset", "developer"],
+      "command": "../solx-firefox/bin/mcp-server",
+      "args": ["--connect-existing", "--marionette-port", "2828", "--tool-preset", "developer"],
       "env": {},
       "tool_filter": {
         "include": [

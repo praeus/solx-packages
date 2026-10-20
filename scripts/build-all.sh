@@ -8,6 +8,8 @@
 #   command_actions.
 #   - Rust ones get `cargo build --release`; their build.rs stages into bin/
 #     where they have one, otherwise the command runs from target/release.
+#     Then each `extra_binaries` build command runs (solx-firefox's bun
+#     compile of the MCP server).
 #   - Node ones (a package.json, no Cargo.toml) get their `build` and
 #     `build:headless` scripts, run with whichever of npm/bun their lockfile
 #     belongs to (installing dependencies first if node_modules is missing).
@@ -20,7 +22,7 @@
 #
 # Usage: scripts/build-all.sh
 # Needs: cargo + the wasm32-wasip2 target; node (to read the manifests) and
-#        npm (or bun) for the node packages.
+#        npm (or bun) for the node packages; bun for solx-firefox's MCP server.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -103,7 +105,19 @@ rust_build() {
     mkdir -p "$(dirname "$pkg/$rel")"
     cp "$target_dir/release/$base" "$pkg/$rel" || return 1
     echo "staged $pkg/$rel"
-  done < <(command_programs "$pkg/solx-package.json" | tr -d '\r' | sort -u)
+  done < <(command_programs "$pkg/solx-package.json" | tr -d '\r' | sort -u) || return 1
+  extra_builds "$pkg"
+}
+
+# The package's `extra_binaries` (see scripts/package.mjs): run each build
+# command in its directory. check_rewritten later confirms each produced its
+# binary.
+extra_builds() {
+  local pkg="$1" binary dir build
+  while IFS=$'\t' read -r binary dir build; do
+    echo "-- $binary: $build"
+    (cd "$dir" && bash -c "$build") || return 1
+  done < <(node "$(native_path "$SCRIPT_DIR/package.mjs")" extra-builds "$pkg" | tr -d '\r')
 }
 
 node_build() {
@@ -192,6 +206,9 @@ for pkg in "${built[@]}"; do
         check_rewritten "$pkg/$rel"
       fi
     done < <(command_programs "$pkg/solx-package.json" | tr -d '\r' | sort -u)
+    while IFS=$'\t' read -r binary _; do
+      check_rewritten "$binary"
+    done < <(node "$(native_path "$SCRIPT_DIR/package.mjs")" extra-builds "$pkg" | tr -d '\r')
   fi
 done
 

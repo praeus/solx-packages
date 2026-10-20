@@ -5,5 +5,8 @@
   "command_actions": {
     "firefox-start": { "command": ".\\solx-firefox.exe start", "cwd": "bin" },
     "firefox-stop": { "command": ".\\solx-firefox.exe stop", "cwd": "bin" }
+  },
+  "extra_binaries": {
+    "mcp-server": { "cwd": "mcp", "build": "bun install --frozen-lockfile && bun run build", "needs": "bun" }
   }
 }

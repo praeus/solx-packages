@@ -28,3 +28,7 @@ dist-headless
 node_modules
 zips
 dist-zips
+
+# bun build --compile's downloaded runtimes (cross-builds, and the host runtime
+# it caches next to the project).
+.bun-cache

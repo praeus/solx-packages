@@ -44,7 +44,8 @@ Tested on Windows x64, Bun 1.4.2, `@mozilla/firefox-devtools-mcp@0.10.6`
 | Finding | Detail |
 |---|---|
 | Package shape | One bundled ESM CLI, `dist/index.js`, plus `dist/snapshot.injected.global.js`. Configured by CLI flags; there is no server class to embed. |
-| Plain `--compile` works | `bun build --compile dist/index.js` bundles 262 modules and the binary boots (`--version` → `0.10.6`). **No plugin is needed**: selenium-webdriver 4.36.0 already loads its atoms with static `require('./atoms/…')` calls. (Bun has no `--plugin` CLI flag anyway; plugins only exist in the `Bun.build()` JS API.) |
+| A plain `--compile` **does not** work | selenium-webdriver 4.36.0 loads three WebDriver atoms through a dynamic `require('./atoms/' + module)` at module scope (`requireAtom()` in `selenium-webdriver/lib/http.js`). A bundler cannot follow that, so the compiled binary keeps the raw `require` and throws `Cannot find module './atoms/get-attribute.js'` from inside `/$bunfs/root` as soon as it imports selenium — before `--version`. (Node is unaffected: it resolves against the real `node_modules` on disk.) |
+| The fix is a **`Bun.build()` plugin**, not a CLI flag | Rewriting the three call sites to static `require('./atoms/<file>')` in `onLoad` makes Bun bundle the atom files. This **must** go through the JS API: `bun build … --plugin <file>` is undocumented in 1.4.2 and silently does nothing — verified with a minimal project whose entry a plugin should have rewritten. Use `new Bun.build({ plugins: [obj] })`, with a **plain object** (`plugin()` from `"bun"` is the bunfig form and is rejected with "Expected plugin to be an object"). |
 | Handshake | `initialize` → `serverInfo`, and `tools/list` → 49 tools under `--tool-preset developer`, from an unrelated cwd. All 22 names in the existing `tool_filter.include` are in that preset. |
 | `take_snapshot` needs `--asset` | The server finds `snapshot.injected.global.js` next to its own `import.meta.url`. `--asset <dist>/snapshot.injected.global.js` embeds it. Verified: against a headless `solx-firefox start`, run from an unrelated cwd, `new_page` + `take_snapshot` returns the page's elements. |
 | **NODE_ENV must be baked in at build time** | The bundle loads `dotenv` unless `process.env.NODE_ENV === "production"`, and dotenv prints a banner **to stdout**, which is the MCP protocol channel. `bun build` inlines `process.env.NODE_ENV` as `"development"`, so setting `NODE_ENV` in the spawn env has **no effect**. Verified fix: `--define 'process.env.NODE_ENV="production"'`. With it, a `.env` planted in the cwd is not loaded and stdout is JSON-RPC only. |
@@ -75,19 +76,31 @@ per-machine edits.
 
 ### 4.1 Build: `solx-firefox/mcp/build.mjs`
 
-Resolve the package's `dist/` through `node_modules`, then run:
+Resolve the package's `dist/` through `node_modules`, then build through the
+**JS API** (the CLI cannot apply the plugin — see §2):
 
-```
-bun build --compile <dist>/index.js \
-  --outfile ../bin/mcp-server<.exe> \
-  --asset <dist>/snapshot.injected.global.js \
-  --define 'process.env.NODE_ENV="production"' \
-  --no-compile-autoload-dotenv \
-  --no-compile-autoload-bunfig
+```js
+await Bun.build({
+  entrypoints: [path.join(dist, "index.js")],
+  outdir: binDir,
+  naming: "mcp-server(.exe)",
+  plugins: [atomsPlugin],            // plain object, not plugin() from "bun"
+  compile: {
+    outfile,
+    assets: [path.join(dist, ASSET)], // JS-API form of --asset
+    autoloadDotenv: false,            // JS-API form of --no-compile-autoload-dotenv
+    autoloadBunfig: false,            // JS-API form of --no-compile-autoload-bunfig
+  },
+  define: { "process.env.NODE_ENV": '"production"' },
+});
 ```
 
 - Fail (non-zero exit) if `index.js` or the snapshot asset is missing, or if
   the built binary doesn't print the pinned version for `--version`.
+- **Smoke-test a tool call, not just `tools/list`.** `tools/list` never touches
+  selenium, so a build with a broken atom load passes it and ships. Call
+  `new_page` (a `no Marionette listener` error is a pass — it proves selenium
+  imported) and fail if the answer contains `Failed to import atoms module`.
 - Pin the exact upstream version (no `^`, never `@latest`). Every bump re-runs
   §6.
 - Host platform only. `--target` cross-builds work (linux-x64 from Windows was
@@ -172,22 +185,28 @@ replaces its directory, so any install-time or hand edit would be lost.
 
 Run after any build change and every upstream bump:
 
-1. **Boots:** `bin/mcp-server --version` prints the pinned version.
-2. **Handshake:** `initialize` returns `serverInfo`, and `tools/list` returns
+1. **Boots:** `bin/mcp-server --version` prints the pinned version. This alone
+   is **not** sufficient — it exercises the bundle before selenium's module
+   init.
+2. **Atoms bundled:** `new_page` (no Firefox needed) must not answer with
+   `Failed to import atoms module` / `Cannot find module './atoms/…'`. A
+   `no Marionette listener` error is a pass. `requireAtom` and `bazel-bin`
+   should be absent from the binary's strings if the plugin was applied.
+3. **Handshake:** `initialize` returns `serverInfo`, and `tools/list` returns
    49 tools under `--tool-preset developer`, including all 22 filtered names.
-3. **Clean stdout:** with a `.env` in the cwd, every stdout line parses as
+4. **Clean stdout:** with a `.env` in the cwd, every stdout line parses as
    JSON-RPC and stderr has no `Loaded .env`.
-4. **Snapshot:** with `solx-firefox start` running, `new_page` then
+5. **Snapshot:** with `solx-firefox start` running, `new_page` then
    `take_snapshot` returns real DOM text (the `--asset` regression test).
-5. **cwd-independence:** repeat 2 and 4 from an unrelated directory.
-6. **Hardening:** a `bunfig.toml` with `preload = ["./evil.cjs"]` in the cwd
+6. **cwd-independence:** repeat 3 and 5 from an unrelated directory.
+7. **Hardening:** a `bunfig.toml` with `preload = ["./evil.cjs"]` in the cwd
    does not run.
-7. **Spaces:** install to a path containing a space and repeat 2 through
+8. **Spaces:** install to a path containing a space and repeat 3 through
    `solx-mcp-actions`.
-8. **Integrated:** `solx exec /packages/solx-firefox/firefox-mcp-setup`
+9. **Integrated:** `solx exec /packages/solx-firefox/firefox-mcp-setup`
    imports the tools, and an `mcp-firefox-*` call succeeds.
 
-`mcp/build.mjs` runs 1–3 and 6 (from a scratch cwd, which also covers the
+`mcp/build.mjs` runs 1–4 and 6 (from a scratch cwd, which also covers the
 no-Firefox half of 5) after every host build, so CI and `build-all.sh` fail
 on a regression. 4, 7 and 8 are manual.
 

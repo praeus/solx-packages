@@ -14,6 +14,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import atomsPlugin from "./atoms-plugin.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = "@mozilla/firefox-devtools-mcp";
@@ -52,23 +53,37 @@ const binDir = path.resolve(HERE, "..", "bin");
 const outfile = path.join(binDir, `mcp-server${windows ? ".exe" : ""}`);
 fs.mkdirSync(binDir, { recursive: true });
 
-const args = [
-  "build", "--compile", path.join(dist, "index.js"),
-  "--outfile", outfile,
-  // The server reads the snapshot script from next to its own module.
-  "--asset", path.join(dist, ASSET),
+// Built through Bun.build's JS API rather than `bun build … --plugin`:
+// Bun 1.4.2 accepts the CLI flag but never runs the plugin (verified with a
+// minimal patched-entry project), whereas the JS API applies it. Do not
+// "simplify" this back to a CLI invocation.
+const build = await Bun.build({
+  entrypoints: [path.join(dist, "index.js")],
+  outdir: binDir,
+  naming: path.basename(outfile),
+  plugins: [atomsPlugin],
+  // selenium-webdriver loads its atoms through a dynamic require() that a
+  // bundler cannot follow; atomsPlugin rewrites them to static ones. Without
+  // it the binary throws "Cannot find module './atoms/get-attribute.js'" as
+  // soon as it touches selenium, which is why the smoke test below drives a
+  // tool call and not just tools/list.
+  compile: {
+    outfile,
+    // The server reads the snapshot script from next to its own module.
+    // `compile.assets` is the JS-API form of the CLI's `--asset`.
+    assets: [path.join(dist, ASSET)],
+    // The server runs in a caller-chosen cwd; never load .env or bunfig.toml
+    // (a bunfig preload runs arbitrary code) from it.
+    autoloadDotenv: false,
+    autoloadBunfig: false,
+    ...(cross ? { target } : {}),
+  },
   // bun build inlines process.env.NODE_ENV as "development", which makes the
   // bundle load dotenv and print its banner to stdout -- the MCP channel.
-  "--define", 'process.env.NODE_ENV="production"',
-  // The server runs in a caller-chosen cwd; never load .env or bunfig.toml
-  // (a bunfig preload runs arbitrary code) from it.
-  "--no-compile-autoload-dotenv",
-  "--no-compile-autoload-bunfig",
-  ...(cross ? ["--target", target] : []),
-];
-const build = spawnSync(process.execPath, args, { stdio: "inherit" });
-if (build.status !== 0) fail(`bun build exited with ${build.status}`);
-if (!fs.existsSync(outfile)) fail(`bun build did not produce ${outfile}`);
+  define: { "process.env.NODE_ENV": '"production"' },
+});
+if (!build.success) fail(`Bun.build failed:\n${build.logs.map(String).join("\n")}`);
+if (!fs.existsSync(outfile)) fail(`Bun.build did not produce ${outfile}`);
 
 if (cross) {
   console.log(`built ${outfile} for ${target} (smoke test skipped when cross-compiling)`);
@@ -93,14 +108,16 @@ const tools = await new Promise((resolve) => {
   let stdout = "";
   let stderr = "";
   let settled = false;
+  let names;
+  let callResult;
   const done = (result) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
     child.kill();
-    resolve({ ...result, stderr });
+    resolve({ ...result, stderr, names, callResult });
   };
-  const timer = setTimeout(() => done({ error: "timed out waiting for tools/list" }), 30_000);
+  const timer = setTimeout(() => done({ error: "timed out waiting for tools/list + tools/call" }), 60_000);
   child.stderr.on("data", (d) => (stderr += d));
   child.stdout.on("data", (d) => {
     stdout += d;
@@ -117,11 +134,26 @@ const tools = await new Promise((resolve) => {
         child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
         child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) + "\n");
       } else if (msg.id === 2) {
-        return done({ names: (msg.result?.tools ?? []).map((t) => t.name) });
+        names = (msg.result?.tools ?? []).map((t) => t.name);
+        // Drive one tool call: requireAtom() runs at selenium's module scope,
+        // so merely reaching the browser connection is enough to prove the
+        // atoms were bundled. No Firefox needs to be running -- a
+        // "no listener on 2828" answer still means the modules loaded.
+        child.stdin.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "tools/call",
+            params: { name: "new_page", arguments: { url: "about:blank" } },
+          }) + "\n",
+        );
+      } else if (msg.id === 3) {
+        callResult = msg.result?.content?.[0]?.text ?? msg.error?.message ?? "";
+        return done({});
       }
     }
   });
-  child.on("exit", (code) => done({ error: `server exited with ${code} before answering tools/list` }));
+  child.on("exit", (code) => done({ error: `server exited with ${code} before finishing the smoke test` }));
   child.stdin.write(
     JSON.stringify({
       jsonrpc: "2.0",
@@ -137,6 +169,11 @@ fs.rmSync(cwd, { recursive: true, force: true });
 if (tools.error) fail(`${tools.error}\n${tools.stderr}`);
 if (planted) fail("the binary ran a bunfig.toml preload from its cwd; --no-compile-autoload-bunfig is not taking effect");
 if (tools.stderr.includes("Loaded .env")) fail("the binary loaded .env from its cwd; NODE_ENV is not baked in as production");
+// The failure this guards against is a module-resolve throw that arrives as a
+// tool-level error, not a non-zero exit, so check the text of the answer.
+if (/Failed to import atoms module|Cannot find module '\.\/atoms/.test(tools.callResult ?? "")) {
+  fail(`selenium's atoms were not bundled -- mcp/atoms-plugin.mjs is not being applied:\n${tools.callResult}`);
+}
 
 // Every tool solx-mcp-actions imports must still exist (when that package is
 // checked out next to this one).

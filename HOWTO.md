@@ -431,9 +431,14 @@ and why a package must declare every key it wants in `command_actions`.
   action's console renders to **stderr**, and `solx exec … | jq` stays clean.
 - **exit code**: non-zero is a failed exec.
 - **Environment** `run_command` sets on every invocation:
-  `SOL_LOG_DIR` (log file directory), `SOLX_CONSOLE_URL`/`SOLX_CONSOLE_TOKEN`
-  (the action console loopback), `SOLX_CONTROL_URL` (cancellation checks).
-  `actionConfig.env` adds package-specific ones such as `SOLX_SERVER_URL`.
+  `SOL_LOG_DIR` (log file directory), `SOLX_ACTION_REF` (the `/path/name`
+  of the action being run, for one command key that serves many actions),
+  `SOLX_CONSOLE_URL`/`SOLX_CONSOLE_TOKEN` (the action console loopback),
+  `SOLX_CONTROL_URL` (cancellation checks), and, when the host has a token
+  authority, `SOLX_SERVER_URL`/`SOLX_SERVER_TOKEN` (the invocation's own
+  server credential).
+  `actionConfig.env` is ignored: nothing in the action row can add a
+  variable.
 
 Use [`solx-package-lib/`](solx-package-lib/) (`solx-package-log` in code) and
 you get stderr + log file + console in one `info()` call, `cancelled()` for

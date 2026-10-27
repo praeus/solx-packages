@@ -10,10 +10,10 @@
 //!               `tools/list`, and create one solx `Command` action per
 //!               tool (e.g. `mcp-filesystem-read-file`).
 //! - `invoke`  — what the shared `solx-mcp-actions-invoke` command key every
-//!               generated per-tool action points at runs. Recovers which
-//!               server/tool to call from `tool.json` in the directory named
-//!               by `SOLX_MCP_TOOL_DIR` (set in each generated action's
-//!               `action_config.env`), and reads the call arguments from
+//!               generated per-tool action points at runs. solx-core names
+//!               the action being run in `SOLX_ACTION_REF`; its manifest
+//!               entry gives the per-tool directory, whose `tool.json` says
+//!               which server/tool to call. Reads the call arguments from
 //!               **stdin** (solx-core's `run_command` writes params JSON to
 //!               the child's stdin).
 //! - `remove`  — delete a server's previously imported actions/types,
@@ -51,7 +51,12 @@ use mcp_client::McpSession;
 /// The `command_actions` key (solx-package.json) every generated per-tool
 /// action's `fnName` points at.
 const INVOKE_COMMAND_KEY: &str = "solx-mcp-actions-invoke";
-/// Env var naming the per-tool directory (holding `tool.json`) for `invoke`.
+/// Set by solx-core on every Command it runs: the `/path/name` of the
+/// action, which `invoke` looks up in the manifests.
+const ACTION_REF_ENV: &str = "SOLX_ACTION_REF";
+/// The per-tool directory, as actions imported before `SOLX_ACTION_REF`
+/// existed carried it (in `action_config.env`, which solx-core no longer
+/// forwards). Still honored for a host that sets it.
 const TOOL_DIR_ENV: &str = "SOLX_MCP_TOOL_DIR";
 
 #[derive(Parser)]
@@ -123,7 +128,7 @@ async fn main() {
         Commands::Import { server, dry_run, permission_name, include, exclude } => {
             run_import(&home, server, dry_run, permission_name, include, exclude).await
         }
-        Commands::Invoke => run_invoke().await,
+        Commands::Invoke => run_invoke(&home).await,
         Commands::Remove { server } => run_remove(&home, server).await,
     };
 
@@ -352,9 +357,11 @@ async fn import_one_tool(
 
     // The generated action is a Command type pointing at the shared
     // `solx-mcp-actions-invoke` allowlist key (solx-package.json), which runs
-    // `invoke` in this package's `bin/`. The per-tool directory holding
-    // `tool.json` travels in `action_config.env` as `TOOL_DIR_ENV` — not as
-    // `action_config.cwd`, which the allowlist entry's own `cwd` overrides.
+    // `invoke` in this package's `bin/`. Nothing in the row says which tool
+    // it is: solx-core hands `invoke` the action's own ref in
+    // `ACTION_REF_ENV`, and the manifest maps that to the tool's directory.
+    // (`action_config.env` is no longer forwarded, and `action_config.cwd`
+    // is overridden by the allowlist entry's own `cwd`.)
     let mut action_body = json!({
         "actionType": "command",
         "fnName": INVOKE_COMMAND_KEY,
@@ -365,7 +372,6 @@ async fn import_one_tool(
         "phrases": vec![tool_name.to_string(), format!("mcp {tool_name}"), format!("{server} {tool_name}")],
         "paramTypeRef": param_type_ref,
         "resultTypeRef": result_type_ref,
-        "actionConfig": { "env": { TOOL_DIR_ENV: dir.to_string_lossy() } },
     });
     if let Some(perm) = permission_name {
         action_body["permission_name"] = json!(perm);
@@ -382,13 +388,24 @@ async fn import_one_tool(
     })
 }
 
-async fn run_invoke() -> anyhow::Result<Value> {
-    // `TOOL_DIR_ENV` is set by every action `import` generates; the cwd
-    // fallback covers actions generated before that, whose identity was
-    // their `action_config.cwd`.
-    let cwd = match std::env::var_os(TOOL_DIR_ENV).filter(|d| !d.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => std::env::current_dir()
+async fn run_invoke(home: &Path) -> anyhow::Result<Value> {
+    // Which tool this is: the action's ref (set by solx-core) looked up in
+    // the manifests; else an explicit `TOOL_DIR_ENV`; else the cwd, which
+    // was the identity of actions generated before either existed.
+    let action_ref = std::env::var(ACTION_REF_ENV).ok().filter(|r| !r.is_empty());
+    let cwd = match (
+        std::env::var_os(TOOL_DIR_ENV).filter(|d| !d.is_empty()),
+        &action_ref,
+    ) {
+        (Some(dir), _) => PathBuf::from(dir),
+        (None, Some(action_ref)) => config::tool_dir_for_action(home, action_ref).ok_or_else(|| {
+            anyhow::anyhow!(
+                "{action_ref} is not in any solx-mcp-actions manifest under {}; \
+                 re-run 'solx-mcp-actions import <server>'",
+                home.join("tools").display()
+            )
+        })?,
+        (None, None) => std::env::current_dir()
             .map_err(|e| anyhow::anyhow!("failed to read current working directory: {e}"))?,
     };
     let descriptor = config::read_tool_descriptor(&cwd)?;

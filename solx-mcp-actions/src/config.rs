@@ -158,9 +158,9 @@ pub fn find_server<'a>(cfg: &'a ServersConfig, name: &str) -> anyhow::Result<&'a
 }
 
 /// Descriptor written into every per-tool directory. `solx-mcp-actions
-/// invoke` reads it from the directory in `SOLX_MCP_TOOL_DIR` (set via the
-/// generated action's `action_config.env`) to recover which server/tool
-/// it's supposed to call.
+/// invoke` reads it from the directory its action's manifest entry names
+/// (see [`tool_dir_for_action`]) to recover which server/tool it's supposed
+/// to call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
     pub server: String,
@@ -243,6 +243,24 @@ pub struct Manifest {
     pub imported_at: String,
     #[serde(default)]
     pub tools: Vec<ManifestEntry>,
+}
+
+/// The per-tool directory of the imported action `action_ref`
+/// (`/path/name`, as solx-core hands it over in `SOLX_ACTION_REF`), found by
+/// searching every server's manifest. `None` when no manifest lists it.
+pub fn tool_dir_for_action(home: &Path, action_ref: &str) -> Option<PathBuf> {
+    let servers = std::fs::read_dir(home.join("tools")).ok()?;
+    servers
+        .filter_map(Result::ok)
+        .filter_map(|server| {
+            let raw = std::fs::read_to_string(server.path().join("manifest.json")).ok()?;
+            serde_json::from_str::<Manifest>(&raw).ok()
+        })
+        .flat_map(|manifest| manifest.tools)
+        .find(|entry| {
+            format!("{}/{}", entry.action_path.trim_end_matches('/'), entry.action_name) == action_ref
+        })
+        .map(|entry| PathBuf::from(entry.dir))
 }
 
 pub fn manifest_path(home: &Path, server: &str) -> PathBuf {

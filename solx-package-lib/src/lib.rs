@@ -44,7 +44,15 @@
 //! read/write documents (or anything else on the HTTP API) resolves its own
 //! connection via [`server::ServerConfig::from_env`] and calls
 //! [`persist::put_document`] — see those modules.
+//!
+//! ## Background commands
+//!
+//! A package that runs as one long-lived process serving many calls,
+//! rather than one process per call, uses [`background::serve`]. While it
+//! runs, logging goes to the host over the protocol instead of the console
+//! loopback — see that module, and its warning about stdout.
 
+pub mod background;
 pub mod persist;
 pub mod server;
 
@@ -94,7 +102,9 @@ async fn log(level: &str, message: &str, data: Option<Value>) {
     eprintln!("[{ts}] {level} {message}");
 
     write_to_file(&ts, level, message);
-    post_to_console(level, message, data).await;
+    if !background::log_to_host(level, message, data.clone()) {
+        post_to_console(level, message, data).await;
+    }
 }
 
 fn write_to_file(ts: &str, level: &str, message: &str) {
@@ -392,6 +402,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn blocking_module_works_with_no_ambient_runtime() {
         // This test function is deliberately not `#[tokio::test]` — the
         // whole point of `blocking` is safety with zero ambient runtime,

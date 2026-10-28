@@ -452,6 +452,100 @@ solx_package_log::info("starting");
 if solx_package_log::cancelled().await { return Ok(()); }
 ```
 
+### Background commands
+
+A Command package normally runs once per call. When the work is expensive
+to start or has to stay put between calls (an embedded database, a browser
+session, a loaded model), make it a **background**: one long-lived process
+that serves every call. solx starts it on first use, keeps at most one per
+machine, and stops it, together with anything it spawned, when it's
+stopped or the host exits.
+
+Declare one command key for the process, then actions that all name the
+same `backgroundNamespace`/`backgroundName`: a `start` action, optionally a
+`stop` action, and one action per operation. Each operation's
+`backgroundOperation` is the op name your binary receives.
+
+```json
+"command_actions": {
+  "thing-serve": { "command": ".\\solx-thing.exe serve", "cwd": "bin" }
+}
+```
+
+```solx
+save action /packages/solx-thing/start --json {
+    "actionType": "command",
+    "fnName": "thing-serve",
+    "description": "Start the thing's background process.",
+    "actionConfig": { "background": {
+        "backgroundNamespace": "solx-thing", "backgroundName": "db",
+        "backgroundOperation": "start" } },
+};
+save action /packages/solx-thing/query --json {
+    "actionType": "command",
+    "fnName": "thing-serve",                    // same key; only start's is run
+    "description": "Query the thing.",
+    "paramTypeRef": "/packages/solx-thing/QueryParams",
+    "actionConfig": { "background": {
+        "backgroundNamespace": "solx-thing", "backgroundName": "db",
+        "backgroundOperation": "query" } },
+};
+```
+
+The binary serves with `solx_package_log::background`:
+
+```rust
+use serde_json::json;
+use solx_package_log::background::{self, Call};
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    solx_package_log::init("solx-thing");
+    let db = std::sync::Arc::new(open_db()?);
+    // Or `serve` to run calls concurrently.
+    background::serve_one_at_a_time(move |call: Call| {
+        let db = db.clone();
+        async move {
+            match call.op.as_str() {
+                "query" => db.query(&call.params).map_err(|e| e.to_string()),
+                op => Err(format!("unknown operation '{op}'")),
+            }
+        }
+    })
+    .await
+}
+```
+
+- **Stdout is the protocol.** Every line on it must come from the library.
+  A stray `println!` or `print_json` makes solx kill the process. Log with
+  `info`/`warn`/`error` (they reach the console of the call being served) or
+  `eprintln!` (the start action's `background.log`).
+- **Concurrency.** `serve` runs calls concurrently; `serve_one_at_a_time`
+  runs them in arrival order, the simple choice for a single-writer store.
+  For concurrent reads and serialized writes, use `serve` with your own
+  `tokio::sync::Mutex` around the writes.
+- **Calling solx back.** There is no `SOLX_SERVER_URL`/`SOLX_SERVER_TOKEN`
+  in a background. Use `call.host().exec(path, name, params)` and
+  `call.host().print(level, message, data)`. They run as the **start**
+  action, so give it the `actionConfig.scopes` the process needs (bounded
+  by the manifest's `scopes`; see solx-core's `docs/security-design.md` §8).
+  An operation's own scopes never widen them.
+- **State lives in the process.** A crash fails the calls in flight, and
+  the next call starts a fresh process, so anything that must survive goes
+  to disk.
+- **Shutdown.** On `stop` or host exit, `serve` stops taking calls, lets
+  the running ones finish and returns. solx kills the process after
+  `stop_grace_secs` (default 10) either way.
+- **Seeing it.** `/builtin/background/list` shows what's running, and
+  `/builtin/background/stop` stops one
+  (`{"backgroundNamespace", "backgroundName"}`).
+- **One per machine.** A second solx process on the same appdata dir (a CLI
+  not attached to a running server) is refused while another holds the
+  background. Keep `solx-server` or the desktop app running and every
+  client attaches to it.
+- **Both ways.** `background::is_background()` tells the binary which way
+  it was started, if it also works as an ordinary one-shot command.
+
 ### Build and install
 
 ```sh

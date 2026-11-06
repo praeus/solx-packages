@@ -1,0 +1,99 @@
+# solx-graph: a background package. One long-lived `solx-graph serve`
+# process keeps the Oxigraph store open and serves every operation below;
+# solx starts it on the first operation and stops it on `stop` or exit.
+# Every action names the same command key; only the start action's runs.
+
+save type /packages/solx-graph/ExtractDocumentParams --json {
+    "description": "Params for extract-document: the solx document to extract into the graph.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The document's path. Defaults to /.",
+            },
+            "name": {
+                "type": "string",
+                "description": "The document's name.",
+            },
+            "model": {
+                "type": ["string", "null"],
+                "description": "The Ollama model that extracts concepts. Defaults to SOLX_GRAPH_MODEL, else llama3.2.",
+            },
+        },
+    },
+};
+save type /packages/solx-graph/ExtractDocumentResult --json {
+    "description": "Result of extract-document.",
+    "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "document": {"type": "string", "description": "The document's /path/name."},
+            "graph": {"type": "string", "description": "The named graph holding what was extracted from it."},
+            "model": {"type": "string"},
+            "concepts": {"type": "integer"},
+            "relations": {"type": "integer"},
+            "triples": {"type": "integer"},
+        },
+    },
+};
+
+save action /packages/solx-graph/start --json {
+    "actionType": "command",
+    "fnName": "graph-serve",
+    "caption": "Start the graph",
+    "category": "graph",
+    "description": "Start solx-graph's background process, which keeps the graph store open. Operations start it themselves; this returns the running process's status.",
+    "capabilities": ["graph", "background", "command"],
+    "actionConfig": {
+        "background": {
+            "backgroundNamespace": "solx-graph",
+            "backgroundName": "store",
+            "backgroundOperation": "start",
+        },
+        # What the process may call back into solx for: every operation
+        # runs its host calls with these, whichever one woke it.
+        "scopes": [
+            "read:document",
+            "exec:/builtin/document/entity-get-document",
+            "exec:/packages/solx-ollama/ollama-chat",
+        ],
+    },
+};
+save action /packages/solx-graph/stop --json {
+    "actionType": "command",
+    "fnName": "graph-serve",
+    "caption": "Stop the graph",
+    "category": "graph",
+    "description": "Stop solx-graph's background process, letting the operation in progress finish first. The next operation starts it again.",
+    "capabilities": ["graph", "background", "command"],
+    "actionConfig": {
+        "background": {
+            "backgroundNamespace": "solx-graph",
+            "backgroundName": "store",
+            "backgroundOperation": "stop",
+        },
+    },
+};
+save action /packages/solx-graph/extract-document --json {
+    "actionType": "command",
+    "fnName": "graph-serve",
+    "caption": "Extract a document into the graph",
+    "category": "graph",
+    "description": "Read a solx document, have an Ollama model (through solx-ollama) list the concepts in it and how they relate, and replace that document's part of the knowledge graph with them.",
+    "capabilities": ["graph", "knowledge-graph", "extract", "concepts", "llm", "command"],
+    "phrases": ["extract a document into the graph", "add a document to the knowledge graph", "find the concepts in a document"],
+    "paramTypeRef": "/packages/solx-graph/ExtractDocumentParams",
+    "resultTypeRef": "/packages/solx-graph/ExtractDocumentResult",
+    "actionConfig": {
+        "timeout_secs": 900,
+        "background": {
+            "backgroundNamespace": "solx-graph",
+            "backgroundName": "store",
+            "backgroundOperation": "extract-document",
+        },
+    },
+};

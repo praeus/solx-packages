@@ -483,7 +483,7 @@ save action /packages/solx-thing/start --json {
 };
 save action /packages/solx-thing/query --json {
     "actionType": "command",
-    "fnName": "thing-serve",                    // same key; only start's is run
+    "fnName": "thing-serve",                    # same key; only start's is run
     "description": "Query the thing.",
     "paramTypeRef": "/packages/solx-thing/QueryParams",
     "actionConfig": { "background": {

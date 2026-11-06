@@ -1,0 +1,5 @@
+delete action /packages/solx-graph/extract-document --if-exists;
+delete action /packages/solx-graph/stop --if-exists;
+delete action /packages/solx-graph/start --if-exists;
+delete type /packages/solx-graph/ExtractDocumentResult --if-exists;
+delete type /packages/solx-graph/ExtractDocumentParams --if-exists;

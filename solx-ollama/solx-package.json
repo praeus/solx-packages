@@ -5,5 +5,14 @@
   "allowed_base_urls": [
     "http://localhost:11434/",
     "http://127.0.0.1:11434/"
+  ],
+  "scopes": [
+    "exec:/builtin/web/http-request",
+    "exec:/builtin/web/stream/*",
+    "exec:/builtin/console/print",
+    "exec:/builtin/action/cancelled",
+    "exec:/builtin/env/get-env",
+    "exec:/builtin/secrets/get-secret",
+    "exec:/builtin/secrets/set-secret"
   ]
 }

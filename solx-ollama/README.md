@@ -220,6 +220,21 @@ Note that most missing-parameter cases never reach the guest: each action has a
 `param_type_ref`, so the host rejects the call during schema validation first.
 The guest's own check is defence in depth.
 
+## Scopes
+
+Each action declares in its `actionConfig.scopes` the built-ins it calls
+back into, and the manifest's `scopes` lists all of them:
+
+| Action | Calls |
+| --- | --- |
+| `ollama-chat`, `ollama-pull-model` | `web/stream/*`, `console/print`, `action/cancelled`, `env/get-env`, `secrets/get-secret` |
+| `ollama-list-models` | `web/http-request`, `env/get-env`, `secrets/get-secret` |
+| `ollama-set-api-key` | `secrets/set-secret` |
+
+All are `exec:/builtin/...`. Without them a scope-enforcing host refuses
+the call, for example `it needs exec:/builtin/web/stream/start`. A new
+built-in call in `src/` needs its scope added in both places.
+
 ## Notes and limitations
 
 - **Uninstall is not resilient to a partial install**: `delete` on a missing

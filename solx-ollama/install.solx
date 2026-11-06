@@ -172,7 +172,17 @@ save action /packages/solx-ollama/ollama-chat --json {
     ],
     "paramTypeRef": "/packages/solx-ollama/ChatParams",
     "resultTypeRef": "/packages/solx-ollama/ChatResult",
-    "actionConfig": {"timeout_secs": 1860, "secrets": ["OLLAMA_API_KEY"]},
+    "actionConfig": {
+        "timeout_secs": 1860,
+        "secrets": ["OLLAMA_API_KEY"],
+        "scopes": [
+            "exec:/builtin/web/stream/*",
+            "exec:/builtin/console/print",
+            "exec:/builtin/action/cancelled",
+            "exec:/builtin/env/get-env",
+            "exec:/builtin/secrets/get-secret",
+        ],
+    },
 };
 save action /packages/solx-ollama/ollama-list-models --json {
     "actionType": "wasm",
@@ -197,7 +207,15 @@ save action /packages/solx-ollama/ollama-list-models --json {
     ],
     "paramTypeRef": "/packages/solx-ollama/NoArgParams",
     "resultTypeRef": "/packages/solx-ollama/ModelsResult",
-    "actionConfig": {"timeout_secs": 360, "secrets": ["OLLAMA_API_KEY"]},
+    "actionConfig": {
+        "timeout_secs": 360,
+        "secrets": ["OLLAMA_API_KEY"],
+        "scopes": [
+            "exec:/builtin/web/http-request",
+            "exec:/builtin/env/get-env",
+            "exec:/builtin/secrets/get-secret",
+        ],
+    },
 };
 save action /packages/solx-ollama/ollama-pull-model --json {
     "actionType": "wasm",
@@ -217,7 +235,17 @@ save action /packages/solx-ollama/ollama-pull-model --json {
     "phrases": ["ollama pull", "download a model", "install an ollama model", "fetch a model"],
     "paramTypeRef": "/packages/solx-ollama/TransferModelParams",
     "resultTypeRef": "/packages/solx-ollama/StatusResult",
-    "actionConfig": {"timeout_secs": 7260, "secrets": ["OLLAMA_API_KEY"]},
+    "actionConfig": {
+        "timeout_secs": 7260,
+        "secrets": ["OLLAMA_API_KEY"],
+        "scopes": [
+            "exec:/builtin/web/stream/*",
+            "exec:/builtin/console/print",
+            "exec:/builtin/action/cancelled",
+            "exec:/builtin/env/get-env",
+            "exec:/builtin/secrets/get-secret",
+        ],
+    },
 };
 save action /packages/solx-ollama/ollama-set-api-key --json {
     "actionType": "wasm",
@@ -241,5 +269,9 @@ save action /packages/solx-ollama/ollama-set-api-key --json {
         "configure ollama cloud",
     ],
     "paramTypeRef": "/packages/solx-ollama/SetApiKeyParams",
-    "actionConfig": {"timeout_secs": 60, "secrets": ["OLLAMA_API_KEY"]},
+    "actionConfig": {
+        "timeout_secs": 60,
+        "secrets": ["OLLAMA_API_KEY"],
+        "scopes": ["exec:/builtin/secrets/set-secret"],
+    },
 }

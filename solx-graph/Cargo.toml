@@ -1,0 +1,26 @@
+[package]
+name = "solx-graph"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Knowledge graph background package for solx-core: extracts solx documents into concepts with Ollama and keeps them in an embedded Oxigraph (RDF/SPARQL) store"
+
+[features]
+# The on-disk store. Only one process may open it, which is why this is a
+# background. Building it needs libclang (oxrocksdb-sys runs bindgen): on
+# Windows, install LLVM and set LIBCLANG_PATH if it isn't found. Without
+# it, `cargo test --no-default-features` still runs everything but `open`.
+default = ["rocksdb"]
+rocksdb = ["oxigraph/rocksdb"]
+
+[dependencies]
+oxigraph = { version = "0.5", default-features = false }
+serde_json = "1"
+solx-package-log = { package = "solx-package-lib", path = "../solx-package-lib" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
+
+[workspace]

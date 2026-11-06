@@ -1,0 +1,16 @@
+{
+  "name": "solx-graph",
+  "version": "0.1.0",
+  "description": "Knowledge graph background package for solx-core: extracts solx documents into concepts with Ollama (via solx-ollama) and keeps them in an embedded Oxigraph RDF store",
+  "command_actions": {
+    "graph-serve": {
+      "command": ".\\solx-graph.exe serve",
+      "cwd": "target/release"
+    }
+  },
+  "scopes": [
+    "read:document",
+    "exec:/builtin/document/entity-get-document",
+    "exec:/packages/solx-ollama/ollama-chat"
+  ]
+}

@@ -23,6 +23,14 @@ save action /packages/solx-quickjs/build-javascript-action --json {
     "capabilities": ["javascript", "build", "development", "command"],
     "phrases": ["build javascript action", "compile javascript action", "build js action"],
     "paramTypeRef": "/packages/solx-quickjs/QuickjsBuildParams",
+    "actionConfig": {
+        "scopes": [
+            "read:file:/*",
+            "write:file:/*",
+            "write:action",
+            "write:wasm",
+        ],
+    },
 };
 save type /packages/solx-quickjs/QuickjsBuildFileParams --json {
     "description": "Build parameters for compiling a JavaScript source file to a wasm component and uploading it to the shared file store, without touching any action row.",
@@ -52,4 +60,10 @@ save action /packages/solx-quickjs/build-javascript-file --json {
         "build a js wasm artifact",
     ],
     "paramTypeRef": "/packages/solx-quickjs/QuickjsBuildFileParams",
+    "actionConfig": {
+        "scopes": [
+            "read:file:/*",
+            "write:file:/*",
+        ],
+    },
 }

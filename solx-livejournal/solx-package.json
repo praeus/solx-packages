@@ -7,5 +7,18 @@
     "https://l-userpic.livejournal.net/",
     "https://l-stat.livejournal.com/",
     "https://l-stat.livejournal.net/"
+  ],
+  "scopes": [
+    "exec:/builtin/action/cancelled",
+    "exec:/builtin/document/entity-save-document",
+    "exec:/builtin/env/get-env",
+    "exec:/builtin/env/set-env",
+    "exec:/builtin/file/file-put",
+    "exec:/builtin/web/http-request",
+    "exec:/packages/solx-firefox/firefox-start",
+    "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+    "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+    "write:document:/blogs/livejournal/*",
+    "write:file:/files/docs/shared"
   ]
 }

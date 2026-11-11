@@ -144,7 +144,19 @@ save action /packages/solx-livejournal/lj-extract-entry --json {
     ],
     "paramTypeRef": "/packages/solx-livejournal/LjExtractEntryParams",
     "resultTypeRef": "/packages/solx-livejournal/LjEntryResult",
-    "actionConfig": {"timeout_secs": 180},
+    "actionConfig": {
+        "timeout_secs": 180,
+        "scopes": [
+            "exec:/builtin/document/entity-save-document",
+            "exec:/builtin/file/file-put",
+            "exec:/builtin/web/http-request",
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+            "write:document:/blogs/livejournal/*",
+            "write:file:/files/docs/shared",
+        ],
+    },
 };
 save action /packages/solx-livejournal/lj-harvest-page --json {
     "actionType": "wasm",
@@ -162,7 +174,19 @@ save action /packages/solx-livejournal/lj-harvest-page --json {
     ],
     "paramTypeRef": "/packages/solx-livejournal/LjHarvestPageParams",
     "resultTypeRef": "/packages/solx-livejournal/LjHarvestPageResult",
-    "actionConfig": {"timeout_secs": 1200},
+    "actionConfig": {
+        "timeout_secs": 1200,
+        "scopes": [
+            "exec:/builtin/document/entity-save-document",
+            "exec:/builtin/file/file-put",
+            "exec:/builtin/web/http-request",
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+            "write:document:/blogs/livejournal/*",
+            "write:file:/files/docs/shared",
+        ],
+    },
 };
 save action /packages/solx-livejournal/lj-harvest --json {
     "actionType": "wasm",
@@ -189,5 +213,20 @@ save action /packages/solx-livejournal/lj-harvest --json {
     ],
     "paramTypeRef": "/packages/solx-livejournal/LjHarvestParams",
     "resultTypeRef": "/packages/solx-livejournal/LjHarvestResult",
-    "actionConfig": {"timeout_secs": 3600},
+    "actionConfig": {
+        "timeout_secs": 3600,
+        "scopes": [
+            "exec:/builtin/action/cancelled",
+            "exec:/builtin/document/entity-save-document",
+            "exec:/builtin/env/get-env",
+            "exec:/builtin/env/set-env",
+            "exec:/builtin/file/file-put",
+            "exec:/builtin/web/http-request",
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+            "write:document:/blogs/livejournal/*",
+            "write:file:/files/docs/shared",
+        ],
+    },
 }

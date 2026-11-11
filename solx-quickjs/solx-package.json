@@ -11,5 +11,11 @@
       "command": ".\\solx-quickjs.exe --file-only",
       "cwd": "target/release"
     }
-  }
+  },
+  "scopes": [
+    "read:file:/*",
+    "write:file:/*",
+    "write:action",
+    "write:wasm"
+  ]
 }

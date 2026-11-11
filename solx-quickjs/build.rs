@@ -11,16 +11,16 @@ fn main() {
     // `wit/custom-action.wit`. Forward it to the main crate as a rustc-env
     // so main.rs can find the file.
     let wit_path = env::var("DEP_SOL_CUSTOM_WIT_CUSTOM_WIT").unwrap_or_else(|_| {
-        // Fallback: look for the canonical WIT in the sibling solx-core
-        // checkout. Useful for local development outside the usual
-        // cargo build path resolution.
+        // Fallback: look for the canonical WIT in the vendored solx-wasm
+        // checkout, the same crate this one declares as a build-dependency
+        // (see Cargo.toml) and the copy that crate's build script compiles
+        // against. Useful for local development outside the usual cargo build
+        // path resolution.
         let manifest_dir = PathBuf::from(
             env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
         );
         let candidate = manifest_dir
             .join("..")
-            .join("..")
-            .join("solx-core")
             .join("solx-wasm")
             .join("wit")
             .join("custom-action.wit");

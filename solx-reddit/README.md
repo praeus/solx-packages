@@ -26,11 +26,22 @@ One quickjs wasm component backs all the actions, dispatched on `fn_name`:
   optional the way it is for `solx-livejournal`: Reddit redirects *every*
   logged-out request — search, subreddit listings, individual posts — to a
   login wall tagged `reason=lor2`, observed from plain server-side HTTP
-  clients regardless of `User-Agent`. A real, signed-in Firefox session was
-  the only thing that got past it in testing. A signed-out run fails loudly
-  with a "redirected to the Reddit login page" error rather than silently
-  returning nothing, so a bad session is obvious immediately. Sign in once in
-  the managed profile and it persists across restarts.
+  clients regardless of `User-Agent`. Reddit's own wording on that page is
+  "To keep Reddit safe, accounts are required to access old Reddit", so
+  there is no way around it from an anonymous session any more. A real,
+  signed-in Firefox session was the only thing that got past it in testing.
+  A signed-out run fails loudly with a "redirected to the Reddit login page"
+  error rather than silently returning nothing, so a bad session is obvious
+  immediately. Sign in once in the managed profile and it persists across
+  restarts.
+- **Do not mistake Reddit's "you are already logged in" bounce for that
+  wall.** Reddit serves old.reddit.com a cached interstitial — "Welcome
+  back! You are already logged in and will be redirected back to Reddit
+  shortly." — at `/login/?reason=lor2&dest=...`, the *same* URL a logged-out
+  visitor gets. A signed-in session can hit it. This package fetches with
+  `cache: 'no-store'` so the bounce is skipped and the real page comes
+  back; if one still arrives, it is retried and only a page that actually
+  asks to log in is reported as a wall.
 - The `/types/docs/BlogPostWithComments` type (ships with solx-core).
 
 Every `reddit-*` action navigates the managed Firefox tab to
@@ -142,6 +153,19 @@ this: `firefox-devtools-mcp` hardcodes a 10s BiDi per-command timeout and
 ignores the `timeout` argument, so batching several posts into one
 `evaluate_script` call reliably fails partway.
 
+**Every fetch asks for a fresh response (`cache: 'no-store'`).** This is the
+one piece of the package that is not about parsing. Reddit answers a
+*cacheable* request for old.reddit.com with its "Welcome back! You are
+already logged in and will be redirected back to Reddit shortly." bounce,
+served at `/login/?reason=lor2&dest=...` — the same URL a logged-out visitor
+gets, so the two are indistinguishable by URL alone. A top-level navigation
+passes it (the page's own meta refresh resolves it); a plain `fetch()` does
+not, and the extraction then reports a login wall for a session that is
+perfectly valid. Forcing an uncached response skips the bounce and returns
+the real page. Measured on r/dndnext: the identical fetch returns the
+interstitial with the default cache mode and 25 `.thing` rows with
+`'no-store'`.
+
 ## Install
 
 ```
@@ -166,7 +190,8 @@ solx script -f verify.solx
 ```
 
 Exercises both actions: `reddit-extract-post` against a long-lived, stable
-post (`r/announcements`'s original "gasp" post), and `reddit-search` for a
-handful of `r/dndnext` results. If either comes back with a "redirected to
-the Reddit login page" error, sign in to Reddit in the managed Firefox
-profile and re-run.
+post (`r/announcements`'s "An old team at reddit", id `3cucye` — the old
+"gasp" post id `5vtcyt` now 404s), and `reddit-search` for a handful of
+`r/dndnext` results. If either comes back with a "redirected to the Reddit
+login page" error, sign in to Reddit in the managed Firefox profile and
+re-run.

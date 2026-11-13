@@ -90,15 +90,35 @@ save action /packages/solx-mcp-actions/import --json {
     "phrases": ["import mcp server", "register mcp tools", "connect mcp server"],
     "paramTypeRef": "/packages/solx-mcp-actions/McpImportParams",
     "resultTypeRef": "/packages/solx-mcp-actions/McpImportResult",
+    # What it may write: the action and type rows it creates for the
+    # imported tools, and the control actions of the background they share.
+    # The manifest's "scopes" is the ceiling for this list.
+    "actionConfig": {
+        "scopes": [
+            "write:action:/packages/solx-mcp-actions/*",
+            "write:command",
+            "write:type:/packages/solx-mcp-actions/*",
+        ],
+    },
 };
 save action /packages/solx-mcp-actions/remove --json {
     "actionType": "command",
     "fnName": "solx-mcp-actions-remove",
     "caption": "Remove MCP server tools",
     "category": "mcp",
-    "description": "Remove a previously imported MCP server's actions and types. Parameters are passed on stdin as JSON.",
+    "description": "Remove a previously imported MCP server's actions and types, and stop the background process that was serving them. Parameters are passed on stdin as JSON.",
     "capabilities": ["mcp", "integration", "cleanup"],
     "phrases": ["remove mcp server", "uninstall mcp tools"],
     "paramTypeRef": "/packages/solx-mcp-actions/McpRemoveParams",
     "resultTypeRef": "/packages/solx-mcp-actions/McpRemoveResult",
+    # The same writes, for the rows it deletes. It also stops the
+    # background, by running this package's own "background-stop" action,
+    # which its implicit `exec:/packages/solx-mcp-actions/*` already allows.
+    "actionConfig": {
+        "scopes": [
+            "write:action:/packages/solx-mcp-actions/*",
+            "write:command",
+            "write:type:/packages/solx-mcp-actions/*",
+        ],
+    },
 }

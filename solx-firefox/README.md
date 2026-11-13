@@ -7,22 +7,27 @@ fresh Firefox for every single tool invocation.
 
 ## Why this package exists
 
-`solx-mcp-actions` normally spawns a fresh MCP server subprocess for every tool call
-and tears it down afterward — correct for stateless servers (filesystem,
-fetch), but wrong for [Mozilla's `firefox-devtools-mcp`](https://github.com/mozilla/firefox-devtools-mcp)
-(npm `@mozilla/firefox-devtools-mcp`): browser automation is inherently
-stateful (navigate, then click, then screenshot — all against the *same*
-page). By default that server launches its own throwaway Firefox per
-connection, so under solx-mcp-actions's normal model every tool call would get a
-brand new, blank browser with no memory of the previous call.
+Browser automation is inherently stateful (navigate, then click, then
+screenshot — all against the *same* page), and
+[Mozilla's `firefox-devtools-mcp`](https://github.com/mozilla/firefox-devtools-mcp)
+(npm `@mozilla/firefox-devtools-mcp`) by default launches its own
+throwaway Firefox per connection. Under a per-call model every tool call
+would get a brand new, blank browser with no memory of the previous call.
 
-The fix: `firefox-devtools-mcp` supports `--connect-existing`, attaching to
-an already-running Firefox with Marionette enabled instead of launching its
-own. This package's only job is to start/stop that one persistent,
-dedicated-profile Firefox instance, and to ship the MCP server itself as a
-compiled binary (`bin/mcp-server`). `solx-mcp-actions`'s own `mcp-servers.json`
-has a `firefox` entry that runs that binary with `--connect-existing`, so every
-`solx-mcp-actions invoke` call talks to the *same* long-lived browser.
+There are two halves to the fix, and this package is one of them:
+
+- **`solx-mcp-actions` holds the connection.** The MCP server runs as a
+  solx background command — one long-lived process per MCP server — so
+  every imported tool shares one connection to it, instead of each call
+  starting and tearing one down.
+- **This package holds the browser.** `firefox-devtools-mcp` supports
+  `--connect-existing`, attaching to an already-running Firefox with
+  Marionette enabled instead of launching its own. This package's only
+  job is to start/stop that one persistent, dedicated-profile Firefox
+  instance, and to ship the MCP server itself as a compiled binary
+  (`bin/mcp-server`). `solx-mcp-actions`'s own `mcp-servers.json` has a
+  `firefox` entry that runs that binary with `--connect-existing`, so the
+  background talks to the *same* long-lived browser.
 
 ## Key difference from sol-firefox (sol ecosystem)
 
@@ -52,8 +57,14 @@ this package does no MCP protocol work itself, that's `solx-mcp-actions`'s job):
 Plus two `Script`-type orchestrator actions that chain a `solx-firefox`
 step with a `solx-mcp-actions` step in one call:
 
-- `firefox-mcp-setup` — `firefox-start` then `/packages/solx-mcp-actions/import {"server":"firefox"}`.
-- `firefox-mcp-teardown` — `/packages/solx-mcp-actions/remove {"server":"firefox"}` then `firefox-stop`.
+- `firefox-mcp-setup` - `firefox-start`, then
+  `/packages/solx-mcp-actions/import {"server":"firefox"}`, then
+  `/packages/solx-mcp-actions/firefox/background-start` — which starts the
+  background that holds the MCP connection, so it is ready before the first
+  tool call. (`background-start` is created by the import, under the
+  server's own path, because that path depends on the server's key in
+  `mcp-servers.json`.)
+- `firefox-mcp-teardown` - `/packages/solx-mcp-actions/remove {"server":"firefox"}` then `firefox-stop`. The order matters: removing the tools also stops the background, which closes the MCP server's connection to this Firefox, before the browser goes away.
 
 ### Why a Command action can't just run `firefox -marionette` directly
 
@@ -156,11 +167,14 @@ change `command` to the absolute path of `bin/mcp-server`.
 ## Usage flow
 
 1. Install `solx-mcp-actions` and `solx-firefox`.
-2. `solx exec /packages/solx-firefox/firefox-mcp-setup` — starts the
+2. `solx exec /packages/solx-firefox/firefox-mcp-setup` - starts the
    managed Firefox and imports its DevTools MCP tools as solx actions
-   (`mcp-firefox-*`) in one call.
+   (`mcp-firefox-*`) in one call, then starts the background that holds
+   the MCP connection.
 3. Use the generated `mcp-firefox-*` actions (navigate, click, screenshot,
-   etc.) — they all share the one persistent browser session.
+   etc.) - they all share the one persistent browser session, and one
+   connection to the MCP server, kept in a background process for as long
+   as the host runs. `/builtin/background/list` shows it.
 4. `solx exec /packages/solx-firefox/firefox-mcp-teardown` when done.
 
 ## Troubleshooting

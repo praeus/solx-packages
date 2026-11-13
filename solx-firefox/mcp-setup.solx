@@ -1,6 +1,14 @@
 # solx-firefox MCP setup: start the managed Firefox, then import its MCP
 # server's tools. Runs as the firefox-mcp-setup Script action (uploaded
 # during install via `save file`).
+#
+# The imported tools all run in one background process that holds a single
+# connection to the MCP server. Starting it here means it is ready — and
+# connected — before the first tool call.
 $start = exec /packages/solx-firefox/firefox-start --json {};
 $import = exec /packages/solx-mcp-actions/import --json {"server": "firefox"};
-{"firefox": $start, "import": $import};
+# `background-start` is created by the import above, under the server's own
+# path: the path depends on the server's key in mcp-servers.json, so it
+# cannot be declared in the package's install script.
+$background = exec /packages/solx-mcp-actions/firefox/background-start --json {};
+{"firefox": $start, "import": $import, "background": $background};

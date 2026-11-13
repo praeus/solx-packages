@@ -14,6 +14,15 @@
     "solx-mcp-actions-invoke": {
       "command": ".\\solx-mcp-actions.exe invoke",
       "cwd": "bin"
+    },
+    "solx-mcp-actions-serve": {
+      "command": ".\\solx-mcp-actions.exe serve",
+      "cwd": "bin"
     }
-  }
+  },
+  "scopes": [
+    "write:action:/packages/solx-mcp-actions/*",
+    "write:command",
+    "write:type:/packages/solx-mcp-actions/*"
+  ]
 }

@@ -42,6 +42,12 @@ save action /packages/solx-firefox/firefox-mcp-setup --json {
         "import firefox devtools tools",
         "start and import firefox mcp",
     ],
+    # What the script may call: the mcp-actions package's actions, to
+    # import the tools and to check the background that serves them. The
+    # manifest's "scopes" is the ceiling for this list.
+    "actionConfig": {
+        "scopes": ["exec:/packages/solx-mcp-actions/*"],
+    },
 };
 save action /packages/solx-firefox/firefox-mcp-teardown --json {
     "actionType": "script",
@@ -62,4 +68,9 @@ save action /packages/solx-firefox/firefox-mcp-teardown --json {
         "remove firefox devtools tools",
         "stop and remove firefox mcp",
     ],
+    # The same: it removes the imported tools, which also stops the
+    # background that was serving them.
+    "actionConfig": {
+        "scopes": ["exec:/packages/solx-mcp-actions/*"],
+    },
 }

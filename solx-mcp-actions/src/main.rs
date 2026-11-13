@@ -4,7 +4,7 @@
 //! solx `Command` actions — no changes to the core `solx-core` repository
 //! are required.
 //!
-//! Ships as three subcommands, all exposed as separate solx actions:
+//! Ships as four subcommands, all exposed as separate solx actions:
 //!
 //! - `import`  — connect to a configured MCP server, list its tools via
 //!               `tools/list`, and create one solx `Command` action per
@@ -18,6 +18,11 @@
 //!               the child's stdin).
 //! - `remove`  — delete a server's previously imported actions/types,
 //!               using the manifest `import` wrote as the source of truth.
+//! - `serve`   — the **background command**: one long-lived process per MCP
+//!               server, started by solx-core on the first tool call, holding
+//!               one continuous connection to that server. Every tool
+//!               imported from a server shares it, so a run of tool calls
+//!               keeps the state a per-call process would throw away.
 //!
 //! ## Naming
 //!
@@ -38,6 +43,7 @@
 mod config;
 mod mcp_client;
 mod naming;
+mod serve;
 mod solx;
 
 use std::path::{Path, PathBuf};
@@ -48,9 +54,22 @@ use serde_json::{json, Value};
 use config::{Manifest, ManifestEntry, ServersConfig, ToolDescriptor, ToolFilter};
 use mcp_client::McpSession;
 
-/// The `command_actions` key (solx-package.json) every generated per-tool
-/// action's `fnName` points at.
-const INVOKE_COMMAND_KEY: &str = "solx-mcp-actions-invoke";
+/// The `command_actions` key (solx-package.json) the background process runs
+/// under. Every generated per-tool action points at it too — only the
+/// *start* action's command is ever run; the rest are forwarded to the
+/// running process.
+const SERVE_COMMAND_KEY: &str = "solx-mcp-actions-serve";
+/// The namespace every MCP server's background lives under, in solx-core's
+/// `action_config.background`. The background's *name* is the MCP server's
+/// key in `mcp-servers.json`, so each server gets its own process.
+const BACKGROUND_NAMESPACE: &str = "solx-mcp-actions";
+/// The control actions a server's background gets, and the operation each
+/// one names: `start` spawns the background, `stop` shuts it down.
+const CONTROL_ACTIONS: [(&str, &str); 2] = [("background-start", "start"), ("background-stop", "stop")];
+/// Every control action name this package has ever used, so a `remove`
+/// cleans up the ones an earlier version created too — an action left
+/// behind would still name a background operation that no longer exists.
+const RETIRED_CONTROL_ACTIONS: [&str; 1] = ["background-connect"];
 /// Set by solx-core on every Command it runs: the `/path/name` of the
 /// action, which `invoke` looks up in the manifests.
 const ACTION_REF_ENV: &str = "SOLX_ACTION_REF";
@@ -98,7 +117,9 @@ enum Commands {
     },
     /// Invoke a single MCP tool. Reads {server,tool} from tool.json in
     /// `$SOLX_MCP_TOOL_DIR` (else the process cwd) and call arguments from
-    /// stdin.
+    /// stdin. One-shot: it opens an MCP server, calls one tool and closes
+    /// it. Kept for actions imported before the background; new imports use
+    /// `serve` instead.
     Invoke,
     /// Remove a previously imported MCP server's actions/types.
     Remove {
@@ -106,6 +127,10 @@ enum Commands {
         /// {"server": "..."}.
         server: Option<String>,
     },
+    /// Serve one MCP server's tools as a solx background command. Started by
+    /// solx-core, not by hand: it reads the server it serves from
+    /// SOLX_BACKGROUND, and its stdout is the background protocol.
+    Serve,
 }
 
 use solx_package_log::{print_json, stdin_params};
@@ -130,6 +155,15 @@ async fn main() {
         }
         Commands::Invoke => run_invoke(&home).await,
         Commands::Remove { server } => run_remove(&home, server).await,
+        Commands::Serve => {
+            // Stdout belongs to the background protocol here, so this path
+            // must not print a result the way the other subcommands do.
+            if let Err(e) = serve::serve(&home).await {
+                solx_package_log::error(&format!("fatal: {e}")).await;
+                std::process::exit(1);
+            }
+            return;
+        }
     };
 
     match result {
@@ -179,6 +213,10 @@ async fn run_import(
 
     solx_package_log::info(&format!("import: server={server} dry_run={dry_run}")).await;
 
+    // The server's key names its background, so it has to survive a round
+    // trip through solx-core's background naming.
+    validate_server_key(&server)?;
+
     let servers_cfg = config::load_servers_config(home)?;
     let def = config::find_server(&servers_cfg, &server)?.clone();
 
@@ -206,13 +244,23 @@ async fn run_import(
     let mut manifest_entries: Vec<ManifestEntry> = Vec::new();
     let mut errors: Vec<Value> = Vec::new();
 
+    // The control actions first: they name the background the tool actions
+    // share, and solx-core finds the background's start action by looking
+    // for one with the same namespace and name.
+    if let Err(e) = create_control_actions(&server).await {
+        errors.push(json!({ "entity": "background control actions", "error": e.to_string() }));
+    }
+
     for tool in &tools {
         let tool_name = tool.name.to_string();
         match import_one_tool(home, &server, &tool_name, tool, &servers_config_path, permission_name.as_deref()).await {
             Ok(entry) => manifest_entries.push(entry),
             Err(e) => {
                 solx_package_log::warn(&format!("import: tool '{tool_name}' failed: {e}")).await;
-                errors.push(json!({ "tool": tool_name, "error": e.to_string() }));
+                errors.push(json!({
+                    "tool": tool_name,
+                    "error": locked_hint(&e, &naming::action_name(&server, &tool.name)),
+                }));
             }
         }
     }
@@ -224,32 +272,55 @@ async fn run_import(
     // longer selects, remove them now — otherwise a narrowing re-import
     // would silently leave those old actions orphaned in solx instead of
     // actually enforcing the new filter.
+    //
+    // "No longer selects" means the *filter* dropped the tool — not that
+    // this import failed to write it. A tool the filter still selects but
+    // whose save failed is still there from the previous import, and
+    // treating it as stale would delete a working action (and drop it from
+    // the manifest, so `remove` could never clean it up).
+    let selected: std::collections::HashSet<&str> = tools
+        .iter()
+        .map(|t| {
+            let name: &str = &t.name;
+            name
+        })
+        .collect();
     let mut tools_pruned: Vec<String> = Vec::new();
+    let mut manifest_tools: Vec<ManifestEntry> = Vec::new();
     if let Ok(old_manifest) = config::load_manifest(home, &server) {
-        let kept: std::collections::HashSet<&str> =
-            manifest_entries.iter().map(|e| e.tool.as_str()).collect();
-        for stale in old_manifest.tools.iter().filter(|e| !kept.contains(e.tool.as_str())) {
-            if let Err(e) = solx::delete_action(&stale.action_path, &stale.action_name).await {
-                errors.push(json!({ "entity": stale.action_name, "error": e.to_string() }));
+        for entry in &old_manifest.tools {
+            if selected.contains(entry.tool.as_str()) {
+                manifest_tools.push(entry.clone());
                 continue;
             }
-            if let Err(e) = solx::delete_type(config::TYPES_PATH, &stale.param_type_name).await {
-                errors.push(json!({ "entity": stale.param_type_name, "error": e.to_string() }));
+            if let Err(e) = solx::delete_action(&entry.action_path, &entry.action_name).await {
+                errors.push(json!({ "entity": entry.action_name, "error": locked_hint(&e, &entry.action_name) }));
+                continue;
             }
-            if let Some(result_type) = &stale.result_type_name {
+            if let Err(e) = solx::delete_type(config::TYPES_PATH, &entry.param_type_name).await {
+                errors.push(json!({ "entity": entry.param_type_name, "error": e.to_string() }));
+            }
+            if let Some(result_type) = &entry.result_type_name {
                 if let Err(e) = solx::delete_type(config::TYPES_PATH, result_type).await {
                     errors.push(json!({ "entity": result_type.clone(), "error": e.to_string() }));
                 }
             }
-            let _ = std::fs::remove_dir_all(&stale.dir);
-            tools_pruned.push(action_ref(&stale.action_path, &stale.action_name));
+            let _ = std::fs::remove_dir_all(&entry.dir);
+            tools_pruned.push(action_ref(&entry.action_path, &entry.action_name));
+        }
+    }
+    // This import's tools replace the entries they correspond to.
+    for entry in &manifest_entries {
+        match manifest_tools.iter_mut().find(|e| e.tool == entry.tool) {
+            Some(existing) => *existing = entry.clone(),
+            None => manifest_tools.push(entry.clone()),
         }
     }
 
     let manifest = Manifest {
         server: server.clone(),
         imported_at: unix_timestamp(),
-        tools: manifest_entries.clone(),
+        tools: manifest_tools,
     };
     config::write_manifest(home, &manifest)?;
 
@@ -267,7 +338,120 @@ async fn run_import(
             .collect::<Vec<_>>(),
         "tools_pruned": tools_pruned,
         "errors": errors,
+        "background": {
+            "backgroundNamespace": BACKGROUND_NAMESPACE,
+            "backgroundName": server,
+        },
     }))
+}
+
+/// The MCP server's key names its background, so it has to survive the round
+/// trip through solx-core's background naming: it is carried in
+/// `SOLX_BACKGROUND` (`<namespace>/<name>`) and used as a file name for the
+/// lock that keeps one instance per machine.
+fn validate_server_key(server: &str) -> anyhow::Result<()> {
+    if server.is_empty() {
+        return Err(anyhow::anyhow!("the server key may not be empty"));
+    }
+    if !server
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(anyhow::anyhow!(
+            "server key '{server}' may only contain letters, digits, '-', '_' and '.': it \
+             names the background the server's tools share"
+        ));
+    }
+    if server.starts_with('.') {
+        return Err(anyhow::anyhow!(
+            "server key '{server}' may not start with '.': it would name a different \
+             background than it looks like"
+        ));
+    }
+    Ok(())
+}
+
+/// Add what to do about a locked action to solx-core's refusal.
+///
+/// A package install locks every action under the package's own path, and
+/// the tools imported here live under it — so after a reinstall they are
+/// locked, and this action (running with its own token, as content) cannot
+/// change them. Only an operator can. The server's message says as much,
+/// but not what to run.
+fn locked_hint(error: &anyhow::Error, action_name: &str) -> String {
+    let message = error.to_string();
+    if !message.contains("is locked") {
+        return message;
+    }
+    format!(
+        "{message}; unlock it first with 'solx action unlock /packages/solx-mcp-actions/{action_name}'"
+    )
+}
+
+/// Create the control actions a server's background needs: `start`, `stop`
+/// and `connect`. All three name the same background as the tool actions,
+/// so solx-core starts one process for the server and every tool action
+/// talks to it.
+async fn create_control_actions(server: &str) -> anyhow::Result<()> {
+    let path = naming::action_path(server);
+    for (name, operation) in CONTROL_ACTIONS {
+        let (caption, description, phrases) = match operation {
+            "start" => (
+                format!("Start the {server} MCP server"),
+                format!(
+                    "Start the background process that keeps a connection to the '{server}' MCP \
+                     server. Every imported {server} tool runs in it. solx also starts it on \
+                     the first tool call, so calling this is only to have it ready."
+                ),
+                vec![
+                    format!("start the {server} mcp server"),
+                    format!("start the {server} mcp background"),
+                ],
+            ),
+            _ => (
+                format!("Stop the {server} MCP server"),
+                format!(
+                    "Stop the background process serving the '{server}' MCP server. The next \
+                     tool call starts it again."
+                ),
+                vec![
+                    format!("stop the {server} mcp server"),
+                    format!("stop the {server} mcp background"),
+                ],
+            ),
+        };
+        let body = control_action_body(server, operation, caption, description, phrases);
+        solx::new_action(&path, name, &body).await?;
+    }
+    Ok(())
+}
+
+/// The action row a control action becomes. It names the same background as
+/// the tool actions, so solx-core finds the background's start action by
+/// looking for one with the same namespace and name.
+fn control_action_body(
+    server: &str,
+    operation: &str,
+    caption: String,
+    description: String,
+    phrases: Vec<String>,
+) -> Value {
+    json!({
+        "actionType": "command",
+        "fnName": SERVE_COMMAND_KEY,
+        "caption": caption,
+        "category": "mcp",
+        "description": description,
+        "capabilities": vec!["mcp".to_string(), server.to_string(), "background".to_string()],
+        "phrases": phrases,
+        "actionConfig": {
+            "background": {
+                "backgroundNamespace": BACKGROUND_NAMESPACE,
+                "backgroundName": server,
+                "backgroundOperation": operation,
+            },
+        },
+    })
 }
 
 /// Join an action's path and name into the `/path/name` reference every solx
@@ -356,26 +540,23 @@ async fn import_one_tool(
     let result_type_ref = format!("{}/{result_type}", config::TYPES_PATH);
 
     // The generated action is a Command type pointing at the shared
-    // `solx-mcp-actions-invoke` allowlist key (solx-package.json), which runs
-    // `invoke` in this package's `bin/`. Nothing in the row says which tool
-    // it is: solx-core hands `invoke` the action's own ref in
-    // `ACTION_REF_ENV`, and the manifest maps that to the tool's directory.
-    // (`action_config.env` is no longer forwarded, and `action_config.cwd`
-    // is overridden by the allowlist entry's own `cwd`.)
-    let mut action_body = json!({
-        "actionType": "command",
-        "fnName": INVOKE_COMMAND_KEY,
-        "caption": format!("MCP: {tool_name}"),
-        "category": "mcp",
-        "description": description,
-        "capabilities": vec!["mcp".to_string(), server.to_string()],
-        "phrases": vec![tool_name.to_string(), format!("mcp {tool_name}"), format!("{server} {tool_name}")],
-        "paramTypeRef": param_type_ref,
-        "resultTypeRef": result_type_ref,
-    });
-    if let Some(perm) = permission_name {
-        action_body["permission_name"] = json!(perm);
-    }
+    // `solx-mcp-actions-serve` allowlist key (solx-package.json), which runs
+    // `serve` in this package's `bin/`. Nothing in the row says which tool
+    // it is: the background operation carries the tool's name
+    // (`tool:<tool>`), and the background's own name says which MCP server
+    // it talks to.
+    //
+    // The action config's `background` is what makes this a background
+    // action: solx-core runs every tool action of a server in the same
+    // long-lived process, so they share one MCP connection.
+    let action_body = tool_action_body(
+        server,
+        tool_name,
+        &description,
+        &param_type_ref,
+        &result_type_ref,
+        permission_name,
+    );
     solx::new_action(&action_path, &action, &action_body).await?;
 
     Ok(ManifestEntry {
@@ -386,6 +567,46 @@ async fn import_one_tool(
         result_type_name: Some(result_type),
         dir: dir.to_string_lossy().to_string(),
     })
+}
+
+/// The action row a tool becomes.
+///
+/// The `background` in its action config is what makes it a background
+/// action: solx-core runs every tool action of a server in the same
+/// long-lived process, so they share one MCP connection. The operation
+/// carries the tool's name, and the background's name says which MCP server
+/// it talks to.
+fn tool_action_body(
+    server: &str,
+    tool_name: &str,
+    description: &str,
+    param_type_ref: &str,
+    result_type_ref: &str,
+    permission_name: Option<&str>,
+) -> Value {
+    let mut body = json!({
+        "actionType": "command",
+        "fnName": SERVE_COMMAND_KEY,
+        "caption": format!("MCP: {tool_name}"),
+        "category": "mcp",
+        "description": description,
+        "capabilities": vec!["mcp".to_string(), server.to_string()],
+        "phrases": vec![tool_name.to_string(), format!("mcp {tool_name}"), format!("{server} {tool_name}")],
+        "paramTypeRef": param_type_ref,
+        "resultTypeRef": result_type_ref,
+        "actionConfig": {
+            "background": {
+                "backgroundNamespace": BACKGROUND_NAMESPACE,
+                "backgroundName": server,
+                "backgroundOperation": format!("tool:{tool_name}"),
+            },
+            "timeout_secs": 300,
+        },
+    });
+    if let Some(perm) = permission_name {
+        body["permission_name"] = json!(perm);
+    }
+    body
 }
 
 async fn run_invoke(home: &Path) -> anyhow::Result<Value> {
@@ -485,9 +706,38 @@ async fn run_remove(home: &Path, server_arg: Option<String>) -> anyhow::Result<V
 
     solx_package_log::info(&format!("remove: server={server}")).await;
 
-    let manifest = config::load_manifest(home, &server)?;
+    // A missing manifest means there is nothing recorded to delete — not
+    // that there is nothing to delete. The control actions are named, not
+    // recorded, so they are still cleaned up below.
+    let manifest = match config::load_manifest(home, &server) {
+        Ok(manifest) => manifest,
+        Err(e) => {
+            solx_package_log::warn(&format!("remove: no manifest for '{server}': {e}")).await;
+            config::Manifest {
+                server: server.clone(),
+                imported_at: unix_timestamp(),
+                tools: Vec::new(),
+            }
+        }
+    };
     let mut removed = Vec::new();
     let mut errors: Vec<Value> = Vec::new();
+
+    // Stop the server's background first, while its actions still exist:
+    // the tool actions are what the background serves, and it holds an MCP
+    // connection open. `remove` can call its own package's actions — a
+    // package action's implicit grant includes `exec:/packages/<pkg>/*` —
+    // so this needs no scope of its own. A server that was never started
+    // has nothing to stop, which is not an error.
+    match stop_background(&server).await {
+        Ok(_) => {}
+        Err(e) => {
+            solx_package_log::warn(&format!(
+                "remove: could not stop the '{server}' background: {e}"
+            ))
+            .await;
+        }
+    }
 
     for entry in &manifest.tools {
         let mut ok = true;
@@ -510,6 +760,16 @@ async fn run_remove(home: &Path, server_arg: Option<String>) -> anyhow::Result<V
         }
     }
 
+    // The control actions go with the tools: they name the background this
+    // server's tools shared, and there is nothing left to serve. The ones
+    // an earlier version created are deleted too.
+    let control_path = naming::action_path(&server);
+    for name in CONTROL_ACTIONS.iter().map(|(name, _)| *name).chain(RETIRED_CONTROL_ACTIONS) {
+        if let Err(e) = solx::delete_action_if_exists(&control_path, name).await {
+            errors.push(json!({ "entity": name, "error": e.to_string() }));
+        }
+    }
+
     let server_dir = home.join("tools").join(&server);
     if server_dir.exists() {
         std::fs::remove_dir_all(&server_dir)
@@ -517,4 +777,77 @@ async fn run_remove(home: &Path, server_arg: Option<String>) -> anyhow::Result<V
     }
 
     Ok(json!({ "server": server, "tools_removed": removed, "errors": errors }))
+}
+
+/// Stop a server's background, by running its `stop` control action.
+///
+/// `None` when the server has no control actions at all — nothing was
+/// imported for it, so there is no background to stop.
+async fn stop_background(server: &str) -> anyhow::Result<Option<Value>> {
+    let path = naming::action_path(server);
+    solx::exec_action_if_exists(&path, "background-stop", &json!({})).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_server_key_has_to_survive_being_a_background_name() {
+        assert!(validate_server_key("firefox").is_ok());
+        assert!(validate_server_key("my-server_2.0").is_ok());
+        // It ends up in `SOLX_BACKGROUND` and in a lock file name.
+        assert!(validate_server_key("").is_err());
+        assert!(validate_server_key("my server").is_err());
+        assert!(validate_server_key("firefox/other").is_err());
+        assert!(validate_server_key(".hidden").is_err());
+    }
+
+    #[test]
+    fn a_tool_action_names_the_background_that_serves_it() {
+        let body = tool_action_body(
+            "firefox",
+            "new_page",
+            "Open a page.",
+            "/packages/solx-mcp-actions/McpFirefoxNewPageParams",
+            "/packages/solx-mcp-actions/McpFirefoxNewPageResult",
+            None,
+        );
+        assert_eq!(body["fnName"], SERVE_COMMAND_KEY);
+        let background = &body["actionConfig"]["background"];
+        assert_eq!(background["backgroundNamespace"], BACKGROUND_NAMESPACE);
+        assert_eq!(background["backgroundName"], "firefox");
+        assert_eq!(background["backgroundOperation"], "tool:new_page");
+        // A tool named after one of solx-core's reserved operations is
+        // still a tool: the prefix keeps it one.
+        let body = tool_action_body(
+            "firefox",
+            "stop",
+            "",
+            "/p",
+            "/r",
+            Some("mcp-firefox"),
+        );
+        assert_eq!(body["actionConfig"]["background"]["backgroundOperation"], "tool:stop");
+        assert_eq!(body["permission_name"], "mcp-firefox");
+    }
+
+    #[test]
+    fn the_control_actions_name_the_same_background() {
+        for (name, operation) in CONTROL_ACTIONS {
+            let body = control_action_body(
+                "firefox",
+                operation,
+                "caption".into(),
+                "description".into(),
+                vec!["phrase".into()],
+            );
+            assert_eq!(body["fnName"], SERVE_COMMAND_KEY);
+            let background = &body["actionConfig"]["background"];
+            assert_eq!(background["backgroundNamespace"], BACKGROUND_NAMESPACE);
+            assert_eq!(background["backgroundName"], "firefox");
+            assert_eq!(background["backgroundOperation"], operation);
+            assert!(!name.is_empty());
+        }
+    }
 }

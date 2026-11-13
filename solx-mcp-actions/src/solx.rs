@@ -63,20 +63,38 @@ async fn request_json<Req: serde::Serialize, Resp: DeserializeOwned>(
     route: &str,
     body: Option<&Req>,
 ) -> anyhow::Result<Resp> {
+    let (status, text) = request_raw(client, method, url, token, route, body).await?;
+    if !status.is_success() {
+        anyhow::bail!("{}", server_error(route, status, &text));
+    }
+    serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("parse {route} response: {e} (body: {text})"))
+}
+
+/// The response's status and body, without deciding what they mean.
+async fn request_raw<Req: serde::Serialize>(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url: &str,
+    token: &str,
+    route: &str,
+    body: Option<&Req>,
+) -> anyhow::Result<(reqwest::StatusCode, String)> {
     let mut req = client.request(method, format!("{url}{route}")).bearer_auth(token);
     if let Some(body) = body {
         req = req.json(body);
     }
     let resp = req.send().await.map_err(|e| anyhow::anyhow!("HTTP request to {route} failed: {e}"))?;
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| anyhow::anyhow!("read response: {e}"))?;
-    if !status.is_success() {
-        if let Ok(err) = serde_json::from_str::<ServerError>(&text) {
-            anyhow::bail!("server {route}: {}", err.error);
-        }
-        anyhow::bail!("server {route} returned {status}: {text}");
+    let text = resp.text().await.unwrap_or_default();
+    Ok((status, text))
+}
+
+/// The server's own message for a failed request, as one line.
+fn server_error(route: &str, status: reqwest::StatusCode, text: &str) -> String {
+    if let Ok(err) = serde_json::from_str::<ServerError>(text) {
+        return format!("server {route}: {}", err.error);
     }
-    serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("parse {route} response: {e} (body: {text})"))
+    format!("server {route} returned {status}: {text}")
 }
 
 /// Delete has no response body worth parsing (204 No Content on success).
@@ -88,20 +106,67 @@ async fn request_no_content<Req: serde::Serialize>(
     route: &str,
     body: Option<&Req>,
 ) -> anyhow::Result<()> {
-    let mut req = client.request(method, format!("{url}{route}")).bearer_auth(token);
-    if let Some(body) = body {
-        req = req.json(body);
-    }
-    let resp = req.send().await.map_err(|e| anyhow::anyhow!("HTTP request to {route} failed: {e}"))?;
-    let status = resp.status();
+    let (status, text) = request_raw(client, method, url, token, route, body).await?;
     if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        if let Ok(err) = serde_json::from_str::<ServerError>(&text) {
-            anyhow::bail!("server {route}: {}", err.error);
-        }
-        anyhow::bail!("server {route} returned {status}: {text}");
+        anyhow::bail!("{}", server_error(route, status, &text));
     }
     Ok(())
+}
+
+/// Delete an action at `path`/`name` if it is there.
+///
+/// A row that is not there is not an error: the point of the call is that
+/// the action is gone afterwards, and it already is.
+pub async fn delete_action_if_exists(path: &str, name: &str) -> anyhow::Result<()> {
+    let url = server_url();
+    let token = server_token()?;
+    let client = reqwest::Client::new();
+    let route = format!("/actions{}", full_ref(path, name));
+    let (status, text) = request_raw(
+        &client,
+        reqwest::Method::DELETE,
+        &url,
+        &token,
+        &route,
+        None::<&Value>,
+    )
+    .await?;
+    if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(());
+    }
+    anyhow::bail!("{}", server_error(&route, status, &text));
+}
+
+/// Run an action at `path`/`name` via the server API. A `POST` on an action
+/// URL *executes* it (see `solx-server/src/routes/actions.rs`) — the body is
+/// the action's params. `None` when there is no such action.
+pub async fn exec_action_if_exists(
+    path: &str,
+    name: &str,
+    params: &Value,
+) -> anyhow::Result<Option<Value>> {
+    let url = server_url();
+    let token = server_token()?;
+    let client = reqwest::Client::new();
+    let route = format!("/actions{}", full_ref(path, name));
+    let (status, text) = request_raw(
+        &client,
+        reqwest::Method::POST,
+        &url,
+        &token,
+        &route,
+        Some(params),
+    )
+    .await?;
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        anyhow::bail!("{}", server_error(&route, status, &text));
+    }
+    let value = serde_json::from_str(&text)
+        .map_err(|e| anyhow::anyhow!("parse {route} response: {e} (body: {text})"))?;
+    Ok(Some(value))
 }
 
 /// Create or update a type at `path`/`name` via the server API.

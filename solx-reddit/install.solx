@@ -256,7 +256,19 @@ save action /packages/solx-reddit/reddit-extract-post --json {
     ],
     "paramTypeRef": "/packages/solx-reddit/RedditExtractPostParams",
     "resultTypeRef": "/packages/solx-reddit/RedditPostResult",
-    "actionConfig": {"timeout_secs": 180},
+    "actionConfig": {
+        "timeout_secs": 180,
+        "scopes": [
+            "exec:/builtin/document/entity-save-document",
+            "exec:/builtin/file/file-put",
+            "exec:/builtin/web/http-request",
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+            "write:document:/blogs/reddit/*",
+            "write:file:/files/docs/shared",
+        ],
+    },
 };
 save action /packages/solx-reddit/reddit-search --json {
     "actionType": "wasm",
@@ -270,7 +282,20 @@ save action /packages/solx-reddit/reddit-search --json {
     "phrases": ["search reddit", "find reddit posts about", "scrape reddit search results"],
     "paramTypeRef": "/packages/solx-reddit/RedditSearchParams",
     "resultTypeRef": "/packages/solx-reddit/RedditSearchResult",
-    "actionConfig": {"timeout_secs": 1200},
+    "actionConfig": {
+        "timeout_secs": 1200,
+        "scopes": [
+            "exec:/builtin/action/cancelled",
+            "exec:/builtin/document/entity-save-document",
+            "exec:/builtin/file/file-put",
+            "exec:/builtin/web/http-request",
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+            "write:document:/blogs/reddit/*",
+            "write:file:/files/docs/shared",
+        ],
+    },
 };
 save action /packages/solx-reddit/reddit-list-posts --json {
     "actionType": "wasm",
@@ -284,7 +309,14 @@ save action /packages/solx-reddit/reddit-list-posts --json {
     "phrases": ["browse a subreddit", "list reddit posts", "show top posts in a subreddit"],
     "paramTypeRef": "/packages/solx-reddit/RedditListPostsParams",
     "resultTypeRef": "/packages/solx-reddit/RedditListingResult",
-    "actionConfig": {"timeout_secs": 120},
+    "actionConfig": {
+        "timeout_secs": 120,
+        "scopes": [
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+        ],
+    },
 };
 save action /packages/solx-reddit/reddit-get-post --json {
     "actionType": "wasm",
@@ -298,7 +330,14 @@ save action /packages/solx-reddit/reddit-get-post --json {
     "phrases": ["read a reddit post", "show reddit comments", "open a reddit thread"],
     "paramTypeRef": "/packages/solx-reddit/RedditGetPostParams",
     "resultTypeRef": "/packages/solx-reddit/RedditPostView",
-    "actionConfig": {"timeout_secs": 120},
+    "actionConfig": {
+        "timeout_secs": 120,
+        "scopes": [
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+        ],
+    },
 };
 save action /packages/solx-reddit/reddit-user --json {
     "actionType": "wasm",
@@ -312,7 +351,14 @@ save action /packages/solx-reddit/reddit-user --json {
     "phrases": ["look up a reddit user", "show a reddit user's posts", "my saved reddit posts"],
     "paramTypeRef": "/packages/solx-reddit/RedditUserParams",
     "resultTypeRef": "/packages/solx-reddit/RedditListingResult",
-    "actionConfig": {"timeout_secs": 120},
+    "actionConfig": {
+        "timeout_secs": 120,
+        "scopes": [
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+        ],
+    },
 };
 save action /packages/solx-reddit/reddit-subreddit-info --json {
     "actionType": "wasm",
@@ -326,5 +372,12 @@ save action /packages/solx-reddit/reddit-subreddit-info --json {
     "phrases": ["about a subreddit", "subreddit sidebar", "how big is this subreddit"],
     "paramTypeRef": "/packages/solx-reddit/RedditSubredditInfoParams",
     "resultTypeRef": "/packages/solx-reddit/RedditSubredditInfo",
-    "actionConfig": {"timeout_secs": 120},
+    "actionConfig": {
+        "timeout_secs": 120,
+        "scopes": [
+            "exec:/packages/solx-firefox/firefox-start",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+            "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+        ],
+    },
 }

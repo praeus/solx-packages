@@ -22,30 +22,65 @@ needed — this package's heavy lifting is done by the `rmcp` crate):
   `mcp-servers.json`, list its tools, and create one solx `Command`
   action per tool (e.g. `mcp-filesystem-read-file`).
 - `remove` — delete a server's previously imported
-  actions and types.
+  actions and types, and stop the background that was serving them.
 
-Plus one shared internal command key that every dynamically-imported
-tool action reuses:
+Plus the command key every dynamically-imported tool action reuses:
 
-- `solx-mcp-actions-invoke` (runs `solx-mcp-actions invoke`) — the command
+- `solx-mcp-actions-serve` (runs `solx-mcp-actions serve`) — the command
   key every generated per-tool action points at. You never call this
   directly; it's what makes the generated actions work.
 
 ### How per-tool actions work
 
-Every generated action shares a single command key
-(`solx-mcp-actions-invoke`, which runs `solx-mcp-actions invoke` in `bin/`)
-and carries its identity in `action_config.env`. Each imported tool gets
-its own directory containing a `tool.json` descriptor
-(`{"server": ..., "tool": ...}`), and the generated action sets
-`SOLX_MCP_TOOL_DIR` to that directory. When solx-core invokes the action,
-`solx-mcp-actions invoke` reads `tool.json` from there to find out which
-MCP server/tool to call, and reads the caller's actual arguments from
-**stdin**.
+Every generated action is a solx **background** action: it names a
+background in its `action_config.background`, and solx-core runs it in a
+long-lived process that serves many calls over stdin and stdout instead of
+one process per call.
 
-Actions imported before this change used an absolute exe path as their
-`fnName`, which is no longer in the allowlist, so re-run `import` for each
-server after upgrading.
+There is **one background per MCP server**, so every tool imported from a
+server shares it — and therefore one MCP connection to that server, for as
+long as the host runs:
+
+```
+namespace = solx-mcp-actions
+name      = <the server's key in mcp-servers.json>
+```
+
+The background's name is the server key, and its operation says which tool
+to call: a generated action for `new_page` carries the operation
+`tool:new_page`, so the background knows what to pass to `tools/call`. The
+prefix keeps a tool named `start` or `stop` from being mistaken for one of
+solx-core's own reserved operations.
+
+solx-core starts the background on the first tool call and stops it when
+the server's tools are removed or the host exits. If the MCP server dies
+underneath it, the background starts a new one and retries the call once.
+
+Each server also gets two control actions, next to its tools:
+
+| Action | What it does |
+|---|---|
+| `background-start` | Start the background, so it is ready before the first tool call |
+| `background-stop` | Stop it; the next tool call starts it again |
+
+Run `/builtin/background/list` to see what is running.
+
+### Migrating from the one-shot model
+
+Actions imported before the background existed point at
+`solx-mcp-actions-invoke` and start an MCP server per call. Re-running
+`import` for a server rewrites them in place.
+
+One wrinkle: a package install locks every action under the package's own
+path, and the imported tools live under it — so after a reinstall they are
+locked, and `import` (running with its own token, as content) cannot
+change them. Unlock them first, as an operator:
+
+```bash
+solx action unlock /packages/solx-mcp-actions/<server>/<tool-action>
+```
+
+`import` says so in its error when it hits one.
 
 ### Why a Command action instead of a new `action_type`
 
@@ -83,10 +118,10 @@ Staged binary path:
 solx install-package ./solx-packages/solx-mcp-actions
 ```
 
-This registers `import`, `remove`, and
-their parameter/result types. It does **not** run any MCP server or
-create any per-tool actions — those only happen when you actually run
-`import` (see below).
+This registers `import`, `remove`, and their parameter/result types, and
+grants the `solx-mcp-actions-serve` command key the imported tools run
+under. It does **not** run any MCP server or create any per-tool actions —
+those only happen when you actually run `import` (see below).
 
 ## Configuring MCP servers
 
@@ -179,13 +214,15 @@ bin/solx-mcp-actions.exe import git --dry-run
 ```
 
 Successful import prints
-`{"server", "tools_imported": [...], "tools_pruned": [...], "errors": [...]}`
-and writes a manifest to `<package>/tools/<server>/manifest.json` — this
-manifest (not a name-prefix scan) is what `remove` uses
-to know exactly which entities it created. Re-running import is safe
-(idempotent up) if you want to refresh a server's tool list after it
-changes; `tools_pruned` lists any previously-imported tool removed
-because it no longer passes the current filter.
+`{"server", "tools_imported": [...], "tools_pruned": [...], "errors": [...],
+"background": {...}}` and writes a manifest to
+`<package>/tools/<server>/manifest.json` — this manifest (not a
+name-prefix scan) is what `remove` uses to know exactly which entities it
+created. Re-running import is safe (idempotent up) if you want to refresh a
+server's tool list after it changes; `tools_pruned` lists any
+previously-imported tool removed because it no longer passes the current
+filter. The `background` object names the background the server's tools now
+share.
 
 Optionally pass `"permission_name"` to stamp a solx `Permission` onto
 every generated action, scoping which callers may invoke the imported
@@ -200,11 +237,21 @@ Generated actions are named `mcp-<server>-<tool>` (e.g.
 echo '{"repo_path":"C:/path/to/repo"}' | solx exec mcp-git-git-log
 ```
 
+The first call for a server starts its background (and the MCP server
+behind it); later calls reuse it. To have it ready before the first call:
+
+```bash
+solx exec /packages/solx-mcp-actions/<server>/background-start
+```
+
 ## Removing a server
 
 ```bash
 echo '{"server":"git"}' | solx exec /packages/solx-mcp-actions/remove
 ```
+
+This stops the server's background — closing its connection to the MCP
+server — and deletes the server's imported actions and types.
 
 Run this for **every** configured server before uninstalling the package
 — otherwise the generated actions are left pointing at a command that
@@ -218,10 +265,14 @@ solx uninstall-package solx-mcp-actions
 
 ## Known limitations (phase 1)
 
-- Every invocation — `import` or `invoke` — spawns a fresh MCP server
-  process and tears it down afterward. There's no persistent connection
-  pooling, so concurrent calls to the same tool each pay full server
-  cold-start cost independently.
+- A tool call and a one-shot `invoke` of the same server cannot run at
+  the same time: they would fight over the MCP server's single session.
+  New imports all use the background, so this only shows up with an
+  action imported before the background existed.
+- The MCP server is started when the background starts, so a change to
+  `mcp-servers.json` (a different command, a new argument) only takes
+  effect after the background is restarted — stop it and call a tool
+  again.
 - Only `tools/list` + `tools/call` are supported (no MCP resources or
   prompts).
 - `mcp-servers.json` stores server env vars in plaintext.

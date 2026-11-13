@@ -1,16 +1,30 @@
 //! Thin wrapper around `rmcp`'s stdio client: connect to a configured MCP
 //! server (spawned as a child process), list its tools, and call a tool.
+//!
+//! One-shot use (`invoke`) opens a session, calls one tool and closes it.
+//! The background command (`serve`) keeps one session for its whole life and
+//! has to be able to throw it away and open a new one when the MCP server
+//! dies — see [`crate::serve`]. The session is therefore held behind an
+//! [`Arc`], so a call can be made through a shared reference while another
+//! task replaces it.
 
 use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
-use rmcp::service::{RunningService, ServiceExt};
+use rmcp::service::{RunningService, ServiceError, ServiceExt};
 use rmcp::transport::TokioChildProcess;
 use rmcp::RoleClient;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::Value;
 use tokio::process::Command;
 
 use crate::config::ServerDef;
+
+/// Windows' `CREATE_NO_WINDOW`: run a console program without giving it a
+/// console window. Ignored if `CREATE_NEW_CONSOLE` or `DETACHED_PROCESS` is
+/// also set, neither of which is.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Quote an argument for the target shell only if it needs it — simple
 /// tokens (flags, package names, plain paths) pass through unmodified so
@@ -53,7 +67,7 @@ fn needs_shell(path: &Path) -> bool {
 }
 
 pub struct McpSession {
-    service: RunningService<RoleClient, ()>,
+    service: Arc<RunningService<RoleClient, ()>>,
 }
 
 impl McpSession {
@@ -94,6 +108,15 @@ impl McpSession {
             cmd.current_dir(cwd);
         }
 
+        // On Windows, a console program spawned without a flag opens a
+        // console window of its own. The MCP server is a console app and is
+        // spawned once per tool call, so without this it reads as a cmd
+        // window flashing on and off with every call. CREATE_NO_WINDOW runs
+        // it without one; the stdio pipes the protocol rides on are
+        // unaffected, and the child keeps its own stdio handles.
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
         let transport = TokioChildProcess::new(cmd)
             .map_err(|e| anyhow::anyhow!("failed to spawn MCP server '{}': {e}", def.command))?;
         // `()` is a no-op `ClientHandler` — we only need `tools/list` and
@@ -102,7 +125,9 @@ impl McpSession {
             .serve(transport)
             .await
             .map_err(|e| anyhow::anyhow!("MCP initialize handshake failed: {e}"))?;
-        Ok(Self { service })
+        Ok(Self {
+            service: Arc::new(service),
+        })
     }
 
     pub async fn list_tools(&self) -> anyhow::Result<Vec<Tool>> {
@@ -112,7 +137,14 @@ impl McpSession {
             .map_err(|e| anyhow::anyhow!("tools/list failed: {e}"))
     }
 
-    pub async fn call_tool(&self, tool: &str, arguments: Value) -> anyhow::Result<CallToolResult> {
+    /// Call a tool. The raw [`ServiceError`] is returned so the caller can
+    /// tell a dead MCP server (which needs a new session) from a tool that
+    /// merely failed — see [`Self::is_transport_failure`].
+    pub async fn call_tool_raw(
+        &self,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<CallToolResult, ServiceError> {
         let arguments = match arguments {
             Value::Object(map) => Some(map),
             Value::Null => None,
@@ -126,18 +158,46 @@ impl McpSession {
         if let Some(arguments) = arguments {
             params = params.with_arguments(arguments);
         }
-        self.service
-            .call_tool(params)
+        self.service.call_tool(params).await
+    }
+
+    /// Call a tool, with the error turned into a message.
+    pub async fn call_tool(&self, tool: &str, arguments: Value) -> anyhow::Result<CallToolResult> {
+        self.call_tool_raw(tool, arguments)
             .await
             .map_err(|e| anyhow::anyhow!("tools/call '{tool}' failed: {e}"))
     }
 
+    /// Whether the failure means the MCP server is *gone* — the transport
+    /// closed or a send failed — rather than the tool itself failing. Only
+    /// these are worth replacing the session for.
+    pub fn is_transport_failure(err: &ServiceError) -> bool {
+        matches!(
+            err,
+            ServiceError::TransportClosed | ServiceError::TransportSend(_)
+        )
+    }
+
+    /// Shut the session down, which cancels the service and kills the MCP
+    /// server process (rmcp kills the child when the transport is dropped).
+    ///
+    /// Best effort: `cancel` consumes the service, and when something else
+    /// still holds a reference to it the session is dropped instead — rmcp's
+    /// own drop guard cancels it then, just not awaited.
     pub async fn close(self) -> anyhow::Result<()> {
-        self.service
-            .cancel()
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to shut down MCP session: {e}"))?;
-        Ok(())
+        match Arc::try_unwrap(self.service) {
+            Ok(service) => {
+                service
+                    .cancel()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("failed to shut down MCP session: {e}"))?;
+                Ok(())
+            }
+            Err(service) => {
+                drop(service);
+                Ok(())
+            }
+        }
     }
 }
 

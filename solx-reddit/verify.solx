@@ -1,6 +1,6 @@
 exec /packages/solx-reddit/reddit-extract-post --json {
     "subreddit": "announcements",
-    "id": "5vtcyt",
+    "id": "3cucye",
     "maxComments": 10,
 };
 exec /packages/solx-reddit/reddit-search --json {
@@ -17,7 +17,7 @@ exec /packages/solx-reddit/reddit-list-posts --json {
 };
 exec /packages/solx-reddit/reddit-get-post --json {
     "subreddit": "announcements",
-    "id": "5vtcyt",
+    "id": "3cucye",
     "maxComments": 10,
 };
 exec /packages/solx-reddit/reddit-subreddit-info --json {

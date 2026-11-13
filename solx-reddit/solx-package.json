@@ -9,5 +9,16 @@
     "https://a.thumbs.redditmedia.com/",
     "https://b.thumbs.redditmedia.com/",
     "https://styles.redditmedia.com/"
+  ],
+  "scopes": [
+    "exec:/builtin/action/cancelled",
+    "exec:/builtin/document/entity-save-document",
+    "exec:/builtin/file/file-put",
+    "exec:/builtin/web/http-request",
+    "exec:/packages/solx-firefox/firefox-start",
+    "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-evaluate-script",
+    "exec:/packages/solx-mcp-actions/firefox/mcp-firefox-navigate-page",
+    "write:document:/blogs/reddit/*",
+    "write:file:/files/docs/shared"
   ]
 }

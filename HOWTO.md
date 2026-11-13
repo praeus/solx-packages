@@ -545,6 +545,14 @@ async fn main() -> std::io::Result<()> {
   client attaches to it.
 - **Both ways.** `background::is_background()` tells the binary which way
   it was started, if it also works as an ordinary one-shot command.
+- **One background per instance, with the operation naming the item.** A
+  package that serves several instances of the same thing — one per
+  configured server, per tenant — can run one background per instance:
+  name the instance in `backgroundName`, and the item to act on in the
+  operation. The process learns which instance it is from `SOLX_BACKGROUND`
+  (`<namespace>/<name>`), which solx-core sets when it spawns it.
+  `solx-mcp-actions` works this way: one background per MCP server, the
+  operation naming the MCP tool (`tool:new_page`).
 
 ### Build and install
 

@@ -114,13 +114,25 @@ function loginWallError() {
 // Shared prelude: a retrying same-origin fetch that carries the session and
 // recognizes Reddit's logged-out login-wall redirect as a distinct outcome
 // from a genuine HTTP failure.
+//
+// `cache: 'no-store'` is load-bearing, not a nicety. Reddit answers a
+// *cacheable* request for old.reddit.com with its "Welcome back! You are
+// already logged in and will be redirected back to Reddit shortly." bounce,
+// served at /login/?reason=lor2&dest=... - the same URL a logged-out visitor
+// gets, so the two are indistinguishable by URL alone. A top-level navigation
+// passes it (the page's own meta refresh resolves it); a plain fetch does
+// not. Asking for a fresh, uncached response skips the bounce and returns
+// the real page. Verified against r/dndnext: the same fetch returns the
+// interstitial with the default cache mode and 25 `.thing` rows with
+// 'no-store'.
 const FETCH_HELPER = [
   "const fetchHtml = async (url, tries) => {",
   "  let last;",
   "  for (let i = 0; i < (tries || 2); i++) {",
   "    let r;",
-  "    try { r = await fetch(url, { credentials: 'include', redirect: 'follow' }); }",
+  "    try { r = await fetch(url, { credentials: 'include', redirect: 'follow', cache: 'no-store' }); }",
   "    catch (e) { last = String(e); await new Promise(s => setTimeout(s, 400)); continue; }",
+  "    if ((r.url || '').indexOf('/login') !== -1 && (await r.clone().text()).indexOf('already logged in') !== -1) { last = 'reddit login bounce'; await new Promise(s => setTimeout(s, 400)); continue; }",
   "    if ((r.url || '').indexOf('/login') !== -1) return { loginWall: true };",
   // A missing subreddit redirects to subreddit search; an over-18 community
   // redirects to an interstitial that needs a one-time click-through.

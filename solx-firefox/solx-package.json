@@ -8,5 +8,8 @@
   },
   "extra_binaries": {
     "mcp-server": { "cwd": "mcp", "build": "bun install --frozen-lockfile && bun run build", "needs": "bun" }
-  }
+  },
+  "scopes": [
+    "exec:/packages/solx-mcp-actions/*"
+  ]
 }
